@@ -107,8 +107,10 @@ namespace DSG.RegionSync
                 return;
             }
 
-            IsSyncRelay = m_sysConfig.GetBoolean("IsSyncRelay", false);
-            m_isSyncListenerLocal = m_sysConfig.GetBoolean("IsSyncListenerLocal", false);
+            // For now, the sync relay and sync listener are both the same (the hub)
+            IsSyncRelay = m_isSyncListenerLocal = m_sysConfig.GetBoolean("IsHub", false);
+            //IsSyncRelay = m_sysConfig.GetBoolean("IsSyncRelay", false);
+            //m_isSyncListenerLocal = m_sysConfig.GetBoolean("IsSyncListenerLocal", false);
 
             Active = true;
 
