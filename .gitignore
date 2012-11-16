@@ -1,0 +1,16 @@
+.project
+.settings
+*.csproj
+*.csproj.user
+*.build
+*.mdb
+*.mdp
+*.mds
+*.pdb
+*.pidb
+*.dll.build
+*.dll
+*.VisualState.xml
+TAGS
+*~
+*/obj/
