@@ -489,7 +489,9 @@ namespace DSG.RegionSync
 
         private void OnRemovePresence(UUID uuid)
         {
-            // m_log.WarnFormat("{0} SyncRemoveClient called for client uuid {1}", LogHeader, uuid);
+            // m_log.WarnFormat("{0} OnRemovePresence called for {1}", LogHeader, uuid);
+            // First, remove from SyncInfoManager's record.
+            m_SyncInfoManager.RemoveSyncInfo(uuid);
 
             OSDMap data = new OSDMap();
             data["uuid"] = OSD.FromUUID(uuid);
