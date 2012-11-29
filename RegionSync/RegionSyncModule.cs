@@ -1884,6 +1884,9 @@ namespace DSG.RegionSync
             bool softDelete = data["softDelete"].AsBoolean();
             DetailedUpdateWrite("RecRemObjj", uuid, 0, m_zeroUUID, senderActorID, msg.Length);
 
+            if (!m_SyncInfoManager.SyncInfoExists(uuid))
+                return;
+
             // If this is a relay node, forward the message
             if (IsSyncRelay)
                 SendSpecialUpdateToRelevantSyncConnectors(senderActorID, "SndRemObjR", uuid, msg);
@@ -2163,6 +2166,9 @@ namespace DSG.RegionSync
             UUID uuid = data["uuid"].AsUUID();
 
             DetailedUpdateWrite("RecRemPres", uuid.ToString(), 0, m_zeroUUID, senderActorID, msg.Length);
+
+            if (!m_SyncInfoManager.SyncInfoExists(uuid))
+                return;
 
             // if this is a relay node, forward the message
             if (IsSyncRelay)
