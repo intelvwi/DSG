@@ -2669,15 +2669,21 @@ namespace DSG.RegionSync
         private void HandleRemoteEvent_OnChatFromClient(string actorID, ulong evSeqNum, OSDMap data)
         {
             OSChatMessage args = PrepareOnChatArgs(data);
+            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromClient {0}:{1}", args.From, args.Message);
+            if (args.Sender is RegionSyncAvatar)
+                ((RegionSyncAvatar)args.Sender).SyncChatFromClient(args);
+            /*
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromClient, args);   
             Scene.EventManager.TriggerOnChatFromClient(args.SenderObject, args); //Let WorldCommModule and other modules to catch the event
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, args);   
             Scene.EventManager.TriggerOnChatFromWorld(args.SenderObject, args); //This is to let ChatModule to get the event and deliver it to avatars
+             * */
         }
 
         private void HandleRemoteEvent_OnChatFromWorld(string actorID, ulong evSeqNum, OSDMap data)
         {
             OSChatMessage args = PrepareOnChatArgs(data);
+            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromWorld {0}:{1}", args.From, args.Message);
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, args);   
             Scene.EventManager.TriggerOnChatFromWorld(args.SenderObject, args); //This is to let ChatModule to get the event and deliver it to avatars
         }
@@ -2685,6 +2691,7 @@ namespace DSG.RegionSync
         private void HandleRemoteEvent_OnChatBroadcast(string actorID, ulong evSeqNum, OSDMap data)
         {
             OSChatMessage args = PrepareOnChatArgs(data);
+            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatBroadcast {0}:{1}", args.From, args.Message);
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatBroadcast, args);   
             Scene.EventManager.TriggerOnChatBroadcast(args.SenderObject, args);
         }
@@ -2702,9 +2709,11 @@ namespace DSG.RegionSync
 
             // Need to look up the sending object within this scene!
             args.SenderObject = Scene.GetScenePresence(args.SenderUUID);
-            if (args.SenderObject == null)
+            if(args.SenderObject != null)
+                args.Sender = ((ScenePresence)args.SenderObject).ControllingClient;
+            else
                 args.SenderObject = Scene.GetSceneObjectPart(args.SenderUUID);
-
+            //m_log.WarnFormat("RegionSyncModule.PrepareOnChatArgs: name:\"{0}\" msg:\"{1}\" pos:{2} id:{3}", args.From, args.Message, args.Position, args.SenderUUID);
             return args;
         }
 
@@ -3292,18 +3301,23 @@ namespace DSG.RegionSync
 
         private void OnLocalChatBroadcast(Object sender, OSChatMessage chat)
         {
+            
             if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatBroadcast, sender, chat))
                 return;
 
+            //m_log.WarnFormat("RegionSyncModule.OnLocalChatBroadcast {0}:{1}", chat.From, chat.Message);
             OSDMap data = PrepareChatArgs(chat);
             SendSceneEvent(SymmetricSyncMessage.MsgType.ChatBroadcast, data);
         }
 
         private void OnLocalChatFromClient(Object sender, OSChatMessage chat)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromClient, sender, chat))
+            if (chat.Sender is RegionSyncAvatar)
                 return;
+            //if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromClient, sender, chat))
+            //    return;
 
+            //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromClient {0}:{1}", chat.From, chat.Message);
             OSDMap data = PrepareChatArgs(chat);
             SendSceneEvent(SymmetricSyncMessage.MsgType.ChatFromClient, data);
         }
@@ -3313,6 +3327,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, sender, chat))
                 return;
 
+            //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromWorld {0}:{1}", chat.From, chat.Message);
             OSDMap data = PrepareChatArgs(chat);
             SendSceneEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, data);
         }

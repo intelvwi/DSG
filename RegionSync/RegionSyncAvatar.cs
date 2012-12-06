@@ -355,21 +355,10 @@ namespace DSG.RegionSync
             //m_scene.EventManager.OnFrame += Update;
         }
 
-        /*
-        public RegionSyncAvatar(Scene scene, UUID agentID, string first, string last, Vector3 startPos, RegionSyncClientView view)
+        public void SyncChatFromClient(OSChatMessage args)
         {
-            m_scene = scene;
-            m_agentID = agentID;
-            m_firstName = first;
-            m_lastName = last;
-            m_startPos = startPos;
-            //m_clientView = view;
-
-            m_log.DebugFormat("[REGION SYNC AVATAR] instance: uuid={0}, first={1}, last={2}, startPos={3}, RSCV", agentID, first, last, startPos.ToString());
-
-            //m_scene.EventManager.OnFrame += Update;
+            OnChatFromClient(this, args);
         }
-        */
 
         public void Close(bool force)
         {
