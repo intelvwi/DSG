@@ -1044,8 +1044,11 @@ namespace DSG.RegionSync
         //correlated. We need to make sure that they are both properly synced.
         private bool CompareAndUpdateSOPGroupPositionByLocal(SceneObjectPart part, long lastUpdateByLocalTS, string syncID)
         {
+            if (part.ParentGroup.IsAttachment)
+                return false;
+
             // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareAndUpdateSOPGroupPositionByLocal");
-            if (!part.GroupPosition.Equals(CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateValue))
+            if (!part.GroupPosition.ApproxEquals((Vector3)CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateValue, (float)0.001))
             {
                 if (lastUpdateByLocalTS >= CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateTimeStamp)
                 {

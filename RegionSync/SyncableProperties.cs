@@ -235,6 +235,7 @@ namespace DSG.RegionSync
             HashSet<SyncableProperties.Type> groupProperties = new HashSet<SyncableProperties.Type>();
             groupProperties.Add(SyncableProperties.Type.IsSelected);
             groupProperties.Add(SyncableProperties.Type.AbsolutePosition);
+            groupProperties.Add(SyncableProperties.Type.GroupPosition);
             return groupProperties;
         }
 
