@@ -440,6 +440,8 @@ namespace DSG.RegionSync
                     return part.LastOwnerID;
                 case SyncableProperties.Type.LinkNum:
                     return part.LinkNum;
+                case SyncableProperties.Type.LocalId:
+                    return part.LocalId;
                 case SyncableProperties.Type.LocalFlags:
                     return (int)part.LocalFlags;
                 case SyncableProperties.Type.Material:
@@ -774,6 +776,9 @@ namespace DSG.RegionSync
                     break;
                 case SyncableProperties.Type.LocalFlags:
                     part.LocalFlags = (PrimFlags)(int)LastUpdateValue;
+                    break;
+                case SyncableProperties.Type.LocalId:
+                    part.LocalId = (uint)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.Material:
                     part.Material = (byte)LastUpdateValue;
@@ -1216,6 +1221,7 @@ namespace DSG.RegionSync
                                 ////////////////////////////
                                 //SOP properties, uint types
                                 ////////////////////////////
+                                case SyncableProperties.Type.LocalId:
                                 case SyncableProperties.Type.AttachmentPoint:
                                 case SyncableProperties.Type.BaseMask:
                                 case SyncableProperties.Type.Category:

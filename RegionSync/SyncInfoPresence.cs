@@ -339,10 +339,14 @@ namespace DSG.RegionSync
 
             switch (property)
             {
+                case SyncableProperties.Type.LocalId:
+                    return sp.LocalId;
                 case SyncableProperties.Type.AbsolutePosition:
                     return sp.AbsolutePosition;
                 case SyncableProperties.Type.AgentCircuitData:
                     return Scene.AuthenticateHandler.GetAgentCircuitData(sp.ControllingClient.CircuitCode);
+                case SyncableProperties.Type.ParentId:
+                    return sp.ParentID;
                 case SyncableProperties.Type.AgentControlFlags:
                     return sp.AgentControlFlags;
                 case SyncableProperties.Type.AllowMovement:
@@ -397,11 +401,31 @@ namespace DSG.RegionSync
             Object pValue = pSyncInfo.LastUpdateValue;
             switch (property)
             {
+                case SyncableProperties.Type.LocalId:
+                    sp.LocalId = (uint)pValue;
+                    break;
                 case SyncableProperties.Type.AbsolutePosition:
                     sp.AbsolutePosition = (Vector3)pValue;
                     break;
                 case SyncableProperties.Type.AgentCircuitData:
                     DebugLog.WarnFormat("{0}: Received updated AgentCircuitData. Not implemented", LogHeader);
+                    break;
+                case SyncableProperties.Type.ParentId:
+                    DebugLog.WarnFormat("{0}: Received ParentId={1}.", LogHeader, (uint)pValue);
+                    uint localID = (uint)pValue;
+                    if (localID == 0)
+                    {
+                        sp.StandUp();
+                    }
+                    else
+                    {
+                        SceneObjectPart parentPart = Scene.GetSceneObjectPart(localID);
+                        if (parentPart != null) // TODO ??
+                        {
+                            sp.HandleAgentRequestSit(sp.ControllingClient, sp.ControllingClient.AgentId, parentPart.UUID, Vector3.Zero);
+                        }
+                    }
+                    //sp.ParentID = (uint)pValue;
                     break;
                 case SyncableProperties.Type.AgentControlFlags:
                     sp.AgentControlFlags = (uint)pValue;

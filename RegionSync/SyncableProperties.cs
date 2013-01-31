@@ -54,6 +54,8 @@ namespace DSG.RegionSync
     {
         public enum Type
         {
+            LocalId,
+            
             //Following properties copied from SceneObjectSerializer(),
             AllowedDrop,
             CreatorID,
@@ -147,6 +149,7 @@ namespace DSG.RegionSync
             AvatarAppearance,
             AgentCircuitData,
             AgentControlFlags,
+            ParentId,
             AllowMovement,
             PresenceType,
             Rotation
@@ -175,6 +178,7 @@ namespace DSG.RegionSync
                     case Type.AgentCircuitData:
                     case Type.AgentControlFlags:
                     case Type.AllowMovement:
+                    case Type.ParentId:
                     case Type.PresenceType:
                     case Type.Rotation:
                     case Type.PA_Velocity:
@@ -263,6 +267,7 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.AbsolutePosition); 
             allProperties.Add(SyncableProperties.Type.AgentCircuitData);
             allProperties.Add(SyncableProperties.Type.AgentControlFlags);
+            allProperties.Add(SyncableProperties.Type.ParentId);
             allProperties.Add(SyncableProperties.Type.AllowMovement);
             allProperties.Add(SyncableProperties.Type.AvatarAppearance);
             allProperties.Add(SyncableProperties.Type.Rotation);

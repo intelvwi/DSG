@@ -339,6 +339,7 @@ namespace DSG.RegionSync
                     ////////////////////////////
                     // UInt type properties
                     ////////////////////////////
+                    case SyncableProperties.Type.LocalId:
                     case SyncableProperties.Type.AttachmentPoint:
                     case SyncableProperties.Type.BaseMask:
                     case SyncableProperties.Type.Category:
@@ -349,6 +350,10 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.OwnerMask:
                     case SyncableProperties.Type.AgentControlFlags:
                         value = OSD.FromUInteger((uint)LastUpdateValue);
+                        break;
+                    case SyncableProperties.Type.ParentId:
+                        value = OSD.FromUInteger((uint)LastUpdateValue);
+                        DebugLog.WarnFormat("ToOSDMap: ParentId = {0}", (uint)LastUpdateValue);
                         break;
 
                     ////////////////////////////
@@ -522,6 +527,7 @@ namespace DSG.RegionSync
                 ////////////////////////////
                 // UInt type properties
                 ////////////////////////////
+                case SyncableProperties.Type.LocalId:
                 case SyncableProperties.Type.AttachmentPoint:
                 case SyncableProperties.Type.BaseMask:
                 case SyncableProperties.Type.Category:
@@ -531,6 +537,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.NextOwnerMask:
                 case SyncableProperties.Type.OwnerMask:
                 case SyncableProperties.Type.AgentControlFlags:
+                case SyncableProperties.Type.ParentId:
                     LastUpdateValue = value.AsUInteger();
                     break;
 
