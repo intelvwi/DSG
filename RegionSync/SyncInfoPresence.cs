@@ -331,6 +331,11 @@ namespace DSG.RegionSync
             sp.Updated = true;
         }
 
+        public override Object GetPropertyValue(SyncableProperties.Type property)
+        {
+            return GetPropertyValue((ScenePresence)SceneThing, property);
+        }
+
         // Gets the value out of the SP in local scene and returns it as an object
         private Object GetPropertyValue(ScenePresence sp, SyncableProperties.Type property)
         {
@@ -371,7 +376,7 @@ namespace DSG.RegionSync
                     return sp.IsColliding;
             }
 
-            DebugLog.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), sp.UUID);
+            //DebugLog.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), sp.UUID);
             return null;
         }
 

@@ -374,6 +374,11 @@ namespace DSG.RegionSync
             */
         }
 
+        public override Object GetPropertyValue(SyncableProperties.Type property)
+        {
+            return GetPropertyValue((SceneObjectPart)SceneThing, property);
+        }
+
         private Object GetPropertyValue(SceneObjectPart part, SyncableProperties.Type property)
         {
             switch (property)
@@ -579,7 +584,7 @@ namespace DSG.RegionSync
                     return part.ParentGroup.IsSelected;
             }
 
-            DebugLog.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), part.UUID);
+            //DebugLog.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), part.UUID);
             return null;
         }
 

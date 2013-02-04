@@ -204,5 +204,6 @@ namespace DSG.RegionSync
         // When this is called, the SyncInfo should already have a reference to the scene object it will be updating
         public abstract void SetPropertyValue(SyncableProperties.Type property);
 
+        public abstract Object GetPropertyValue(SyncableProperties.Type property);
     }
 }

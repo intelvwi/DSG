@@ -702,12 +702,19 @@ namespace DSG.RegionSync
             //for sync state comparison, 
             Command cmdSyncStateReport = new Command("state", CommandIntentions.COMMAND_HAZARDOUS, SyncStateReport, "Trigger synchronization state comparision functions");
 
+            // For details property dump of a UUI
+            Command cmdSyncDumpUUID = new Command("uuid", CommandIntentions.COMMAND_HAZARDOUS, SyncDumpUUID, "Dump cached and scene property values for a UUID");
+            cmdSyncDumpUUID.AddArgument("uuid", "The uuid to print values for", "UUID");
+            cmdSyncDumpUUID.AddArgument("full", "Print all values, not just differences", "String");
+
+
             m_commander.RegisterCommand("start", cmdSyncStart);
             m_commander.RegisterCommand("stop", cmdSyncStop);
             m_commander.RegisterCommand("status", cmdSyncStatus);
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
+            m_commander.RegisterCommand("uuid", cmdSyncDumpUUID);
 
             lock (Scene)
             {
@@ -1313,6 +1320,33 @@ namespace DSG.RegionSync
 
             }
         }
+
+        private void SyncDumpUUID(Object[] args)
+        {
+            UUID uuid = (UUID)(args[0]);
+            bool full = ((string)args[1]).Equals("full");
+
+            SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(uuid);
+            if(sib == null)
+            {
+                m_log.Error("Usage: ssync uuid <uuid> (uuid not found in cache)");
+                return;
+            }
+
+            Dictionary<SyncableProperties.Type, SyncedProperty> properties = sib.CurrentlySyncedProperties;
+            foreach (SyncableProperties.Type property in Enum.GetValues(typeof(SyncableProperties.Type)))
+            {
+                SyncedProperty sprop;
+                properties.TryGetValue(property, out sprop);
+                string cachedVal = sprop == null ? "null" : sprop.LastUpdateValue.ToString();
+                object sceneprop = sib.GetPropertyValue(property);
+                string sceneVal = sceneprop == null ? "null" : sceneprop.ToString();
+                if(cachedVal.ToString() != sceneVal.ToString() || full)
+                    m_log.WarnFormat("PROPERTY: {0} {1,30} {2,30}", property, cachedVal, sceneVal);
+            }
+            
+        }
+
 
         private void SyncStateReport(Object[] args)
         {
