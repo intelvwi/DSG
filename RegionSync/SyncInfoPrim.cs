@@ -915,8 +915,8 @@ namespace DSG.RegionSync
                         part.PhysActor.CollidingGround = (bool)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.IsPhysical:
-                    if (part.PhysActor != null)
-                        part.PhysActor.IsPhysical = (bool)LastUpdateValue;
+                    //if (part.PhysActor != null)
+                    //    part.PhysActor.IsPhysical = (bool)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.Kinematic:
                     if (part.PhysActor != null)
