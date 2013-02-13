@@ -812,6 +812,9 @@ namespace DSG.RegionSync
         {
         }
 
+        public void SendPartPhysicsProprieties(ISceneEntity Entity)
+        {
+        }
 
         public void SendObjectPropertiesFamilyData(uint RequestFlags, UUID ObjectUUID, UUID OwnerID, UUID GroupID,
                                                     uint BaseMask, uint OwnerMask, uint GroupMask, uint EveryoneMask,
