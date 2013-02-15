@@ -50,6 +50,7 @@ using Nini.Config;
 using OpenMetaverse;
 using OpenSim.Framework;
 using OpenSim.Framework.Client;
+using OpenSim.Framework.Monitoring;
 using OpenSim.Region.CoreModules.Framework.InterfaceCommander;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
@@ -449,18 +450,6 @@ namespace DSG.RegionSync
             SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.Terrain, data);
             SendTerrainUpdateToRelevantSyncConnectors(syncMsg, TerrainSyncInfo.LastUpdateActorID);
         }
-
-        /*
-        private bool ShouldSendSyncObject(SceneObjectGroup sog)
-        {
-            //First, add SyncInfoManager's record.
-            foreach (SceneObjectPart part in sog.Parts)
-            {
-                m_SyncInfoManager.UpdateSyncInfoByLocal
-                m_SyncInfoManager.InsertSyncInfo(part, DateTime.Now.Ticks, SyncID);
-            }
-        }
-        */
 
         private void OnNewPresence(ScenePresence sp)
         {
@@ -3954,12 +3943,9 @@ namespace DSG.RegionSync
         private object m_stats = new object();
         private int m_statMsgsIn = 0;
         private int m_statMsgsOut = 0;
-        private int m_statSOGBucketIn = 0;
-        private int m_statSOGBucketOut = 0;
-        private int m_statPhysBucketIn = 0;
-        private int m_statPhysBucketOut = 0;
         private int m_statEventIn = 0;
         private int m_statEventOut = 0;
+
         public string StatisticIdentifier()
         {
             // RegionSyncModule(actor/region)
@@ -3971,17 +3957,13 @@ namespace DSG.RegionSync
             string statLine = "";
             lock (m_stats)
             {
-                statLine = String.Format("{0},{1},{2},{3},{4},{5},{6},{7}",
+                statLine = String.Format("{0},{1},{2},{3}",
                     m_statMsgsIn, m_statMsgsOut,
-                    m_statSOGBucketIn, m_statSOGBucketOut,
-                    m_statPhysBucketIn, m_statPhysBucketOut,
                     m_statEventIn, m_statEventOut
                 );
                 if (clearFlag)
                 {
                     m_statMsgsIn = m_statMsgsOut = 0;
-                    m_statSOGBucketIn = m_statSOGBucketOut = 0;
-                    m_statPhysBucketIn = m_statPhysBucketOut = 0;
                     m_statEventIn = m_statEventOut = 0;
                 }
             }
@@ -3990,7 +3972,7 @@ namespace DSG.RegionSync
 
         public string StatisticTitle()
         {
-            return "MsgsIn,MsgsOut,SOGIn,SOGOut,PhysIn,PhysOut,EventIn,EventOut";
+            return "MsgsIn,MsgsOut,EventIn,EventOut";
         }
         #endregion ISyncStatistics
 

@@ -50,6 +50,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Text;
 using log4net;
+using OpenSim.Framework.Monitoring;
 using OpenMetaverse;
 
 namespace DSG.RegionSync
@@ -76,12 +77,10 @@ namespace DSG.RegionSync
 
         //members for in/out messages queueing
         object stats = new object();
-        private long queuedUpdates=0;
-        private long dequeuedUpdates=0;
-        private long msgsIn=0;
-        private long msgsOut=0;
-        private long bytesIn=0;
-        private long bytesOut=0;
+        private long msgsIn = 0;
+        private long msgsOut = 0;
+        private long bytesIn = 0;
+        private long bytesOut = 0;
         private DateTime lastStatTime;
 
         // A queue for outgoing traffic. 
@@ -93,7 +92,7 @@ namespace DSG.RegionSync
         private SyncConnectorState m_syncState = SyncConnectorState.Idle;
 
         // unique connector number across all regions
-        private static int m_connectorNum = 0;
+        private int m_connectorNum = 0;
         public int ConnectorNum
         {
             get { return m_connectorNum; }
@@ -105,11 +104,14 @@ namespace DSG.RegionSync
         //The region name of the other side of the connection
         public string otherSideRegionName { get; private set; }
 
-        public string otherSideActorType { get; private set; }
-
         // Check if the client is connected
         public bool connected
-        { get { return (m_tcpConnection !=null && m_tcpConnection.Connected); } }
+        { 
+            get 
+            { 
+                return (m_tcpConnection != null && m_tcpConnection.Connected); 
+            } 
+        }
 
         public string description
         {
@@ -117,6 +119,7 @@ namespace DSG.RegionSync
             {
                 if (otherSideRegionName == null)
                     return String.Format("SyncConnector{0}", m_connectorNum);
+
                 return String.Format("SyncConnector{0}({2}/{1:10})",
                             m_connectorNum, otherSideRegionName, otherSideActorID);
             }
@@ -211,10 +214,8 @@ namespace DSG.RegionSync
                 while (true)
                 {
                     // Dequeue is thread safe
-                    SymmetricSyncMessage update = m_outQ.Dequeue();
-                    lock (stats)
-                        dequeuedUpdates++;
-                    Send(update);
+                    SymmetricSyncMessage msg = m_outQ.Dequeue();
+                    Send(msg);
                 }
             }
             catch (Exception e)
@@ -232,8 +233,6 @@ namespace DSG.RegionSync
         public void EnqueueOutgoingUpdate(UUID id, SymmetricSyncMessage update)
         {
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
-            lock (stats)
-                queuedUpdates++;
             // Enqueue is thread safe
             m_outQ.Enqueue(id, update);
         }
@@ -244,16 +243,11 @@ namespace DSG.RegionSync
         {
             // m_log.DebugFormat("{0} Send msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
             byte[] data = msg.ToBytes();
-
             if (m_tcpConnection.Connected)
             {
                 try
                 {
-                    lock (stats)
-                    {
-                        msgsOut++;
-                        bytesOut += data.Length;
-                    }
+                    CollectSendStat(msg.Type.ToString(), msg.Data.Length);
                     m_tcpConnection.GetStream().BeginWrite(data, 0, data.Length, ar =>
                     {
                         if (m_tcpConnection.Connected)
@@ -307,14 +301,14 @@ namespace DSG.RegionSync
                     m_log.WarnFormat("{0} Encountered an exception: {1} {2} {3} (MSGTYPE = {4})", description, e.Message, e.TargetSite, e.ToString(), msg.ToString());
                 }
             }
-            }
+        }
 
         private void HandleMessage(SymmetricSyncMessage msg)
         {
 
             // m_log.DebugFormat("{0} Recv msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
-            msgsIn++;
-            bytesIn += msg.Data.Length;
+            CollectReceiveStat(msg.Type.ToString(), msg.Data.Length);
+
             switch (msg.Type)
             {
                 case SymmetricSyncMessage.MsgType.RegionName:
@@ -327,7 +321,9 @@ namespace DSG.RegionSync
                             m_regionSyncModule.DetailedUpdateWrite("SndRegnNam", m_zeroUUID, 0, m_regionSyncModule.Scene.RegionInfo.RegionName, this.otherSideActorID, outMsg.Length);
                             Send(outMsg);
                         }
-                        m_log.DebugFormat("Syncing to region \"{0}\"", otherSideRegionName); 
+                        m_log.DebugFormat("Syncing to region \"{0}\"", otherSideRegionName);
+                        if (otherSideRegionName != null && otherSideActorID != null)
+                            StartCollectingStats();
                         return;
                     }
                 case SymmetricSyncMessage.MsgType.ActorID:
@@ -341,23 +337,10 @@ namespace DSG.RegionSync
                             Send(outMsg);
                         }
                         m_log.DebugFormat("Syncing to actor \"{0}\"", otherSideActorID);
+                        if (otherSideRegionName != null && otherSideActorID != null)
+                            StartCollectingStats();
                         return;
                     }
-                    /*
-                case SymmetricSyncMessage.MsgType.ActorType:
-                    {
-                        otherSideActorType = Encoding.ASCII.GetString(msg.Data, 0, msg.Length);
-                        m_regionSyncModule.DetailedUpdateWrite("RcvActrTyp", m_zeroUUID, DateTime.Now.Ticks, otherSideActorType, this.otherSideActorID, msg.Length);
-                        if (m_regionSyncModule.IsSyncRelay)
-                        {
-                            SymmetricSyncMessage outMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ActorType, m_regionSyncModule.ActorType.ToString() );
-                            m_regionSyncModule.DetailedUpdateWrite("SndActrTyp", m_zeroUUID, DateTime.Now.Ticks, m_regionSyncModule.LocalScene.RegionSyncActorType, otherSideActorID, outMsg.Length);
-                            Send(outMsg);
-                        }
-                        m_log.DebugFormat("Syncing to actor type \"{0}\"", otherSideActorType);
-                        return;
-                    }
-                     */
                 default:
                     break;
             }
@@ -367,26 +350,182 @@ namespace DSG.RegionSync
             m_regionSyncModule.HandleIncomingMessage(msg, otherSideActorID, this);
         }
 
+        private bool m_collectingStats = false;
+        private SortedDictionary<string, long> m_packetTypesSent = new SortedDictionary<string,long>();
+        private SortedDictionary<string, long> m_packetTypesRcvd = new SortedDictionary<string,long>();
+        private List<Stat> m_registeredStats = new List<Stat>();
+
+        private void StartCollectingStats()
+        {
+            Stat s;
+            s = new Stat(
+                "DSG_Msgs_Rcvd (" + description + ")",
+                "DSG messages rcvd for this connector",
+                "DSG messages rcvd for this connector",
+                " messages",
+                "dsg",
+                m_regionSyncModule.Scene.Name,
+                StatType.Pull,
+                stat => { stat.Value = this.msgsIn; },
+                StatVerbosity.Debug);
+            StatsManager.RegisterStat(s);
+            m_registeredStats.Add(s);
+
+            s = new Stat(
+                "DSG_Msgs_Sent (" + description + ")",
+                "DSG messages sent for this connector",
+                "DSG messages sent for this connector",
+                " messages",
+                "dsg",
+                m_regionSyncModule.Scene.Name,
+                StatType.Pull,
+                stat => { stat.Value = this.msgsOut; },
+                StatVerbosity.Debug);
+            StatsManager.RegisterStat(s);
+            m_registeredStats.Add(s);
+
+            s = new Stat(
+                "DSG_Bytes_Rcvd (" + description + ")",
+                "DSG bytes rcvd for this connector",
+                "DSG bytes rcvd for this connector",
+                " bytes",
+                "dsg",
+                m_regionSyncModule.Scene.Name,
+                StatType.Pull,
+                stat => { stat.Value = this.bytesIn; },
+                StatVerbosity.Debug);
+            StatsManager.RegisterStat(s);
+            m_registeredStats.Add(s);
+
+            s = new Stat(
+                "DSG_Bytes_Sent (" + description + ")",
+                "DSG bytes sent for this connector",
+                "DSG bytes sent for this connector",
+                " bytes",
+                "dsg",
+                m_regionSyncModule.Scene.Name,
+                StatType.Pull,
+                stat => { stat.Value = this.bytesOut; },
+                StatVerbosity.Debug);
+            StatsManager.RegisterStat(s);
+            m_registeredStats.Add(s);
+
+            s = new Stat(
+                "DSG_Queued_Msgs (" + description + ")",
+                "DSG queued updates for this connector",
+                "DSG queued updates for this connector",
+                " messages",
+                "dsg",
+                m_regionSyncModule.Scene.Name,
+                StatType.Pull,
+                stat => { stat.Value = this.m_outQ.Count; },
+                StatVerbosity.Debug);
+            StatsManager.RegisterStat(s);
+            m_registeredStats.Add(s);
+
+            m_collectingStats = true;
+        }
+
+        private void CollectSendStat(string type, int length)
+        {
+            lock (stats)
+            {
+                if (m_collectingStats)
+                {
+                    msgsOut++;
+                    bytesOut += length;
+                    long count;
+                    if (!m_packetTypesSent.TryGetValue(type, out count))
+                    {
+                        m_packetTypesSent[type] = 1;
+                        Stat s = new Stat(
+                            "DSG_Msgs_Sent (" + description + ") (" + type + ")",
+                            "DSG messages of type " + type + " sent for this connector",
+                            "DSG messages of type " + type + " sent for this connector",
+                            " messages",
+                            "dsg",
+                            m_regionSyncModule.Scene.Name,
+                            StatType.Pull,
+                            stat => { stat.Value = this.m_packetTypesSent[type.ToString()]; },
+                            StatVerbosity.Debug);
+                        StatsManager.RegisterStat(s);
+                        m_registeredStats.Add(s);
+                    }
+                    else
+                        m_packetTypesSent[type] = count + 1;
+                }
+            }
+        }
+
+        private void CollectReceiveStat(string type, int length)
+        {
+            lock (stats)
+            {
+                if (m_collectingStats)
+                {
+                    msgsIn++;
+                    bytesIn += length;
+
+                    long count;
+                    if (!m_packetTypesRcvd.TryGetValue(type, out count))
+                    {
+                        m_packetTypesRcvd[type] = 1;
+                        Stat s = new Stat(
+                            "DSG_Msgs_Rcvd (" + description + ") (" + type + ")",
+                            "DSG messages of type " + type + " received for this connector",
+                            "DSG messages of type " + type + " received for this connector",
+                            " messages",
+                            "dsg",
+                            m_regionSyncModule.Scene.Name,
+                            StatType.Pull,
+                            stat => { stat.Value = this.m_packetTypesRcvd[type.ToString()]; },
+                            StatVerbosity.Debug);
+                        StatsManager.RegisterStat(s);
+                        m_registeredStats.Add(s);
+                    }
+                    else
+                        m_packetTypesRcvd[type] = count + 1;
+                }
+            }
+        }
+
+        private void DeregisterConnectorStats()
+        {
+            foreach (Stat s in m_registeredStats)
+            {
+                StatsManager.DeregisterStat(s);
+            }
+        }
+
         public string StatisticIdentifier()
         {
             return this.description;
         }
 
-        public string StatisticLine(bool clearFlag)
+
+        private void GetStats(bool clear, out long msgsIn, out long msgsOut, out long bytesIn, out long bytesOut, out long queueSize, out double mbpsIn, out double mbpsOut)
         {
-            string statLine = "";
+            double secondsSinceLastStats = DateTime.Now.Subtract(lastStatTime).TotalSeconds;
+            lastStatTime = DateTime.Now;
+
             lock (stats)
             {
-                double secondsSinceLastStats = DateTime.Now.Subtract(lastStatTime).TotalSeconds;
-                lastStatTime = DateTime.Now;
-                statLine = String.Format("{0},{1},{2},{3},{4},{5},{6}",
-                        msgsIn, msgsOut, bytesIn, bytesOut, m_outQ.Count,
-                        8 * (bytesIn / secondsSinceLastStats / 1000000),
-                        8 * (bytesOut / secondsSinceLastStats / 1000000) );
-                if (clearFlag)
-                    msgsIn = msgsOut = bytesIn = bytesOut = 0;
+                msgsIn = this.msgsIn;
+                msgsOut = this.msgsOut;
+                bytesIn = this.bytesIn;
+                bytesOut = this.bytesOut;
+                queueSize = this.m_outQ.Count;
+                mbpsIn = 8 * (bytesIn / secondsSinceLastStats / 1000000);
+                mbpsOut = 8 * (bytesOut / secondsSinceLastStats / 1000000);
             }
-            return statLine;
+        }
+
+        public string StatisticLine(bool clearFlag)
+        {
+            long msgsIn, msgsOut, bytesIn, bytesOut, queueSize;
+            double mbpsIn, mbpsOut;
+            GetStats(clearFlag, out msgsIn, out msgsOut, out bytesIn, out bytesOut, out queueSize, out mbpsIn, out mbpsOut);
+            return String.Format("{0},{1},{2},{3},{4},{5},{6}", msgsIn, msgsOut, bytesIn, bytesOut, queueSize, mbpsIn, mbpsOut);
         }
 
         public string StatisticTitle()
