@@ -52,6 +52,7 @@ using OpenSim.Framework;
 using OpenSim.Framework.Client;
 using OpenSim.Framework.Monitoring;
 using OpenSim.Region.CoreModules.Framework.InterfaceCommander;
+using Logging = OpenSim.Region.CoreModules.Framework.Statistics.Logging;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Scenes.Serialization;
@@ -85,6 +86,8 @@ namespace DSG.RegionSync
         #region INonSharedRegionModule
 
         // Statistics gathering
+        SyncStatisticCollector m_statCollector;
+
         private object m_stats = new object();
         private int m_statMsgsIn = 0;
         private int m_statMsgsOut = 0;
@@ -128,11 +131,7 @@ namespace DSG.RegionSync
             //The ActorType configuration will be read in and process by an ActorSyncModule, not here.
 
             // parameters for statistic logging
-            SyncStatisticCollector.LogEnabled = m_sysConfig.GetBoolean("SyncLogEnabled", false);
-            SyncStatisticCollector.LogDirectory = m_sysConfig.GetString("SyncLogDirectory", ".");
-            SyncStatisticCollector.LogInterval = m_sysConfig.GetInt("SyncLogInterval", 5000);
-            SyncStatisticCollector.LogMaxFileTimeMin = m_sysConfig.GetInt("SyncLogMaxFileTimeMin", 5);
-            SyncStatisticCollector.LogFileHeader = m_sysConfig.GetString("SyncLogFileHeader", "sync-");
+            SyncStatisticCollector m_statCollector = new SyncStatisticCollector(m_sysConfig);
 
             // parameters for detailed synchronization message logging
             if (m_sysConfig.GetBoolean("DetailLogEnabled", false))
@@ -145,14 +144,14 @@ namespace DSG.RegionSync
                     hdr += ActorID + "-";
                 }
                 int mins = m_sysConfig.GetInt("DetailLogMaxFileTimeMin", 5);
-                m_detailedLog = new LogWriter(dir, hdr, mins, flush);
+                m_detailedLog = new Logging.LogWriter(dir, hdr, mins, flush);
                 m_detailedLog.ErrorLogger = m_log;  // pass in logger for debugging (can be removed later)
                 m_log.InfoFormat("{0}: DetailLog enabled. Dir={1}, pref={2}, maxTime={3}", LogHeader, dir, hdr, mins);
             }
             else
             {
                 // create an empty, disabled logger so everyone doesn't need to check for null
-                m_detailedLog = new LogWriter();
+                m_detailedLog = new Logging.LogWriter();
                 m_log.InfoFormat("{0}: DetailLog disabled.", LogHeader);
             }
             // Whether to include the names of the changed properties in the log (slow but useful)
@@ -752,7 +751,7 @@ namespace DSG.RegionSync
         // used in DetailedLogging rather than generating the zero UUID string for many log calls
         private string m_zeroUUID = "00000000-0000-0000-0000-000000000000";
 
-        private LogWriter m_detailedLog;
+        private Logging.LogWriter m_detailedLog;
         private Boolean m_detailedPropertyValues = false;
 
         private bool m_isSyncListenerLocal = false;
