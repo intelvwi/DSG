@@ -80,9 +80,16 @@ using System.Diagnostics;
 namespace DSG.RegionSync
 {
     [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "RegionSyncModule")]
-    public class RegionSyncModule : INonSharedRegionModule, ICommandableModule, ISyncStatistics
+    public class RegionSyncModule : INonSharedRegionModule, ICommandableModule
     {
         #region INonSharedRegionModule
+
+        // Statistics gathering
+        private object m_stats = new object();
+        private int m_statMsgsIn = 0;
+        private int m_statMsgsOut = 0;
+        private int m_statEventIn = 0;
+        private int m_statEventOut = 0;
 
         public void Initialise(IConfigSource config)
         {
@@ -148,8 +155,8 @@ namespace DSG.RegionSync
                 m_detailedLog = new LogWriter();
                 m_log.InfoFormat("{0}: DetailLog disabled.", LogHeader);
             }
+            // Whether to include the names of the changed properties in the log (slow but useful)
             m_detailedPropertyValues = m_sysConfig.GetBoolean("DetailPropertyValues", false);
-            m_detailUpdateDebugLog = m_sysConfig.GetBoolean("DetailUpdateDebugLog", false);
 
             //initialize SyncInfoManager
             SyncInfoManager.DebugLog = m_log;
@@ -194,8 +201,6 @@ namespace DSG.RegionSync
         {
             if (!Active)
                 return;
-
-            SyncStatisticCollector.Register(this);
 
             // Terrain sync info
             TerrainSyncInfo = new TerrainSyncInfo(Scene, ActorID);
@@ -681,8 +686,6 @@ namespace DSG.RegionSync
             //cmdSyncStop.AddArgument("server_address", "The IP address of the server to synchronize with", "String");
             //cmdSyncStop.AddArgument("server_port", "The port of the server to synchronize with", "Integer");
 
-            Command cmdSyncStatus = new Command("status", CommandIntentions.COMMAND_HAZARDOUS, SyncStatus, "Displays synchronization status.");
-
             //for test and debugging purpose
             Command cmdSyncDebug = new Command("debug", CommandIntentions.COMMAND_HAZARDOUS, SyncDebug, "Trigger some debugging functions");
 
@@ -699,7 +702,6 @@ namespace DSG.RegionSync
 
             m_commander.RegisterCommand("start", cmdSyncStart);
             m_commander.RegisterCommand("stop", cmdSyncStop);
-            m_commander.RegisterCommand("status", cmdSyncStatus);
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
@@ -751,7 +753,6 @@ namespace DSG.RegionSync
         private string m_zeroUUID = "00000000-0000-0000-0000-000000000000";
 
         private LogWriter m_detailedLog;
-        private Boolean m_detailUpdateDebugLog = false;
         private Boolean m_detailedPropertyValues = false;
 
         private bool m_isSyncListenerLocal = false;
@@ -1216,19 +1217,6 @@ namespace DSG.RegionSync
                     //Scene.EventManager.TriggerOnSymmetricSyncStop();
                 }
             }
-        }
-
-        private void SyncStatus(Object[] args)
-        {
-            int connectorCount = 0;
-            m_log.WarnFormat("{0}: {1}", LogHeader, this.StatisticTitle());
-            m_log.WarnFormat("{0}: {1}", LogHeader, this.StatisticLine(true));
-            ForEachSyncConnector(delegate(SyncConnector connector)
-            {
-                if (connectorCount++ == 0)
-                    m_log.WarnFormat("{0}: Description: {1}", LogHeader, connector.StatisticTitle());
-                m_log.WarnFormat("{0}: {1}: {2}", LogHeader, connector.description, connector.StatisticLine(true));
-            });
         }
 
         private void SyncStateDetailReport(Object[] args)
@@ -3938,44 +3926,6 @@ namespace DSG.RegionSync
                         m_propertyUpdates[uuid].Add(property);
             }
         }
-
-        #region ISyncStatistics
-        private object m_stats = new object();
-        private int m_statMsgsIn = 0;
-        private int m_statMsgsOut = 0;
-        private int m_statEventIn = 0;
-        private int m_statEventOut = 0;
-
-        public string StatisticIdentifier()
-        {
-            // RegionSyncModule(actor/region)
-            return "RegionSyncModule" + "(" + ActorID + "/" + Scene.RegionInfo.RegionName + ")";
-        }
-
-        public string StatisticLine(bool clearFlag)
-        {
-            string statLine = "";
-            lock (m_stats)
-            {
-                statLine = String.Format("{0},{1},{2},{3}",
-                    m_statMsgsIn, m_statMsgsOut,
-                    m_statEventIn, m_statEventOut
-                );
-                if (clearFlag)
-                {
-                    m_statMsgsIn = m_statMsgsOut = 0;
-                    m_statEventIn = m_statEventOut = 0;
-                }
-            }
-            return statLine;
-        }
-
-        public string StatisticTitle()
-        {
-            return "MsgsIn,MsgsOut,EventIn,EventOut";
-        }
-        #endregion ISyncStatistics
-
     }
 
     ///////////////////////////////////////////////////////////////////////////

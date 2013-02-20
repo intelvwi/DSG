@@ -62,7 +62,7 @@ namespace DSG.RegionSync
         Syncing, //done initialization, in normal process of syncing terrain, objects, etc
     }
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
-    public class SyncConnector : ISyncStatistics
+    public class SyncConnector
     {
         private TcpClient m_tcpConnection = null;
         private RegionSyncListenerInfo m_remoteListenerInfo = null;
@@ -136,7 +136,6 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
-            SyncStatisticCollector.Register(this);
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -151,7 +150,6 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
-            SyncStatisticCollector.Register(this);
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -359,9 +357,9 @@ namespace DSG.RegionSync
         {
             Stat s;
             s = new Stat(
-                "DSG_Msgs_Rcvd (" + description + ")",
-                "DSG messages rcvd for this connector",
-                "DSG messages rcvd for this connector",
+                "DSG_Msgs_Rcvd|" + description,
+                "connector DSG messages rcvd",
+                "connector DSG messages rcvd",
                 " messages",
                 "dsg",
                 m_regionSyncModule.Scene.Name,
@@ -372,9 +370,9 @@ namespace DSG.RegionSync
             m_registeredStats.Add(s);
 
             s = new Stat(
-                "DSG_Msgs_Sent (" + description + ")",
-                "DSG messages sent for this connector",
-                "DSG messages sent for this connector",
+                "DSG_Msgs_Sent|" + description,
+                "connector DSG messages sent",
+                "connector DSG messages sent",
                 " messages",
                 "dsg",
                 m_regionSyncModule.Scene.Name,
@@ -385,9 +383,9 @@ namespace DSG.RegionSync
             m_registeredStats.Add(s);
 
             s = new Stat(
-                "DSG_Bytes_Rcvd (" + description + ")",
-                "DSG bytes rcvd for this connector",
-                "DSG bytes rcvd for this connector",
+                "DSG_Bytes_Rcvd|" + description,
+                "connector DSG bytes rcvd",
+                "connector DSG bytes rcvd",
                 " bytes",
                 "dsg",
                 m_regionSyncModule.Scene.Name,
@@ -398,9 +396,9 @@ namespace DSG.RegionSync
             m_registeredStats.Add(s);
 
             s = new Stat(
-                "DSG_Bytes_Sent (" + description + ")",
-                "DSG bytes sent for this connector",
-                "DSG bytes sent for this connector",
+                "DSG_Bytes_Sent|" + description,
+                "connector DSG bytes sent",
+                "connector DSG bytes sent",
                 " bytes",
                 "dsg",
                 m_regionSyncModule.Scene.Name,
@@ -411,9 +409,9 @@ namespace DSG.RegionSync
             m_registeredStats.Add(s);
 
             s = new Stat(
-                "DSG_Queued_Msgs (" + description + ")",
-                "DSG queued updates for this connector",
-                "DSG queued updates for this connector",
+                "DSG_Queued_Msgs|" + description,
+                "connector DSG queued updates",
+                "connector DSG queued updates",
                 " messages",
                 "dsg",
                 m_regionSyncModule.Scene.Name,
@@ -439,9 +437,9 @@ namespace DSG.RegionSync
                     {
                         m_packetTypesSent[type] = 1;
                         Stat s = new Stat(
-                            "DSG_Msgs_Sent (" + description + ") (" + type + ")",
-                            "DSG messages of type " + type + " sent for this connector",
-                            "DSG messages of type " + type + " sent for this connector",
+                            "DSG_Msgs_Sent|" + description + "|" + type,
+                            "DSG messages sent of type " + type,
+                            "connector DSG messages sent of type " + type,
                             " messages",
                             "dsg",
                             m_regionSyncModule.Scene.Name,
@@ -471,9 +469,9 @@ namespace DSG.RegionSync
                     {
                         m_packetTypesRcvd[type] = 1;
                         Stat s = new Stat(
-                            "DSG_Msgs_Rcvd (" + description + ") (" + type + ")",
-                            "DSG messages of type " + type + " received for this connector",
-                            "DSG messages of type " + type + " received for this connector",
+                            "DSG_Msgs_Typ_Rcvd|" + description + "|" + type,
+                            "connector DSG messages of type " + type,
+                            "connector DSG messages of type " + type,
                             " messages",
                             "dsg",
                             m_regionSyncModule.Scene.Name,
@@ -495,42 +493,6 @@ namespace DSG.RegionSync
             {
                 StatsManager.DeregisterStat(s);
             }
-        }
-
-        public string StatisticIdentifier()
-        {
-            return this.description;
-        }
-
-
-        private void GetStats(bool clear, out long msgsIn, out long msgsOut, out long bytesIn, out long bytesOut, out long queueSize, out double mbpsIn, out double mbpsOut)
-        {
-            double secondsSinceLastStats = DateTime.Now.Subtract(lastStatTime).TotalSeconds;
-            lastStatTime = DateTime.Now;
-
-            lock (stats)
-            {
-                msgsIn = this.msgsIn;
-                msgsOut = this.msgsOut;
-                bytesIn = this.bytesIn;
-                bytesOut = this.bytesOut;
-                queueSize = this.m_outQ.Count;
-                mbpsIn = 8 * (bytesIn / secondsSinceLastStats / 1000000);
-                mbpsOut = 8 * (bytesOut / secondsSinceLastStats / 1000000);
-            }
-        }
-
-        public string StatisticLine(bool clearFlag)
-        {
-            long msgsIn, msgsOut, bytesIn, bytesOut, queueSize;
-            double mbpsIn, mbpsOut;
-            GetStats(clearFlag, out msgsIn, out msgsOut, out bytesIn, out bytesOut, out queueSize, out mbpsIn, out mbpsOut);
-            return String.Format("{0},{1},{2},{3},{4},{5},{6}", msgsIn, msgsOut, bytesIn, bytesOut, queueSize, mbpsIn, mbpsOut);
-        }
-
-        public string StatisticTitle()
-        {
-            return "msgsIn,msgsOut,bytesIn,bytesOut,queueSize,Mbps In,Mbps Out";
         }
     }
 }
