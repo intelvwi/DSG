@@ -77,10 +77,11 @@ namespace DSG.RegionSync
 
         //members for in/out messages queueing
         object stats = new object();
-        private long msgsIn = 0;
-        private long msgsOut = 0;
-        private long bytesIn = 0;
-        private long bytesOut = 0;
+        private SyncConnectorStat msgsIn;
+        private SyncConnectorStat msgsOut;
+        private SyncConnectorStat bytesIn;
+        private SyncConnectorStat bytesOut;
+        private SyncConnectorStat currentQueue;
         private DateTime lastStatTime;
 
         // A queue for outgoing traffic. 
@@ -213,6 +214,7 @@ namespace DSG.RegionSync
                 {
                     // Dequeue is thread safe
                     SymmetricSyncMessage msg = m_outQ.Dequeue();
+                    if (m_collectingStats) currentQueue.Event(-1);
                     Send(msg);
                 }
             }
@@ -233,6 +235,7 @@ namespace DSG.RegionSync
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
             // Enqueue is thread safe
             m_outQ.Enqueue(id, update);
+            if (m_collectingStats) currentQueue.Event(1);
         }
 
         //Send out a messge directly. This should only by called for short messages that are not sent frequently.
@@ -349,108 +352,121 @@ namespace DSG.RegionSync
         }
 
         private bool m_collectingStats = false;
-        private SortedDictionary<string, long> m_packetTypesSent = new SortedDictionary<string,long>();
-        private SortedDictionary<string, long> m_packetTypesRcvd = new SortedDictionary<string,long>();
+        private SortedDictionary<string, SyncConnectorStat> m_packetTypesSent = new SortedDictionary<string,SyncConnectorStat>();
+        private SortedDictionary<string, SyncConnectorStat> m_packetTypesRcvd = new SortedDictionary<string,SyncConnectorStat>();
         private List<Stat> m_registeredStats = new List<Stat>();
 
         private void StartCollectingStats()
         {
-            Stat s;
-            s = new Stat(
-                "DSG_Msgs_Rcvd|" + description,
-                "connector DSG messages rcvd",
-                "connector DSG messages rcvd",
-                " messages",
-                "dsg",
-                m_regionSyncModule.Scene.Name,
-                StatType.Pull,
-                stat => { stat.Value = this.msgsIn; },
-                StatVerbosity.Debug);
-            StatsManager.RegisterStat(s);
-            m_registeredStats.Add(s);
+            if (!m_regionSyncModule.StatCollector.Enabled)
+                return;
 
-            s = new Stat(
-                "DSG_Msgs_Sent|" + description,
-                "connector DSG messages sent",
-                "connector DSG messages sent",
-                " messages",
-                "dsg",
-                m_regionSyncModule.Scene.Name,
-                StatType.Pull,
-                stat => { stat.Value = this.msgsOut; },
-                StatVerbosity.Debug);
-            StatsManager.RegisterStat(s);
-            m_registeredStats.Add(s);
+            msgsIn = new SyncConnectorStat(
+                "DSG_Msgs_Rcvd|" + description, // shortName
+                "Msgs_Rcvd",                    // name
+                "connector DSG messages rcvd",  // description
+                " messages",                    // unit
+                m_regionSyncModule.Scene.Name,  // region
+                m_connectorNum,                 // connectornum
+                m_regionSyncModule.ActorID,     // myActorID
+                otherSideRegionName,            // otherSideRegionName
+                otherSideActorID                // otherSideActorID
+                );
+            // msgsIn.AddHistogram("Msgs_Rcvd_Last_Minute", new EventHistogram(60, 1000)); // last minute in seconds
+            // msgsIn.AddHistogram("Msgs_Rcvd_Last_Hour", new EventHistogram(60, 60000));  // last hour in minutes
+            // msgsIn.AddHistogram("Msgs_Rcvd_Last_Day", new EventHistogram(24, 3600000)); // last day in hours
+            StatsManager.RegisterStat(msgsIn);
+            m_registeredStats.Add(msgsIn);
 
-            s = new Stat(
-                "DSG_Bytes_Rcvd|" + description,
-                "connector DSG bytes rcvd",
-                "connector DSG bytes rcvd",
-                " bytes",
-                "dsg",
-                m_regionSyncModule.Scene.Name,
-                StatType.Pull,
-                stat => { stat.Value = this.bytesIn; },
-                StatVerbosity.Debug);
-            StatsManager.RegisterStat(s);
-            m_registeredStats.Add(s);
+            msgsOut = new SyncConnectorStat(
+                "DSG_Msgs_Sent|" + description, // shortName
+                "Msgs_Sent",                    // name
+                "connector DSG messages sent",  // description
+                " messages",                    // unit
+                m_regionSyncModule.Scene.Name,  // region
+                m_connectorNum,                 // connectornum
+                m_regionSyncModule.ActorID,     // myActorID
+                otherSideRegionName,            // otherSideRegionName
+                otherSideActorID                // otherSideActorID
+                );
+            // msgsIn.AddHistogram("Msgs_Sent_Last_Minute", new EventHistogram(60, 1000)); // last minute in seconds
+            // msgsIn.AddHistogram("Msgs_Sent_Last_Hour", new EventHistogram(60, 60000));  // last hour in minutes
+            // msgsIn.AddHistogram("Msgs_Sent_Last_Day", new EventHistogram(24, 3600000)); // last day in hours
+            StatsManager.RegisterStat(msgsOut);
+            m_registeredStats.Add(msgsOut);
 
-            s = new Stat(
-                "DSG_Bytes_Sent|" + description,
-                "connector DSG bytes sent",
-                "connector DSG bytes sent",
-                " bytes",
-                "dsg",
-                m_regionSyncModule.Scene.Name,
-                StatType.Pull,
-                stat => { stat.Value = this.bytesOut; },
-                StatVerbosity.Debug);
-            StatsManager.RegisterStat(s);
-            m_registeredStats.Add(s);
+            bytesIn = new SyncConnectorStat(
+                "DSG_Bytes_Rcvd|" + description,    // shortName
+                "Bytes_Rcvd",                   // name
+                "connector DSG bytes rcvd",     // description
+                " bytes",                       // unit
+                m_regionSyncModule.Scene.Name,  // region
+                m_connectorNum,                 // connectornum
+                m_regionSyncModule.ActorID,     // myActorID
+                otherSideRegionName,            // otherSideRegionName
+                otherSideActorID                // otherSideActorID
+                );
+            StatsManager.RegisterStat(bytesIn);
+            m_registeredStats.Add(bytesIn);
 
-            s = new Stat(
-                "DSG_Queued_Msgs|" + description,
-                "connector DSG queued updates",
-                "connector DSG queued updates",
-                " messages",
-                "dsg",
-                m_regionSyncModule.Scene.Name,
-                StatType.Pull,
-                stat => { stat.Value = this.m_outQ.Count; },
-                StatVerbosity.Debug);
-            StatsManager.RegisterStat(s);
-            m_registeredStats.Add(s);
+            bytesOut = new SyncConnectorStat(
+                "DSG_Bytes_Sent|" + description,    // shortName
+                "Bytes_Sent",                   // name
+                "connector DSG bytes sent",     // description
+                " bytes",                       // unit
+                m_regionSyncModule.Scene.Name,  // region
+                m_connectorNum,                 // connectornum
+                m_regionSyncModule.ActorID,     // myActorID
+                otherSideRegionName,            // otherSideRegionName
+                otherSideActorID                // otherSideActorID
+                );
+            StatsManager.RegisterStat(bytesOut);
+            m_registeredStats.Add(bytesOut);
+
+            currentQueue = new SyncConnectorStat(
+                "DSG_Queued_Msgs|" + description,   // shortName
+                "Queued_Msgs",                  // name
+                "connector DSG queued updates", // description
+                " messages",                    // unit
+                m_regionSyncModule.Scene.Name,  // region
+                m_connectorNum,                 // connectornum
+                m_regionSyncModule.ActorID,     // myActorID
+                otherSideRegionName,            // otherSideRegionName
+                otherSideActorID                // otherSideActorID
+                );
+            StatsManager.RegisterStat(currentQueue);
+            m_registeredStats.Add(currentQueue);
 
             m_collectingStats = true;
         }
 
         private void CollectSendStat(string type, int length)
         {
-            lock (stats)
+            if (m_collectingStats)
             {
-                if (m_collectingStats)
+                lock (stats)
                 {
-                    msgsOut++;
-                    bytesOut += length;
-                    long count;
-                    if (!m_packetTypesSent.TryGetValue(type, out count))
+                    msgsOut.Event();
+                    bytesOut.Event(length);
+                    SyncConnectorStat msgStat;
+                    if (!m_packetTypesSent.TryGetValue(type, out msgStat))
                     {
-                        m_packetTypesSent[type] = 1;
-                        Stat s = new Stat(
-                            "DSG_Msgs_Sent|" + description + "|" + type,
-                            "DSG messages sent of type " + type,
-                            "connector DSG messages sent of type " + type,
-                            " messages",
-                            "dsg",
-                            m_regionSyncModule.Scene.Name,
-                            StatType.Pull,
-                            stat => { stat.Value = this.m_packetTypesSent[type.ToString()]; },
-                            StatVerbosity.Debug);
-                        StatsManager.RegisterStat(s);
-                        m_registeredStats.Add(s);
+                        msgStat = new SyncConnectorStat(
+                            "DSG_Msgs_Typ_Sent|" + description + "|" + type,    // shortName
+                            type + "_Sent",                 // name
+                            "connector DSG messages sent of type " + type,      // description
+                            " messages",                    // unit
+                            m_regionSyncModule.Scene.Name,  // region
+                            m_connectorNum,                 // connectornum
+                            m_regionSyncModule.ActorID,     // myActorID
+                            otherSideRegionName,            // otherSideRegionName
+                            otherSideActorID,               // otherSideActorID
+                            type                            // messageType
+                            );
+                        StatsManager.RegisterStat(msgStat);
+                        m_packetTypesSent.Add(type, msgStat);
                     }
-                    else
-                        m_packetTypesSent[type] = count + 1;
+                    msgStat.Event();
                 }
             }
         }
@@ -461,28 +477,28 @@ namespace DSG.RegionSync
             {
                 if (m_collectingStats)
                 {
-                    msgsIn++;
-                    bytesIn += length;
+                    msgsIn.Event();
+                    bytesIn.Event(length);
 
-                    long count;
-                    if (!m_packetTypesRcvd.TryGetValue(type, out count))
+                    SyncConnectorStat msgStat;
+                    if (!m_packetTypesRcvd.TryGetValue(type, out msgStat))
                     {
-                        m_packetTypesRcvd[type] = 1;
-                        Stat s = new Stat(
-                            "DSG_Msgs_Typ_Rcvd|" + description + "|" + type,
-                            "connector DSG messages of type " + type,
-                            "connector DSG messages of type " + type,
-                            " messages",
-                            "dsg",
-                            m_regionSyncModule.Scene.Name,
-                            StatType.Pull,
-                            stat => { stat.Value = this.m_packetTypesRcvd[type.ToString()]; },
-                            StatVerbosity.Debug);
-                        StatsManager.RegisterStat(s);
-                        m_registeredStats.Add(s);
+                        msgStat = new SyncConnectorStat(
+                            "DSG_Msgs_Typ_Rcvd|" + description + "|" + type,    // shortName
+                            type + "_Rcvd",                 // name
+                            "connector DSG messages of type " + type,   // description
+                            " messages",                    // unit
+                            m_regionSyncModule.Scene.Name,  // region
+                            m_connectorNum,                 // connectornum
+                            m_regionSyncModule.ActorID,     // myActorID
+                            otherSideRegionName,            // otherSideRegionName
+                            otherSideActorID,               // otherSideActorID
+                            type                            // messageType
+                            );
+                        StatsManager.RegisterStat(msgStat);
+                        m_packetTypesRcvd.Add(type, msgStat);
                     }
-                    else
-                        m_packetTypesRcvd[type] = count + 1;
+                    msgStat.Event();
                 }
             }
         }

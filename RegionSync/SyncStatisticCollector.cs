@@ -53,7 +53,7 @@ using System.Timers;
 using OpenSim.Framework;
 using OpenSim.Framework.Monitoring;
 using OpenSim.Region.CoreModules;
-using OpenSim.Region.CoreModules.Framework.Statistics;
+using OpenSim.Region.CoreModules.Framework.Statistics.Logging;
 
 using OpenMetaverse.StructuredData;
 
@@ -62,131 +62,138 @@ using Nini.Config;
 
 namespace DSG.RegionSync
 {
-public class SyncStatisticCollector
+// =================================================================================
+public class SyncConnectorStat : CounterStat
 {
-    private readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-    private readonly string LogHeader = "[SYNC STATISTICS COLLECTOR]";
+    public int ConnectorNum { get; private set; }
+    public string RegionName { get; private set; }
+    public string MyActorID { get; private set; }
+    public string OtherSideRegionName { get; private set; }
+    public string OtherSideActorID { get; private set; }
+    public string MessageType { get; private set; }
 
-    private bool Enabled { get; set; }
-    private int LogIntervalSeconds { get; set; }
-    private string DSGCategory { get; set; }
-
-    public SyncStatisticCollector(IConfig cfg)
+    public SyncConnectorStat(string shortName, string name, string description, string unitName, 
+                            string pRegion, int pConnectorNum,
+                            string pMyActorID, string pOtherSideRegionName, string pOtherSideActorID)
+        : this(shortName, name, description, unitName, pRegion, pConnectorNum,
+                                pMyActorID, pOtherSideRegionName, pOtherSideActorID, String.Empty)
     {
-        Enabled = cfg.GetBoolean("StatisticLoggingEnable", false);
-        if (Enabled)
-        {
-            DSGCategory = cfg.GetString("LogDSGCategory", "DSG");
-            LogIntervalSeconds = cfg.GetInt("LogIntervalSeconds", 5);
-        }
+    }
+    public SyncConnectorStat(string shortName, string name, string description, string unitName, 
+                            string pRegion, int pConnectorNum,
+                            string pMyActorID, string pOtherSideRegionName, string pOtherSideActorID, string pMessageType)
+        : base(shortName, name, description, unitName, SyncStatisticCollector.DSGDetailCategory,
+                                // The container name is the unique name for this syncConnector
+                                pRegion + ".SyncConnector" + pConnectorNum.ToString(),
+                                StatVerbosity.Debug)
+    {
+        RegionName = pRegion;
+        ConnectorNum = pConnectorNum;
+        MyActorID = pMyActorID;
+        OtherSideActorID = pOtherSideActorID;
+        OtherSideRegionName = pOtherSideRegionName;
+        MessageType = pMessageType;
+    }
+}
+
+// =================================================================================
+public class SyncConnectorStatAggregator : Stat
+{
+    public SyncConnectorStatAggregator(string shortName, string name, string description, string unitName, string container)
+                : base(shortName, name, description, unitName,
+                        SyncStatisticCollector.DSGCategory, container, StatType.Push, null, StatVerbosity.Debug)
+    {
     }
 
-    // Build an OSDMap of the DSG connector info. Returned map is of the form:
+    public override string ToConsoleString()
+    {
+        return base.ToConsoleString();
+    }
+
+    // Build an OSDMap of the DSG sync connector info. Returned map is of the form:
     //   { regionName: {
-    //           connectorName: {
+    //           containerName: {
+    //                "ConnectorNum": connectorNumber,
+    //                "RegionName": reportingRegionName,
+    //                "MyActorID": name,
     //                "OtherSideRegion": name,
     //                "OtherSideActor": name,
-    //                "DSG_Queued_Msgs": num,
-    //                "DSG_Bytes_Sent": num,
-    //                "DSG_Bytes_Rcvd": num,
-    //                "DSG_Msgs_Sent": num,
-    //                "DSG_Msgs_Rcvd": num,
+    //                "Bytes_Sent": num,
+    //                "Bytes_Rcvd": num,
+    //                "Msgs_Sent": num,
+    //                "Msgs_Rcvd": num,
+    //                "Queued_Msgs": num,
     //                "MessagesByType": {
     //                      typeName: {
     //                           "DSG_Msgs_Typ_Rcvd": num,
     //                           "DSG_Msgs_Typ_Sent": num,
-    //                      }
+    //                      },
     //                      ...
-    //                }
-    //           }
+    //                },
+    //                "Histograms": {
+    //                    histogramName: [histogramValues],
+    //                    ...
+    //                },
+    //           },
     //           ...
-    //     }
+    //     },
     //     ...
     //   }
-    
-    private OSDMap GetConnectors()
+    public override OSDMap ToOSDMap()
     {
         OSDMap ret = new OSDMap();
 
         // Fetch all the DSG stats. Extract connectors and then organize the stats.
         // The top dictionary is the containers (region name)
         SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
-        if (StatsManager.TryGetStats(DSGCategory, out DSGStats))
+        if (StatsManager.TryGetStats(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
         {
             foreach (string container in DSGStats.Keys)
             {
                 OSDMap containerMap = new OSDMap();
                 foreach (KeyValuePair<string, Stat> aStat in DSGStats[container])
                 {
-                    if (Regex.IsMatch(aStat.Value.ShortName, "SyncConnector"))
+                    SyncConnectorStat connStat = aStat.Value as SyncConnectorStat;
+                    if (connStat != null)
                     {
-                        // Short names are like
-                        //       "DSG_Bytes_Sent|SyncConnector2(physics/rpea00)"
-                        //       "DSG_Bytes_Typ_Sent|SyncConnector2(physics/rpea00)|GetObjects"
-                        string[] shortNamePieces = aStat.Value.ShortName.Split('|');
-                        if (shortNamePieces.Length > 0)
+                        try
                         {
-                            string statName = shortNamePieces[0];
-                            string connectorName = String.Empty;
-                            string otherSideActor = String.Empty;
-                            string otherSideRegion = string.Empty;
-                            string messageType = string.Empty;
-                            try
+                            float val = (float)connStat.Value;
+                            if (!containerMap.ContainsKey(container))
                             {
-                                if (shortNamePieces.Length >= 2)
-                                {
-                                    string[] connectorPieces = shortNamePieces[1].Split('(');
-                                    if (connectorPieces.Length > 1)
-                                    {
-                                        connectorName = connectorPieces[0];
-                                        string[] otherSidePieces = connectorPieces[1].Split('/');
-                                        if (otherSidePieces.Length > 1)
-                                        {
-                                            otherSideActor = otherSidePieces[0];
-                                            // remove the trailing ')'
-                                            otherSideRegion = otherSidePieces[1].Remove(otherSidePieces.Length - 1);
-                                        }
-                                    }
-                                }
-                                if (shortNamePieces.Length > 2)
-                                {
-                                    messageType = shortNamePieces[2];
-                                }
+                                OSDMap connectorNew = new OSDMap();
+                                connectorNew.Add("ConnectorNum", OSD.FromInteger(connStat.ConnectorNum));
+                                connectorNew.Add("RegionName", connStat.RegionName);
+                                connectorNew.Add("MyActorID", connStat.MyActorID);
+                                connectorNew.Add("OtherSideActor", connStat.OtherSideActorID);
+                                connectorNew.Add("OtherSideRegion", connStat.OtherSideRegionName);
+                                connectorNew.Add("MessagesByType", new OSDMap());
+                                connectorNew.Add("Histograms", new OSDMap());
+
+                                containerMap.Add(container, connectorNew);
                             }
-                            catch (Exception e)
+                            OSDMap connectorMap = (OSDMap)containerMap[container];
+                            connectorMap.Add(connStat.Name, OSD.FromReal(val));
+                            if (!string.IsNullOrEmpty(connStat.MessageType))
                             {
-                                m_log.ErrorFormat("{0} Exception parsing DSG stats. shortName={1},statName={2},conn={3},e={4}",
-                                                        LogHeader, aStat.Value.ShortName, statName, connectorName, e);
-                            }
-                            try
-                            {
-                                float val = (float)aStat.Value.Value;
-                                if (!containerMap.ContainsKey(connectorName))
+                                OSDMap messagesMap = (OSDMap)connectorMap["MessagesByType"];
+                                if (!messagesMap.ContainsKey(connStat.MessageType))
                                 {
-                                    OSDMap connectorNew = new OSDMap();
-                                    connectorNew.Add("OtherSideActor", otherSideActor);
-                                    connectorNew.Add("OtherSideRegion", otherSideRegion);
-                                    connectorNew.Add("MessagesByType", new OSDMap());
-                                    containerMap.Add(connectorName, connectorNew);
+                                    messagesMap.Add(connStat.MessageType, new OSDMap());
                                 }
-                                OSDMap connectorMap = (OSDMap)containerMap[connectorName];
-                                connectorMap.Add(statName, OSD.FromReal(val));
-                                if (!string.IsNullOrEmpty(messageType))
-                                {
-                                    OSDMap messagesMap = (OSDMap)connectorMap["MessagesByType"];
-                                    if (!messagesMap.ContainsKey(messageType))
-                                    {
-                                        messagesMap.Add(messageType, new OSDMap());
-                                    }
-                                    OSDMap messageMap = (OSDMap)messagesMap[messageType];
-                                    messagesMap.Add(statName, OSD.FromReal(val));
-                                }
+                                OSDMap messageMap = (OSDMap)messagesMap[connStat.MessageType];
+                                messagesMap.Add(connStat.Name, OSD.FromReal(val));
                             }
-                            catch (Exception e)
+                            OSDMap histogramMap = (OSDMap)connectorMap["Histograms"];
+                            connStat.ForEachHistogram((histoName, histo) =>
                             {
-                                m_log.ErrorFormat("{0} Exception adding stat to block. name={1}, block={2}, e={3}",
-                                                        LogHeader, aStat.Value.ShortName, OSDParser.SerializeJsonString(containerMap), e);
-                            }
+                                histogramMap.Add(histoName, histo.GetHistogramAsOSDArray());
+                            });
+                        }
+                        catch
+                        {
+                            // m_log.ErrorFormat("{0} Exception adding stat to block. name={1}, block={2}, e={3}",
+                            //             LogHeader, aStat.Value.ShortName, OSDParser.SerializeJsonString(containerMap), e);
                         }
                     }
                 }
@@ -195,95 +202,223 @@ public class SyncStatisticCollector
         }
         return ret;
     }
+}
 
-    // Temporary place while this code is developed.
-    // Will eventually move to OpenSim.Framework.Monitoring.Stats
-    // Create a time histogram of events. The histogram is built in a wrap-around
-    //   array of equally distributed buckets.
-    // For instance, a minute long histogram of second sized buckets would be:
-    //          new EventHistogram(60, 1000)
-    public class EventHistogram
+// =================================================================================
+public class SyncStatisticCollector : IDisposable
+{
+    private readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+    private readonly string LogHeader = "[DSG SYNC STATISTICS COLLECTOR]";
+
+    public bool Enabled { get; set; }
+    public static string DSGCategory = "dsg";
+    public static string DSGDetailCategory = "dsg-detail";
+
+    private int LogIntervalSeconds { get; set; }
+    private System.Timers.Timer WriteTimer { get; set; }
+
+    private bool LogSyncConnectorEnable { get; set; }
+    private string LogSyncConnectorDirectory { get; set; }
+    private string LogSyncConnectorFilenamePrefix { get; set; }
+    private bool LogSyncConnectorIncludeTitleLine { get; set; }
+    private int LogSyncConnectorFileTimeMinutes { get; set; }
+    private bool LogSyncConnectorFlushWrites { get; set; }
+
+    public SyncStatisticCollector(IConfig cfg)
     {
-        private int m_timeBase;
-        private int m_numBuckets;
-        private int m_bucketMilliseconds;
-        private int m_lastBucket;
-        private int m_totalHistogramMilliseconds;
-        private int[] m_histogram;
-
-        public EventHistogram(int numberOfBuckets, int millisecondsPerBucket)
+        Enabled = cfg.GetBoolean("StatisticLoggingEnable", false);
+        if (Enabled)
         {
-            m_numBuckets = numberOfBuckets;
-            m_bucketMilliseconds = millisecondsPerBucket;
-            m_totalHistogramMilliseconds = m_numBuckets * m_bucketMilliseconds;
+            DSGCategory = cfg.GetString("LogDSGCategory", "dsg");
+            DSGCategory = cfg.GetString("LogDSGDetailCategory", "dsg-detail");
+            LogIntervalSeconds = cfg.GetInt("LogIntervalSeconds", 10);
+            m_log.InfoFormat("{0} Enabling statistic logging. Category={1}, Interval={2}sec",
+                        LogHeader, DSGCategory, LogIntervalSeconds);
 
-            m_histogram = new int[m_numBuckets];
-            Zero();
-            m_lastBucket = 0;
-            m_timeBase = Util.EnvironmentTickCount();
-        }
-
-        // Record an event at time 'now' in the histogram.
-        public void Event()
-        {
-            // The time as displaced from the base of the histogram
-            int bucketTime = Util.EnvironmentTickCountSubtract(m_timeBase);
-
-            // If more than the total time of the histogram, we just start over
-            if (bucketTime > m_totalHistogramMilliseconds)
+            LogSyncConnectorEnable = cfg.GetBoolean("LogSyncConnectorEnable", false);
+            if (LogSyncConnectorEnable)
             {
-                Zero();
-                m_lastBucket = 0;
-                m_timeBase = Util.EnvironmentTickCount();
-            }
-            else
-            {
-                // To which bucket should we add this event?
-                int bucket = bucketTime / m_bucketMilliseconds;
+                LogSyncConnectorDirectory = cfg.GetString("LogSyncConnectorDirectory", ".");
+                LogSyncConnectorFilenamePrefix = cfg.GetString("LogSyncConnectorFilenamePrefix", "conn-%CONTAINER%-%THISACTOR%-%OTHERSIDEACTOR%-");
+                LogSyncConnectorIncludeTitleLine = cfg.GetBoolean("LogSyncConnectorIncludeTitleLine", true);
+                LogSyncConnectorFileTimeMinutes = cfg.GetInt("LogSyncConnectorFileTimeMinutes", 10);
+                LogSyncConnectorFlushWrites = cfg.GetBoolean("LogSyncConnectorFlushWrites", false);
 
-                // Advance m_lastBucket to the new bucket. Zero any buckets skipped over.
-                while (bucket != m_lastBucket)
-                {
-                    // Zero from just after the last bucket to the new bucket or the end
-                    for (int jj = m_lastBucket + 1; jj <= Math.Min(bucket, m_numBuckets-1); jj++)
-                    {
-                        m_histogram[jj] = 0;
-                    }
-                    m_lastBucket = bucket;
-                    // If the new bucket is off the end, wrap around to the beginning
-                    if (bucket > m_numBuckets)
-                    {
-                        bucket -= m_numBuckets;
-                        m_lastBucket = 0;
-                        m_histogram[m_lastBucket] = 0;
-                        m_timeBase += m_totalHistogramMilliseconds;
-                    }
-                }
+                m_log.InfoFormat("{0} Enabling SyncConnector logging. Dir={1}, fileAge={2}min, flush={3}",
+                        LogHeader, LogSyncConnectorDirectory, LogSyncConnectorFileTimeMinutes, LogSyncConnectorFlushWrites);
             }
-            m_histogram[m_lastBucket] += 1;
-        }
 
-        // Get a copy of the current histogram
-        public int[] GetHistogram()
-        {
-            int[] ret = new int[m_numBuckets];
-            int indx = m_lastBucket + 1;
-            for (int ii = 0; ii < m_numBuckets; ii++, indx++)
-            {
-                if (indx >= m_numBuckets)
-                    indx = 0;
-                ret[ii] = m_histogram[indx];
-            }
-            return ret;
-        }
-
-        // Zero out the histogram
-        public void Zero()
-        {
-            for (int ii = 0; ii < m_numBuckets; ii++)
-                m_histogram[ii] = 0;
+            WriteTimer = new Timer(LogIntervalSeconds * 1000);
+            WriteTimer.Elapsed += StatsTimerElapsed;
+            WriteTimer.Start();
         }
     }
 
+    private void StatsTimerElapsed(object source, System.Timers.ElapsedEventArgs e)
+    {
+        if (!Enabled)
+        {
+            WriteTimer.Stop();
+            return;
+        }
+        
+        if (LogSyncConnectorEnable)
+            LogConnectorStats();
+    }
+
+    public void Dispose()
+    {
+        Enabled = false;
+        LogSyncConnectorEnable = false;
+        if (WriteTimer != null)
+        {
+            WriteTimer.Stop();
+            WriteTimer.Dispose();
+            WriteTimer = null;
+        }
+        Close();
+    }
+
+    // Close out all the connected log file writers.
+    // If this is done while the system is running, they will get reopened.
+    public void Close()
+    {
+        if (ConnectionLoggers != null)
+        {
+            foreach (LogWriter connWriter in ConnectionLoggers.Values)
+            {
+                connWriter.Close();
+            }
+            ConnectionLoggers.Clear();
+        }
+    }
+
+    private Dictionary<string, LogWriter> ConnectionLoggers = new Dictionary<string, LogWriter>();
+    private void LogConnectorStats()
+    {
+        SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
+        if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
+        {
+            foreach (string container in DSGStats.Keys)
+            {
+                SortedDictionary<string, Stat> containerStats = DSGStats[container];
+                LogWriter connWriter = null;
+                Dictionary<string, string> outputValues = new Dictionary<string, string>();
+                SyncConnectorStat lastStat = null;
+
+                foreach (Stat aStat in containerStats.Values)
+                {
+                    // Select out only the SyncConnector stats.
+                    SyncConnectorStat connStat = aStat as SyncConnectorStat;
+                    if (connStat != null)
+                    {
+                        lastStat = connStat;    // remember one of the stats for line output info
+
+                        // Get the log file writer for this connection and create one if necessary.
+                        if (connWriter == null)
+                        {
+                            if (!ConnectionLoggers.TryGetValue(container, out connWriter))
+                            {
+                                string headr = LogSyncConnectorFilenamePrefix;
+                                headr = headr.Replace("%CONTAINER%", container);
+                                headr = headr.Replace("%REGIONNAME%", connStat.RegionName);
+                                headr = headr.Replace("%CONNECTIONNUMBER%", connStat.ConnectorNum.ToString());
+                                headr = headr.Replace("%THISACTOR%", connStat.MyActorID);
+                                headr = headr.Replace("%OTHERSIDEACTOR%", connStat.OtherSideActorID);
+                                headr = headr.Replace("%OTHERSIDEREGION%", connStat.OtherSideRegionName);
+                                headr = headr.Replace("%MESSAGETYPE%", connStat.MessageType);
+                                connWriter = new LogWriter(LogSyncConnectorDirectory, headr, LogSyncConnectorFileTimeMinutes, LogSyncConnectorFlushWrites);
+                                ConnectionLoggers.Add(container, connWriter);
+
+                                if (LogSyncConnectorIncludeTitleLine)
+                                {
+                                    StringBuilder bufft = new StringBuilder();
+                                    bufft.Append("Region");
+                                    bufft.Append(",");
+                                    bufft.Append("SyncConnNum");
+                                    bufft.Append(",");
+                                    bufft.Append("ActorID");
+                                    bufft.Append(",");
+                                    bufft.Append("OtherSideActorID");
+                                    bufft.Append(",");
+                                    bufft.Append("OtherSideRegionName");
+                                    bufft.Append(",");
+                                    bufft.Append("Msgs_Sent");
+                                    bufft.Append(",");
+                                    bufft.Append("Msgs_Rcvd");
+                                    bufft.Append(",");
+                                    bufft.Append("Bytes_Sent");
+                                    bufft.Append(",");
+                                    bufft.Append("Bytes_Rcvd");
+                                    bufft.Append(",");
+                                    bufft.Append("Queued_Msgs");
+                                    bufft.Append(",");
+                                    bufft.Append("UpdatedProperties_Sent");
+                                    bufft.Append(",");
+                                    bufft.Append("UpdatedProperties_Rcvd");
+                                    bufft.Append(",");
+                                    bufft.Append("NewObject_Sent");
+                                    bufft.Append(",");
+                                    bufft.Append("NewObject_Rcvd");
+                                    bufft.Append(",");
+                                    bufft.Append("NewPresence_Sent");
+                                    bufft.Append(",");
+                                    bufft.Append("NewPresence_Rcvd");
+                                    connWriter.Write(bufft.ToString());
+                                }
+                            }
+                        }
+                    }
+                    outputValues.Add(connStat.Name, connStat.Value.ToString());
+                }
+
+                if (lastStat != null)
+                {
+                    StringBuilder buff = new StringBuilder();
+                    buff.Append(lastStat.RegionName);
+                    buff.Append(",");
+                    buff.Append(lastStat.ConnectorNum.ToString());
+                    buff.Append(",");
+                    buff.Append(lastStat.MyActorID);
+                    buff.Append(",");
+                    buff.Append(lastStat.OtherSideActorID);
+                    buff.Append(",");
+                    buff.Append(lastStat.OtherSideRegionName);
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("Msgs_Sent") ? outputValues["Msgs_Sent"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("Msgs_Rcvd") ? outputValues["Msgs_Rcvd"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("Bytes_Sent") ? outputValues["Bytes_Sent"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("Bytes_Rcvd") ? outputValues["Bytes_Rcvd"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("Queued_Msgs") ? outputValues["Queued_Msgs"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("UpdatedProperties_Sent") ? outputValues["UpdatedProperties_Sent"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("UpdatedProperties_Rcvd") ? outputValues["UpdatedProperties_Rcvd"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("NewObject_Sent") ? outputValues["NewObject_Sent"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("NewObject_Rcvd") ? outputValues["NewObject_Rcvd"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("NewPresence_Sent") ? outputValues["NewPresence_Sent"] : "");
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey("NewPresence_Rcvd") ? outputValues["NewPresence_Rcvd"] : "");
+
+                    // buff.Append(outputValues.ContainsKey("NewScript_Sent") ? outputValues["NewScript_Sent"] : "");
+                    // buff.Append(outputValues.ContainsKey("NewScript_Rcvd") ? outputValues["NewScript_Rcvd"] : "");
+                    // buff.Append(outputValues.ContainsKey("UpdateScript_Sent") ? outputValues["UpdateScript_Sent"] : "");
+                    // buff.Append(outputValues.ContainsKey("UpdateScript_Rcvd") ? outputValues["UpdateScript_Rcvd"] : "");
+                    // buff.Append(outputValues.ContainsKey("Terrain") ? outputValues["Terrain"] : "");
+                    // buff.Append(outputValues.ContainsKey("GetObjects") ? outputValues["GetObjects"] : "");
+                    // buff.Append(outputValues.ContainsKey("GetPresences") ? outputValues["GetPresences"] : "");
+                    // buff.Append(outputValues.ContainsKey("GetTerrain") ? outputValues["GetTerrain"] : "");
+                    connWriter.Write(buff.ToString());
+                }
+            }
+        }
+    }
 }
 }

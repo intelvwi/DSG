@@ -86,7 +86,7 @@ namespace DSG.RegionSync
         #region INonSharedRegionModule
 
         // Statistics gathering
-        SyncStatisticCollector m_statCollector;
+        public SyncStatisticCollector StatCollector { get; private set; }
 
         private object m_stats = new object();
         private int m_statMsgsIn = 0;
@@ -131,7 +131,7 @@ namespace DSG.RegionSync
             //The ActorType configuration will be read in and process by an ActorSyncModule, not here.
 
             // parameters for statistic logging
-            SyncStatisticCollector m_statCollector = new SyncStatisticCollector(m_sysConfig);
+            StatCollector = new SyncStatisticCollector(m_sysConfig);
 
             // parameters for detailed synchronization message logging
             if (m_sysConfig.GetBoolean("DetailLogEnabled", false))
@@ -299,6 +299,12 @@ namespace DSG.RegionSync
 
         public void Close()
         {
+            if (StatCollector != null)
+            {
+                StatCollector.Close();
+                StatCollector.Dispose();
+                StatCollector = null;
+            }
             Scene = null;
             m_detailedLog.Close();
         }
