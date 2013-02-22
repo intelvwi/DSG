@@ -138,11 +138,8 @@ namespace DSG.RegionSync
             {
                 bool flush = m_sysConfig.GetBoolean("FlushWrites", false);
                 string dir = m_sysConfig.GetString("DetailLogDirectory", ".");
-                string hdr = m_sysConfig.GetString("DetailLogPrefix", "log-");
-                if (m_sysConfig.GetBoolean("DetailLogPrefixAddActorID", true))
-                {
-                    hdr += ActorID + "-";
-                }
+                string hdr = m_sysConfig.GetString("DetailLogPrefix", "log-%ACTORID%-");
+                hdr = hdr.Replace("%ACTORID%", ActorID);
                 int mins = m_sysConfig.GetInt("DetailLogMaxFileTimeMin", 5);
                 m_detailedLog = new Logging.LogWriter(dir, hdr, mins, flush);
                 m_detailedLog.ErrorLogger = m_log;  // pass in logger for debugging (can be removed later)
