@@ -303,7 +303,11 @@ namespace DSG.RegionSync
                 StatCollector = null;
             }
             Scene = null;
-            m_detailedLog.Close();
+            if (m_detailedLog != null)
+            {
+                m_detailedLog.Close();
+                m_detailedLog = null;
+            }
         }
 
         public string Name
