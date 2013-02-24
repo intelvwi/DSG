@@ -224,6 +224,20 @@ public class SyncStatisticCollector : IDisposable
     private int LogSyncConnectorFileTimeMinutes { get; set; }
     private bool LogSyncConnectorFlushWrites { get; set; }
 
+    private bool LogRegionEnable { get; set; }
+    private string LogRegionDirectory { get; set; }
+    private string LogRegionFilenamePrefix { get; set; }
+    private bool LogRegionIncludeTitleLine { get; set; }
+    private int LogRegionFileTimeMinutes { get; set; }
+    private bool LogRegionFlushWrites { get; set; }
+
+    private bool LogServerEnable { get; set; }
+    private string LogServerDirectory { get; set; }
+    private string LogServerFilenamePrefix { get; set; }
+    private bool LogServerIncludeTitleLine { get; set; }
+    private int LogServerFileTimeMinutes { get; set; }
+    private bool LogServerFlushWrites { get; set; }
+
     public SyncStatisticCollector(IConfig cfg)
     {
         Enabled = cfg.GetBoolean("StatisticLoggingEnable", false);
@@ -248,11 +262,52 @@ public class SyncStatisticCollector : IDisposable
                         LogHeader, LogSyncConnectorDirectory, LogSyncConnectorFileTimeMinutes, LogSyncConnectorFlushWrites);
             }
 
+            LogRegionEnable = cfg.GetBoolean("LogRegionEnable", false);
+            if (LogRegionEnable)
+            {
+                LogRegionDirectory = cfg.GetString("LogRegionDirectory", ".");
+                LogRegionFilenamePrefix = cfg.GetString("LogRegionFilenamePrefix", "%CATEGORY%-%CONTAINER%-");
+                LogRegionIncludeTitleLine = cfg.GetBoolean("LogRegionIncludeTitleLine", true);
+                LogRegionFileTimeMinutes = cfg.GetInt("LogRegionFileTimeMinutes", 10);
+                LogRegionFlushWrites = cfg.GetBoolean("LogRegionFlushWrites", false);
+
+                m_log.InfoFormat("{0} Enabling region logging. Dir={1}, fileAge={2}min, flush={3}",
+                        LogHeader, LogRegionDirectory, LogRegionFileTimeMinutes, LogRegionFlushWrites);
+            }
+
+            LogServerEnable = cfg.GetBoolean("LogServerEnable", false);
+            if (LogServerEnable)
+            {
+                LogServerDirectory = cfg.GetString("LogServerDirectory", ".");
+                LogServerFilenamePrefix = cfg.GetString("LogServerFilenamePrefix", "%CATEGORY%-%CONTAINER%-");
+                LogServerIncludeTitleLine = cfg.GetBoolean("LogServerIncludeTitleLine", true);
+                LogServerFileTimeMinutes = cfg.GetInt("LogServerFileTimeMinutes", 10);
+                LogServerFlushWrites = cfg.GetBoolean("LogServerFlushWrites", false);
+
+                m_log.InfoFormat("{0} Enabling server logging. Dir={1}, fileAge={2}min, flush={3}",
+                        LogHeader, LogServerDirectory, LogServerFileTimeMinutes, LogServerFlushWrites);
+            }
+
             WriteTimer = new Timer(LogIntervalSeconds * 1000);
             WriteTimer.Elapsed += StatsTimerElapsed;
             WriteTimer.Start();
         }
     }
+
+    List<string> regionStatFields = new List<string>
+    {       "RootAgents", "ChildAgents", "SimFPS", "PhysicsFPS", "TotalPrims",
+            "ActivePrims", "ActiveScripts", "ScriptLines",
+            "FrameTime", "PhysicsTime", "AgentTime", "ImageTime", "NetTime", "OtherTime", "SimSpareMS",
+            "AgentUpdates", "SlowFrames", "TimeDilation",
+    };
+    List<string> serverStatFields = new List<string>
+    {
+            "CPUPercent", "TotalProcessorTime", "UserProcessorTime", "PrivilegedProcessorTime",
+            "Threads",
+            "AverageMemoryChurn", "LastMemoryChurn",
+            "ObjectMemory", "ProcessMemory",
+            "BytesRcvd", "BytesSent", "TotalBytes",
+    };
 
     private void StatsTimerElapsed(object source, System.Timers.ElapsedEventArgs e)
     {
@@ -264,6 +319,10 @@ public class SyncStatisticCollector : IDisposable
         
         if (LogSyncConnectorEnable)
             LogConnectorStats();
+        if (LogRegionEnable)
+            LogStats("scene", LogRegionDirectory, LogRegionFilenamePrefix, LogRegionFileTimeMinutes, LogRegionFlushWrites, regionStatFields);
+        if (LogServerEnable)
+            LogStats("server", LogServerDirectory, LogServerFilenamePrefix, LogServerFileTimeMinutes, LogServerFlushWrites, serverStatFields);
     }
 
     public void Dispose()
@@ -291,11 +350,24 @@ public class SyncStatisticCollector : IDisposable
             }
             ConnectionLoggers.Clear();
         }
+        if (StatLoggers != null)
+        {
+            foreach (LogWriter connWriter in StatLoggers.Values)
+            {
+                connWriter.Close();
+            }
+            StatLoggers.Clear();
+        }
     }
 
     private Dictionary<string, LogWriter> ConnectionLoggers = new Dictionary<string, LogWriter>();
     private void LogConnectorStats()
     {
+        List<string> fields = new List<string>
+                { "Msgs_Sent", "Msgs_Rcvd", "Bytes_Sent", "Bytes_Rcvd", "Queued_Msgs",
+                 "UpdatedProperties_Sent", "UpdatedProperties_Rcvd",
+                 "NewObject_Sent", "NewObject_Rcvd", "NewPresence_Sent", "NewPresence_Rcvd"
+        };
         SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
         if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
         {
@@ -342,28 +414,12 @@ public class SyncStatisticCollector : IDisposable
                                     bufft.Append("OtherSideActorID");
                                     bufft.Append(",");
                                     bufft.Append("OtherSideRegionName");
-                                    bufft.Append(",");
-                                    bufft.Append("Msgs_Sent");
-                                    bufft.Append(",");
-                                    bufft.Append("Msgs_Rcvd");
-                                    bufft.Append(",");
-                                    bufft.Append("Bytes_Sent");
-                                    bufft.Append(",");
-                                    bufft.Append("Bytes_Rcvd");
-                                    bufft.Append(",");
-                                    bufft.Append("Queued_Msgs");
-                                    bufft.Append(",");
-                                    bufft.Append("UpdatedProperties_Sent");
-                                    bufft.Append(",");
-                                    bufft.Append("UpdatedProperties_Rcvd");
-                                    bufft.Append(",");
-                                    bufft.Append("NewObject_Sent");
-                                    bufft.Append(",");
-                                    bufft.Append("NewObject_Rcvd");
-                                    bufft.Append(",");
-                                    bufft.Append("NewPresence_Sent");
-                                    bufft.Append(",");
-                                    bufft.Append("NewPresence_Rcvd");
+                                    foreach (string fld in fields)
+                                    {
+                                        bufft.Append(",");
+                                        bufft.Append(fld);
+                                    }
+
                                     connWriter.Write(bufft.ToString());
                                 }
                             }
@@ -384,28 +440,11 @@ public class SyncStatisticCollector : IDisposable
                     buff.Append(lastStat.OtherSideActorID);
                     buff.Append(",");
                     buff.Append(lastStat.OtherSideRegionName);
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("Msgs_Sent") ? outputValues["Msgs_Sent"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("Msgs_Rcvd") ? outputValues["Msgs_Rcvd"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("Bytes_Sent") ? outputValues["Bytes_Sent"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("Bytes_Rcvd") ? outputValues["Bytes_Rcvd"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("Queued_Msgs") ? outputValues["Queued_Msgs"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("UpdatedProperties_Sent") ? outputValues["UpdatedProperties_Sent"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("UpdatedProperties_Rcvd") ? outputValues["UpdatedProperties_Rcvd"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("NewObject_Sent") ? outputValues["NewObject_Sent"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("NewObject_Rcvd") ? outputValues["NewObject_Rcvd"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("NewPresence_Sent") ? outputValues["NewPresence_Sent"] : "");
-                    buff.Append(",");
-                    buff.Append(outputValues.ContainsKey("NewPresence_Rcvd") ? outputValues["NewPresence_Rcvd"] : "");
+                    foreach (string fld in fields)
+                    {
+                        buff.Append(",");
+                        buff.Append(outputValues.ContainsKey(fld) ? outputValues[fld] : "");
+                    }
 
                     // buff.Append(outputValues.ContainsKey("NewScript_Sent") ? outputValues["NewScript_Sent"] : "");
                     // buff.Append(outputValues.ContainsKey("NewScript_Rcvd") ? outputValues["NewScript_Rcvd"] : "");
@@ -417,6 +456,66 @@ public class SyncStatisticCollector : IDisposable
                     // buff.Append(outputValues.ContainsKey("GetTerrain") ? outputValues["GetTerrain"] : "");
                     connWriter.Write(buff.ToString());
                 }
+            }
+        }
+    }
+
+    private Dictionary<string, LogWriter> StatLoggers = new Dictionary<string, LogWriter>();
+    private void LogStats(string category, string logDir, string logPrefix, int logFileTime, bool logFlushWrites, List<string> fields)
+    {
+        SortedDictionary<string, SortedDictionary<string, Stat>> categoryStats;
+        if (StatsManager.TryGetStats(category, out categoryStats))
+        {
+            foreach (string container in categoryStats.Keys)
+            {
+                SortedDictionary<string, Stat> containerStats = categoryStats[container];
+                LogWriter connWriter = null;
+                Dictionary<string, string> outputValues = new Dictionary<string, string>();
+
+                foreach (Stat rStat in containerStats.Values)
+                {
+                    // Get the log file writer for this connection and create one if necessary.
+                    if (connWriter == null)
+                    {
+                        string loggerName = category + "/" + container;
+                        if (!StatLoggers.TryGetValue(loggerName, out connWriter))
+                        {
+                            string headr = logPrefix;
+                            headr = headr.Replace("%CATEGORY%", category);
+                            headr = headr.Replace("%CONTAINER%", container);
+                            connWriter = new LogWriter(logDir, headr, logFileTime, logFlushWrites);
+                            StatLoggers.Add(loggerName, connWriter);
+
+                            if (LogRegionIncludeTitleLine)
+                            {
+                                StringBuilder bufft = new StringBuilder();
+                                bufft.Append("Category");
+                                bufft.Append(",");
+                                bufft.Append("Container");
+                                bufft.Append(",");
+                                foreach (string fld in fields)
+                                {
+                                    bufft.Append(",");
+                                    bufft.Append(fld);
+                                }
+
+                                connWriter.Write(bufft.ToString());
+                            }
+                        }
+                    }
+                    outputValues.Add(rStat.Name, rStat.Value.ToString());
+                }
+
+                StringBuilder buff = new StringBuilder();
+                buff.Append(category);
+                buff.Append(",");
+                buff.Append(container);
+                foreach (string fld in fields)
+                {
+                    buff.Append(",");
+                    buff.Append(outputValues.ContainsKey(fld) ? outputValues[fld] : "");
+                }
+                connWriter.Write(buff.ToString());
             }
         }
     }
