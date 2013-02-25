@@ -3628,6 +3628,7 @@ namespace DSG.RegionSync
             EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
         }
 
+        private int m_updateTick = 0;
         /// <summary>
         /// Triggered periodically to send out sync messages that include 
         /// prim and scene presence properties that have been updated since last SyncOut.
@@ -3677,8 +3678,17 @@ namespace DSG.RegionSync
                 return;
             }
 
+
             lock (m_propertyUpdateLock)
             {
+                bool tickLog = false;
+                DateTime startTime = DateTime.Now;
+                if (m_propertyUpdates.Count > 0)
+                {
+                    tickLog = true;
+                    m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SendPrimPropertyUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
+                }
+
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
                 Dictionary<UUID, HashSet<SyncableProperties.Type>> updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
                 m_propertyUpdates.Clear();
@@ -3725,6 +3735,14 @@ namespace DSG.RegionSync
                                 m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e.Message);
                             }
                         }
+                    }
+
+                    if (tickLog)
+                    {
+                        DateTime endTime = DateTime.Now;
+                        TimeSpan span = endTime - startTime;
+                        m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: END the thread , time span {1}",
+                            m_updateTick, span.Milliseconds);
                     }
 
                     // Indicate that the current batch of updates has been completed
