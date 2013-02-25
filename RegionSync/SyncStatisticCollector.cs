@@ -214,6 +214,8 @@ public class SyncStatisticCollector : IDisposable
     public static string DSGCategory = "dsg";
     public static string DSGDetailCategory = "dsg-detail";
 
+    private string RegionName = "pre";
+
     private int LogIntervalSeconds { get; set; }
     private System.Timers.Timer WriteTimer { get; set; }
 
@@ -266,7 +268,7 @@ public class SyncStatisticCollector : IDisposable
             if (LogRegionEnable)
             {
                 LogRegionDirectory = cfg.GetString("LogRegionDirectory", ".");
-                LogRegionFilenamePrefix = cfg.GetString("LogRegionFilenamePrefix", "%CATEGORY%-%CONTAINER%-");
+                LogRegionFilenamePrefix = cfg.GetString("LogRegionFilenamePrefix", "%CATEGORY%-%CONTAINER%-%REGIONNAME%-");
                 LogRegionIncludeTitleLine = cfg.GetBoolean("LogRegionIncludeTitleLine", true);
                 LogRegionFileTimeMinutes = cfg.GetInt("LogRegionFileTimeMinutes", 10);
                 LogRegionFlushWrites = cfg.GetBoolean("LogRegionFlushWrites", false);
@@ -279,7 +281,7 @@ public class SyncStatisticCollector : IDisposable
             if (LogServerEnable)
             {
                 LogServerDirectory = cfg.GetString("LogServerDirectory", ".");
-                LogServerFilenamePrefix = cfg.GetString("LogServerFilenamePrefix", "%CATEGORY%-%CONTAINER%-");
+                LogServerFilenamePrefix = cfg.GetString("LogServerFilenamePrefix", "%CATEGORY%-%REGIONNAME%-");
                 LogServerIncludeTitleLine = cfg.GetBoolean("LogServerIncludeTitleLine", true);
                 LogServerFileTimeMinutes = cfg.GetInt("LogServerFileTimeMinutes", 10);
                 LogServerFlushWrites = cfg.GetBoolean("LogServerFlushWrites", false);
@@ -287,7 +289,16 @@ public class SyncStatisticCollector : IDisposable
                 m_log.InfoFormat("{0} Enabling server logging. Dir={1}, fileAge={2}min, flush={3}",
                         LogHeader, LogServerDirectory, LogServerFileTimeMinutes, LogServerFlushWrites);
             }
+        }
+    }
 
+    public void SpecifyRegion(string pRegionName)
+    {
+        RegionName = pRegionName;
+
+        // Once the region is set, we can start gathering statistics
+        if (Enabled)
+        {
             WriteTimer = new Timer(LogIntervalSeconds * 1000);
             WriteTimer.Elapsed += StatsTimerElapsed;
             WriteTimer.Start();
@@ -322,7 +333,7 @@ public class SyncStatisticCollector : IDisposable
         if (LogRegionEnable)
             LogStats("scene", LogRegionDirectory, LogRegionFilenamePrefix, LogRegionFileTimeMinutes, LogRegionFlushWrites, regionStatFields);
         if (LogServerEnable)
-            LogStats("server", LogServerDirectory, LogServerFilenamePrefix, LogServerFileTimeMinutes, LogServerFlushWrites, serverStatFields);
+            LogStatsCombineCategory("server", LogServerDirectory, LogServerFilenamePrefix, LogServerFileTimeMinutes, LogServerFlushWrites, serverStatFields);
     }
 
     public void Dispose()
@@ -483,6 +494,7 @@ public class SyncStatisticCollector : IDisposable
                             string headr = logPrefix;
                             headr = headr.Replace("%CATEGORY%", category);
                             headr = headr.Replace("%CONTAINER%", container);
+                            headr = headr.Replace("%REGIONNAME%", RegionName);
                             connWriter = new LogWriter(logDir, headr, logFileTime, logFlushWrites);
                             StatLoggers.Add(loggerName, connWriter);
 
@@ -492,7 +504,6 @@ public class SyncStatisticCollector : IDisposable
                                 bufft.Append("Category");
                                 bufft.Append(",");
                                 bufft.Append("Container");
-                                bufft.Append(",");
                                 foreach (string fld in fields)
                                 {
                                     bufft.Append(",");
@@ -517,6 +528,62 @@ public class SyncStatisticCollector : IDisposable
                 }
                 connWriter.Write(buff.ToString());
             }
+        }
+    }
+
+    // There may be multiple containers but combine all containers under the one category.
+    private void LogStatsCombineCategory(string category, string logDir, string logPrefix, int logFileTime, bool logFlushWrites, List<string> fields)
+    {
+        SortedDictionary<string, SortedDictionary<string, Stat>> categoryStats;
+        LogWriter connWriter = null;
+        Dictionary<string, string> outputValues = new Dictionary<string, string>();
+        if (StatsManager.TryGetStats(category, out categoryStats))
+        {
+            foreach (string container in categoryStats.Keys)
+            {
+                SortedDictionary<string, Stat> containerStats = categoryStats[container];
+
+                foreach (Stat rStat in containerStats.Values)
+                {
+                    outputValues.Add(rStat.Name, rStat.Value.ToString());
+                }
+            }
+
+            // Get the log file writer for this connection and create one if necessary.
+            string loggerName = category;
+            if (!StatLoggers.TryGetValue(loggerName, out connWriter))
+            {
+                string headr = logPrefix;
+                headr = headr.Replace("%CATEGORY%", category);
+                headr = headr.Replace("%REGIONNAME%", RegionName);
+                connWriter = new LogWriter(logDir, headr, logFileTime, logFlushWrites);
+                StatLoggers.Add(loggerName, connWriter);
+
+                if (LogRegionIncludeTitleLine)
+                {
+                    StringBuilder bufft = new StringBuilder();
+                    bufft.Append("Category");
+                    bufft.Append(",");
+                    bufft.Append("RegionName");
+                    foreach (string fld in fields)
+                    {
+                        bufft.Append(fld);
+                    }
+
+                    connWriter.Write(bufft.ToString());
+                }
+            }
+
+            StringBuilder buff = new StringBuilder();
+            buff.Append(category);
+            buff.Append(",");
+            buff.Append(RegionName);
+            foreach (string fld in fields)
+            {
+                buff.Append(",");
+                buff.Append(outputValues.ContainsKey(fld) ? outputValues[fld] : "");
+            }
+            connWriter.Write(buff.ToString());
         }
     }
 }

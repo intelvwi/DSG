@@ -389,9 +389,9 @@ namespace DSG.RegionSync
                 otherSideRegionName,            // otherSideRegionName
                 otherSideActorID                // otherSideActorID
                 );
-            // msgsIn.AddHistogram("Msgs_Sent_Last_Minute", new EventHistogram(60, 1000)); // last minute in seconds
-            // msgsIn.AddHistogram("Msgs_Sent_Last_Hour", new EventHistogram(60, 60000));  // last hour in minutes
-            // msgsIn.AddHistogram("Msgs_Sent_Last_Day", new EventHistogram(24, 3600000)); // last day in hours
+            // msgsOut.AddHistogram("Msgs_Sent_Last_Minute", new EventHistogram(60, 1000)); // last minute in seconds
+            // msgsOut.AddHistogram("Msgs_Sent_Last_Hour", new EventHistogram(60, 60000));  // last hour in minutes
+            // msgsOut.AddHistogram("Msgs_Sent_Last_Day", new EventHistogram(24, 3600000)); // last day in hours
             StatsManager.RegisterStat(msgsOut);
             m_registeredStats.Add(msgsOut);
 
@@ -406,6 +406,7 @@ namespace DSG.RegionSync
                 otherSideRegionName,            // otherSideRegionName
                 otherSideActorID                // otherSideActorID
                 );
+            // bytesIn.AddHistogram("Bytes_Rcvd_Last_Hour", new EventHistogram(60, 60000));  // last hour in minutes
             StatsManager.RegisterStat(bytesIn);
             m_registeredStats.Add(bytesIn);
 
@@ -420,6 +421,7 @@ namespace DSG.RegionSync
                 otherSideRegionName,            // otherSideRegionName
                 otherSideActorID                // otherSideActorID
                 );
+            // bytesOut.AddHistogram("Bytes_Sent_Last_Hour", new EventHistogram(60, 60000));  // last hour in minutes
             StatsManager.RegisterStat(bytesOut);
             m_registeredStats.Add(bytesOut);
 
@@ -434,6 +436,7 @@ namespace DSG.RegionSync
                 otherSideRegionName,            // otherSideRegionName
                 otherSideActorID                // otherSideActorID
                 );
+            // currentQueue.AddHistogram("Queue_Size_Last_5Minute", new EventHistogram(300, 1000)); // last 5 minutes in seconds
             StatsManager.RegisterStat(currentQueue);
             m_registeredStats.Add(currentQueue);
 

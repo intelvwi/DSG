@@ -186,6 +186,11 @@ namespace DSG.RegionSync
             LogHeader += "/" + scene.RegionInfo.RegionName;
             m_detailedLog.LogFileHeader = m_detailedLog.LogFileHeader + scene.RegionInfo.RegionName + "-";
 
+            if (StatCollector != null)
+            {
+                StatCollector.SpecifyRegion(Scene.RegionInfo.RegionName);
+            }
+
             SyncID = GetSyncID();
         }
 
