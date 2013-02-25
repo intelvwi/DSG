@@ -290,6 +290,7 @@ public class SyncStatisticCollector : IDisposable
                         LogHeader, LogServerDirectory, LogServerFileTimeMinutes, LogServerFlushWrites);
             }
         }
+        lastStatTime = Util.EnvironmentTickCount();
     }
 
     public void SpecifyRegion(string pRegionName)
@@ -371,23 +372,32 @@ public class SyncStatisticCollector : IDisposable
         }
     }
 
+    int lastStatTime = 0;
+    double lastMsgs_Sent = 0;
+    double lastMsgs_Rcvd = 0;
+    double lastBytes_Sent = 0;
+    double lastBytes_Rcvd = 0;
+
     private Dictionary<string, LogWriter> ConnectionLoggers = new Dictionary<string, LogWriter>();
     private void LogConnectorStats()
     {
         List<string> fields = new List<string>
-                { "Msgs_Sent", "Msgs_Rcvd", "Bytes_Sent", "Bytes_Rcvd", "Queued_Msgs",
+                { "Msgs_Sent", "Msgs_Rcvd", "Bytes_Sent", "Bytes_Rcvd",
+                  "Msgs_Sent_Per_Sec", "Msgs_Rcvd_Per_Sec", "Bytes_Sent_Per_Sec", "Bytes_Rcvd_Per_Sec",
+                 "Queued_Msgs",
                  "UpdatedProperties_Sent", "UpdatedProperties_Rcvd",
                  "NewObject_Sent", "NewObject_Rcvd", "NewPresence_Sent", "NewPresence_Rcvd"
         };
+        Dictionary<string, double> outputValues = new Dictionary<string, double>();
+
         SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
         if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
         {
+            LogWriter connWriter = null;
+            SyncConnectorStat lastStat = null;
             foreach (string container in DSGStats.Keys)
             {
                 SortedDictionary<string, Stat> containerStats = DSGStats[container];
-                LogWriter connWriter = null;
-                Dictionary<string, string> outputValues = new Dictionary<string, string>();
-                SyncConnectorStat lastStat = null;
 
                 foreach (Stat aStat in containerStats.Values)
                 {
@@ -396,51 +406,56 @@ public class SyncStatisticCollector : IDisposable
                     if (connStat != null)
                     {
                         lastStat = connStat;    // remember one of the stats for line output info
-
-                        // Get the log file writer for this connection and create one if necessary.
-                        if (connWriter == null)
-                        {
-                            if (!ConnectionLoggers.TryGetValue(container, out connWriter))
-                            {
-                                string headr = LogSyncConnectorFilenamePrefix;
-                                headr = headr.Replace("%CONTAINER%", container);
-                                headr = headr.Replace("%REGIONNAME%", connStat.RegionName);
-                                headr = headr.Replace("%CONNECTIONNUMBER%", connStat.ConnectorNum.ToString());
-                                headr = headr.Replace("%THISACTOR%", connStat.MyActorID);
-                                headr = headr.Replace("%OTHERSIDEACTOR%", connStat.OtherSideActorID);
-                                headr = headr.Replace("%OTHERSIDEREGION%", connStat.OtherSideRegionName);
-                                headr = headr.Replace("%MESSAGETYPE%", connStat.MessageType);
-                                connWriter = new LogWriter(LogSyncConnectorDirectory, headr, LogSyncConnectorFileTimeMinutes, LogSyncConnectorFlushWrites);
-                                ConnectionLoggers.Add(container, connWriter);
-
-                                if (LogSyncConnectorIncludeTitleLine)
-                                {
-                                    StringBuilder bufft = new StringBuilder();
-                                    bufft.Append("Region");
-                                    bufft.Append(",");
-                                    bufft.Append("SyncConnNum");
-                                    bufft.Append(",");
-                                    bufft.Append("ActorID");
-                                    bufft.Append(",");
-                                    bufft.Append("OtherSideActorID");
-                                    bufft.Append(",");
-                                    bufft.Append("OtherSideRegionName");
-                                    foreach (string fld in fields)
-                                    {
-                                        bufft.Append(",");
-                                        bufft.Append(fld);
-                                    }
-
-                                    connWriter.Write(bufft.ToString());
-                                }
-                            }
-                        }
+                        outputValues.Add(connStat.Name, connStat.Value);
                     }
-                    outputValues.Add(connStat.Name, connStat.Value.ToString());
                 }
 
+                // Get the log file writer for this connection and create one if necessary.
                 if (lastStat != null)
                 {
+                    if (!ConnectionLoggers.TryGetValue(container, out connWriter))
+                    {
+                        string headr = LogSyncConnectorFilenamePrefix;
+                        headr = headr.Replace("%CONTAINER%", container);
+                        headr = headr.Replace("%REGIONNAME%", lastStat.RegionName);
+                        headr = headr.Replace("%CONNECTIONNUMBER%", lastStat.ConnectorNum.ToString());
+                        headr = headr.Replace("%THISACTOR%", lastStat.MyActorID);
+                        headr = headr.Replace("%OTHERSIDEACTOR%", lastStat.OtherSideActorID);
+                        headr = headr.Replace("%OTHERSIDEREGION%", lastStat.OtherSideRegionName);
+                        headr = headr.Replace("%MESSAGETYPE%", lastStat.MessageType);
+                        connWriter = new LogWriter(LogSyncConnectorDirectory, headr, LogSyncConnectorFileTimeMinutes, LogSyncConnectorFlushWrites);
+                        ConnectionLoggers.Add(container, connWriter);
+
+                        if (LogSyncConnectorIncludeTitleLine)
+                        {
+                            StringBuilder bufft = new StringBuilder();
+                            bufft.Append("Region");
+                            bufft.Append(",");
+                            bufft.Append("SyncConnNum");
+                            bufft.Append(",");
+                            bufft.Append("ActorID");
+                            bufft.Append(",");
+                            bufft.Append("OtherSideActorID");
+                            bufft.Append(",");
+                            bufft.Append("OtherSideRegionName");
+                            foreach (string fld in fields)
+                            {
+                                bufft.Append(",");
+                                bufft.Append(fld);
+                            }
+
+                            connWriter.Write(bufft.ToString());
+                        }
+                    }
+
+                    // Compute some useful values
+                    int msSinceLast = Util.EnvironmentTickCountSubtract(lastStatTime);
+                    ComputePerSecond("Msgs_Sent",  "Msgs_Sent_Per_Sec",  ref outputValues, ref lastMsgs_Sent,  msSinceLast);
+                    ComputePerSecond("Msgs_Rcvd",  "Msgs_Rcvd_Per_Sec",  ref outputValues, ref lastMsgs_Rcvd,  msSinceLast);
+                    ComputePerSecond("Bytes_Sent", "Bytes_Sent_Per_Sec", ref outputValues, ref lastBytes_Sent, msSinceLast);
+                    ComputePerSecond("Bytes_Rcvd", "Bytes_Rcvd_Per_Sec", ref outputValues, ref lastBytes_Rcvd, msSinceLast);
+                    lastStatTime = Util.EnvironmentTickCount();
+
                     StringBuilder buff = new StringBuilder();
                     buff.Append(lastStat.RegionName);
                     buff.Append(",");
@@ -454,7 +469,7 @@ public class SyncStatisticCollector : IDisposable
                     foreach (string fld in fields)
                     {
                         buff.Append(",");
-                        buff.Append(outputValues.ContainsKey(fld) ? outputValues[fld] : "");
+                        buff.Append(outputValues.ContainsKey(fld) ? outputValues[fld].ToString() : "");
                     }
 
                     // buff.Append(outputValues.ContainsKey("NewScript_Sent") ? outputValues["NewScript_Sent"] : "");
@@ -468,6 +483,24 @@ public class SyncStatisticCollector : IDisposable
                     connWriter.Write(buff.ToString());
                 }
             }
+        }
+    }
+
+    // Compute an avarea per second givne the current values and pointers to the previous values and time since previous sample.
+    // This updates pOutputValues with the per second value.
+    // Also updates the previous value.
+    private void ComputePerSecond(string pAccumName, string pPerSecName, ref Dictionary<string, double> pOutputValues, ref double pPrevValue, int msSinceLast)
+    {
+        if (pOutputValues.ContainsKey(pAccumName))
+        {
+            double perSec = 0;
+            double currentVal = pOutputValues[pAccumName];
+            if (msSinceLast > 50)
+            {
+                perSec = (currentVal - pPrevValue) / ((double)msSinceLast / 1000d);
+                pOutputValues.Add(pPerSecName, perSec);
+            }
+            pPrevValue = currentVal;
         }
     }
 
