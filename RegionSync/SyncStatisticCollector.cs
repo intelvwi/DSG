@@ -600,6 +600,7 @@ public class SyncStatisticCollector : IDisposable
                     bufft.Append("RegionName");
                     foreach (string fld in fields)
                     {
+                        bufft.Append(",");
                         bufft.Append(fld);
                     }
 
