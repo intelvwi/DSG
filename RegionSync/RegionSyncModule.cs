@@ -3624,6 +3624,13 @@ namespace DSG.RegionSync
                 propertiesWithSyncInfoUpdated.ExceptWith(SyncableProperties.GroupProperties);
                 // m_log.WarnFormat("{0}: OnSceneObjectPartUpdated: Filtered GroupProperties from non-root part: {1}", LogHeader, part.UUID);
             }
+
+            //If this is a prim attached to avatar, don't enqueque the 
+            if (part.ParentGroup.IsAttachment)
+            {
+                propertiesWithSyncInfoUpdated.ExceptWith(SyncableProperties.AttachmentNonSyncProperties);
+            }
+
             // Enqueue whatever properties are left in the set
             EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
         }
@@ -3678,6 +3685,7 @@ namespace DSG.RegionSync
                 return;
             }
 
+            m_updateTick++;
 
             lock (m_propertyUpdateLock)
             {
@@ -3686,7 +3694,7 @@ namespace DSG.RegionSync
                 if (m_propertyUpdates.Count > 0)
                 {
                     tickLog = true;
-                    m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SendPrimPropertyUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
+                    m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
                 }
 
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
@@ -3700,6 +3708,7 @@ namespace DSG.RegionSync
                     // If syncing with other nodes, send updates
                     if(IsSyncingWithOtherSyncNodes())
                     {
+                        int updateIndex = 0;
                         foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
                         {
                             UUID uuid = update.Key;
@@ -3734,6 +3743,17 @@ namespace DSG.RegionSync
                             {
                                 m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e.Message);
                             }
+
+                            /*
+                            updateIndex++;
+                            if (tickLog)
+                            {
+                                DateTime endTime = DateTime.Now;
+                                TimeSpan span = endTime - startTime;
+                                m_log.InfoFormat("SyncOutUpdates - tick {0}: after {1} updates encoding, time span {2}",
+                                    m_updateTick, updateIndex, span.Milliseconds);
+                            }
+                             * */
                         }
                     }
 
@@ -3741,7 +3761,7 @@ namespace DSG.RegionSync
                     {
                         DateTime endTime = DateTime.Now;
                         TimeSpan span = endTime - startTime;
-                        m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: END the thread , time span {1}",
+                        m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
                             m_updateTick, span.Milliseconds);
                     }
 
@@ -3951,8 +3971,9 @@ namespace DSG.RegionSync
                     m_propertyUpdates.Add(uuid, updatedProperties);
                 else
                     // No need to check if the property is already in the hash set.
-                    foreach (SyncableProperties.Type property in updatedProperties)
-                        m_propertyUpdates[uuid].Add(property);
+                    //foreach (SyncableProperties.Type property in updatedProperties)
+                    //    m_propertyUpdates[uuid].Add(property);
+                    m_propertyUpdates[uuid].UnionWith(updatedProperties);
             }
         }
     }

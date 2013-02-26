@@ -161,6 +161,7 @@ namespace DSG.RegionSync
         public readonly static HashSet<SyncableProperties.Type> NonPhysActorProperties = SyncableProperties.GetNonPhysActorProperties();
         public readonly static HashSet<SyncableProperties.Type> GroupProperties = SyncableProperties.GetGroupProperties();
         public readonly static HashSet<SyncableProperties.Type> AvatarProperties = SyncableProperties.GetAvatarProperties();
+        public readonly static HashSet<SyncableProperties.Type> AttachmentNonSyncProperties = SyncableProperties.GetAttachmentNonSyncProperties();
 
         /// <summary>
         /// Return the list of all prim (SOP) properties, in enum type excluding None, FullUpdate.
@@ -276,6 +277,19 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.Flying);
             allProperties.Add(SyncableProperties.Type.PresenceType);
             allProperties.Add(SyncableProperties.Type.IsColliding);
+
+            return allProperties;
+        }
+
+        /// <summary>
+        /// Return the list of all prim (SOP) properties, in enum type excluding None, FullUpdate.
+        /// </summary>
+        /// <returns></returns>
+        private static HashSet<SyncableProperties.Type> GetAttachmentNonSyncProperties()
+        {
+            HashSet<SyncableProperties.Type> allProperties = new HashSet<SyncableProperties.Type>();
+            allProperties.Add(SyncableProperties.Type.AbsolutePosition);
+            allProperties.Add(SyncableProperties.Type.GroupPosition);
 
             return allProperties;
         }
