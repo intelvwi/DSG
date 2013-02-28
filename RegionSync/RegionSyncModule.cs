@@ -3813,6 +3813,7 @@ namespace DSG.RegionSync
                     // If syncing with other nodes, send updates
                     if(IsSyncingWithOtherSyncNodes())
                     {
+			int updateIndex = 0;
                         foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
                         {
                             UUID uuid = update.Key;
