@@ -154,6 +154,26 @@ namespace DSG.RegionSync
             // Whether to include the names of the changed properties in the log (slow but useful)
             m_detailedPropertyValues = m_sysConfig.GetBoolean("DetailPropertyValues", false);
 
+
+            //configuration for logging updateLoop timing and delays, we'll use the same parameters as DetailLog
+            if (m_sysConfig.GetBoolean("UpdateLoopLogEnabled", false))
+            {
+                string dir = m_sysConfig.GetString("DetailLogDirectory", ".");
+                string hdr = m_sysConfig.GetString("DetailLogPrefix", "log-%ACTORID%-");
+                hdr = hdr.Replace("%ACTORID%", ActorID);
+                hdr = hdr + "-UpdateLoop";
+                int mins = m_sysConfig.GetInt("DetailLogMaxFileTimeMin", 5);
+                bool flush = m_sysConfig.GetBoolean("FlushWrites", false);
+                m_updateLoopLog = new Logging.LogWriter(dir, hdr, mins, false);
+                m_updateLoopLog.ErrorLogger = m_log;  // pass in logger for debugging (can be removed later)
+                m_log.InfoFormat("{0}: DetailLog enabled. Dir={1}, pref={2}, maxTime={3}", LogHeader, dir, hdr, mins);
+            }
+            else
+            {
+                m_updateLoopLog = new Logging.LogWriter();
+                m_log.InfoFormat("{0}: UpdateLoopLog disabled.", LogHeader);
+            }
+
             //initialize SyncInfoManager
             SyncInfoManager.DebugLog = m_log;
             SyncInfoPrim.DebugLog = m_log;
@@ -312,6 +332,12 @@ namespace DSG.RegionSync
             {
                 m_detailedLog.Close();
                 m_detailedLog = null;
+            }
+
+            if (m_updateLoopLog != null)
+            {
+                m_updateLoopLog.Close();
+                m_updateLoopLog = null;
             }
         }
 
@@ -765,6 +791,10 @@ namespace DSG.RegionSync
 
         private Logging.LogWriter m_detailedLog;
         private Boolean m_detailedPropertyValues = false;
+
+        //logging of the timing and delays in the update loop
+        private Logging.LogWriter m_updateLoopLog;
+       
 
         private bool m_isSyncListenerLocal = false;
         //private RegionSyncListenerInfo m_localSyncListenerInfo 
@@ -1451,7 +1481,9 @@ namespace DSG.RegionSync
                         //Next, test de-serialization
                         SceneObjectGroup group;
                         Dictionary<UUID, SyncInfoBase> primsSyncInfo;
-                        DecodeSceneObject(sogData, out group, out primsSyncInfo);
+                        if (!DecodeSceneObject(sogData, out group, out primsSyncInfo))
+                            return;
+                        
 
                         //Add the list of PrimSyncInfo to SyncInfoManager
                         foreach (KeyValuePair<UUID, SyncInfoBase> kvp in primsSyncInfo)
@@ -1830,7 +1862,11 @@ namespace DSG.RegionSync
             // Decode group and syncInfo from message data
             SceneObjectGroup group;
             Dictionary<UUID, SyncInfoBase> syncInfos;
-            DecodeSceneObject(data, out group, out syncInfos);
+            if (!DecodeSceneObject(data, out group, out syncInfos))
+            {
+                m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncNewObject", LogHeader);
+                return;
+            }
 
             if (group.RootPart.Shape == null)
             {
@@ -1985,7 +2021,11 @@ namespace DSG.RegionSync
             OSDMap encodedSOG = (OSDMap)data["linkedGroup"];
             SceneObjectGroup linkedGroup;
             Dictionary<UUID, SyncInfoBase> groupSyncInfos;
-            DecodeSceneObject(encodedSOG, out linkedGroup, out groupSyncInfos);
+            if (!DecodeSceneObject(encodedSOG, out linkedGroup, out groupSyncInfos))
+            {
+                m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncLinkObject", LogHeader);
+                return;
+            }
             DetailedUpdateWrite("RecLnkObjj", linkedGroup.UUID, 0, m_zeroUUID, senderActorID, msg.Data.Length);
 
             //TEMP DEBUG
@@ -2079,7 +2119,12 @@ namespace DSG.RegionSync
                 SceneObjectGroup afterGroup;
                 OSDMap encodedSOG = (OSDMap)data[groupTempID];
                 Dictionary<UUID, SyncInfoBase> groupSyncInfo;
-                DecodeSceneObject(encodedSOG, out afterGroup, out groupSyncInfo);
+                if(!DecodeSceneObject(encodedSOG, out afterGroup, out groupSyncInfo))
+                {
+                    m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncDelinkObject", LogHeader);
+                    return;
+                }
+
                 incomingAfterDelinkGroups.Add(afterGroup);
                 incomingPrimSyncInfo.Add(groupSyncInfo);
             }
@@ -3625,7 +3670,7 @@ namespace DSG.RegionSync
                 // m_log.WarnFormat("{0}: OnSceneObjectPartUpdated: Filtered GroupProperties from non-root part: {1}", LogHeader, part.UUID);
             }
 
-            //If this is a prim attached to avatar, don't enqueque the 
+            //If this is a prim attached to avatar, don't enqueque the properties defined in AttachmentNonSyncProperties
             if (part.ParentGroup.IsAttachment)
             {
                 propertiesWithSyncInfoUpdated.ExceptWith(SyncableProperties.AttachmentNonSyncProperties);
@@ -3636,6 +3681,7 @@ namespace DSG.RegionSync
         }
 
         private int m_updateTick = 0;
+        private StringBuilder m_updateLoopLogSB;
         /// <summary>
         /// Triggered periodically to send out sync messages that include 
         /// prim and scene presence properties that have been updated since last SyncOut.
@@ -3694,7 +3740,8 @@ namespace DSG.RegionSync
                 if (m_propertyUpdates.Count > 0)
                 {
                     tickLog = true;
-                    m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
+                    //m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
+                    m_updateLoopLogSB = new StringBuilder(m_updateTick.ToString());
                 }
 
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
@@ -3727,9 +3774,27 @@ namespace DSG.RegionSync
                             {
                                 syncData = m_SyncInfoManager.EncodeProperties(uuid, updatedProperties);
                                 // m_log.WarnFormat("{0}: SyncOutUpdates(): Sending {1} updates for uuid {2}", LogHeader, syncData.Count, uuid);
+
+                                //Log encoding delays
+                                if (tickLog)
+                                {
+                                    DateTime encodeEndTime = DateTime.Now;
+                                    TimeSpan span = encodeEndTime - startTime;
+                                    m_updateLoopLogSB.Append(",update-" +updateIndex+"," + span.TotalMilliseconds.ToString());
+                                }
+
                                 if (syncData.Count > 0)
                                 {
                                     SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.UpdatedProperties, syncData);
+
+                                    //Log encoding delays
+                                    if (tickLog)
+                                    {
+                                        DateTime syncMsgendTime = DateTime.Now;
+                                        TimeSpan span = syncMsgendTime - startTime;
+                                        m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
+                                    }
+
                                     HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
                                     // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
                                     foreach (SyncConnector connector in syncConnectors)
@@ -3737,23 +3802,25 @@ namespace DSG.RegionSync
                                         DetailedUpdateLogging(uuid, updatedProperties, null, "SendUpdate", connector.otherSideActorID, syncMsg.Length);
                                         connector.EnqueueOutgoingUpdate(uuid, syncMsg);
                                     }
+
+                                    //Log encoding delays
+                                    if (tickLog)
+                                    {
+                                        DateTime syncConnectorendTime = DateTime.Now;
+                                        TimeSpan span = syncConnectorendTime - startTime;
+                                        m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
+                                    }
                                 }
+
                             }
                             catch (Exception e)
                             {
                                 m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e.Message);
                             }
 
-                            /*
+                            
                             updateIndex++;
-                            if (tickLog)
-                            {
-                                DateTime endTime = DateTime.Now;
-                                TimeSpan span = endTime - startTime;
-                                m_log.InfoFormat("SyncOutUpdates - tick {0}: after {1} updates encoding, time span {2}",
-                                    m_updateTick, updateIndex, span.Milliseconds);
-                            }
-                             * */
+                            
                         }
                     }
 
@@ -3761,8 +3828,9 @@ namespace DSG.RegionSync
                     {
                         DateTime endTime = DateTime.Now;
                         TimeSpan span = endTime - startTime;
-                        m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
-                            m_updateTick, span.Milliseconds);
+                        m_updateLoopLogSB.Append(", total-span " + span.TotalMilliseconds.ToString());
+                        //m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
+                        //    m_updateTick, span.Milliseconds);
                     }
 
                     // Indicate that the current batch of updates has been completed
@@ -3827,82 +3895,94 @@ namespace DSG.RegionSync
         /// <param name="data"></param>
         /// <param name="sog"></param>
         /// <param name="syncInfos"></param>
-        private void DecodeSceneObject(OSDMap data, out SceneObjectGroup sog, out Dictionary<UUID, SyncInfoBase> syncInfos)
+        /// <returns>True of decoding sucessfully</returns>
+        private bool DecodeSceneObject(OSDMap data, out SceneObjectGroup sog, out Dictionary<UUID, SyncInfoBase> syncInfos)
         {
             sog = new SceneObjectGroup();
             syncInfos = new Dictionary<UUID, SyncInfoBase>();
+            bool ret = true;
 
-            UUID uuid = ((OSDMap)data["RootPart"])["uuid"].AsUUID();
-            OSDMap propertyData = (OSDMap)((OSDMap)data["RootPart"])["propertyData"];
-            //m_log.WarnFormat("{0} DecodeSceneObject for RootPart uuid: {1}", LogHeader, uuid);
+            try{
+                UUID uuid = ((OSDMap)data["RootPart"])["uuid"].AsUUID();
 
-            //Decode and copy to the list of PrimSyncInfo
-            SyncInfoPrim sip = new SyncInfoPrim(uuid, propertyData, Scene);
-            SceneObjectPart root = (SceneObjectPart)sip.SceneThing;
+                OSDMap propertyData = (OSDMap)((OSDMap)data["RootPart"])["propertyData"];
+                //m_log.WarnFormat("{0} DecodeSceneObject for RootPart uuid: {1}", LogHeader, uuid);
 
-            sog.SetRootPart(root);
-            sip.SetPropertyValues(SyncableProperties.GroupProperties);
-            syncInfos.Add(root.UUID, sip);
+                //Decode and copy to the list of PrimSyncInfo
+                SyncInfoPrim sip = new SyncInfoPrim(uuid, propertyData, Scene);
+                SceneObjectPart root = (SceneObjectPart)sip.SceneThing;
 
-            if (sog.UUID == UUID.Zero)
-                sog.UUID = sog.RootPart.UUID;
+                sog.SetRootPart(root);
+                sip.SetPropertyValues(SyncableProperties.GroupProperties);
+                syncInfos.Add(root.UUID, sip);
 
-            //Decode the remaining parts and add them to the object group
-            if(data.ContainsKey("OtherParts"))
-            {
-                //int otherPartsCount = data["OtherPartsCount"].AsInteger();
-                OSDArray otherPartsArray = (OSDArray) data["OtherParts"];
-                for (int i = 0; i < otherPartsArray.Count; i++)
+                if (sog.UUID == UUID.Zero)
+                    sog.UUID = sog.RootPart.UUID;
+
+                //Decode the remaining parts and add them to the object group
+                if (data.ContainsKey("OtherParts"))
                 {
-                    uuid = ((OSDMap)otherPartsArray[i])["uuid"].AsUUID();
-                    propertyData = (OSDMap)((OSDMap)otherPartsArray[i])["propertyData"];
-
-                    //m_log.WarnFormat("{0} DecodeSceneObject for OtherParts[{1}] uuid: {2}", LogHeader, i, uuid);
-                    sip = new SyncInfoPrim(uuid, propertyData, Scene);
-                    SceneObjectPart part = (SceneObjectPart)sip.SceneThing;
-
-                    if (part == null)
+                    //int otherPartsCount = data["OtherPartsCount"].AsInteger();
+                    OSDArray otherPartsArray = (OSDArray)data["OtherParts"];
+                    for (int i = 0; i < otherPartsArray.Count; i++)
                     {
-                        m_log.ErrorFormat("{0} DecodeSceneObject could not decode root part.", LogHeader);
-                        sog = null;
-                        return;
+                        uuid = ((OSDMap)otherPartsArray[i])["uuid"].AsUUID();
+                        propertyData = (OSDMap)((OSDMap)otherPartsArray[i])["propertyData"];
+
+                        //m_log.WarnFormat("{0} DecodeSceneObject for OtherParts[{1}] uuid: {2}", LogHeader, i, uuid);
+                        sip = new SyncInfoPrim(uuid, propertyData, Scene);
+                        SceneObjectPart part = (SceneObjectPart)sip.SceneThing;
+
+                        if (part == null)
+                        {
+                            m_log.ErrorFormat("{0} DecodeSceneObject could not decode root part.", LogHeader);
+                            sog = null;
+                            return false;
+                        }
+                        sog.AddPart(part);
+                        // Should only need to set group properties from the root part, not other parts
+                        //sip.SetPropertyValues(SyncableProperties.GroupProperties);
+                        syncInfos.Add(part.UUID, sip);
                     }
-                    sog.AddPart(part);
-                    // Should only need to set group properties from the root part, not other parts
-                    //sip.SetPropertyValues(SyncableProperties.GroupProperties);
-                    syncInfos.Add(part.UUID, sip);
+                }
+
+                // Handled inline above because SyncInfoBase does not have SetGroupProperties.
+                /*
+                foreach (SceneObjectPart part in sog.Parts)
+                {
+                    syncInfos[part.UUID].SetGroupProperties(part);
+                }
+                */
+
+                sog.IsAttachment = data["IsAttachment"].AsBoolean();
+                sog.AttachedAvatar = data["AttachedAvatar"].AsUUID();
+                uint ap = data["AttachmentPoint"].AsUInteger();
+                if (ap != null)
+                {
+                    if (sog.RootPart == null)
+                    {
+                        //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART IS NULL", LogHeader);
+                    }
+                    else if (sog.RootPart.Shape == null)
+                    {
+                        //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART SHAPE IS NULL", LogHeader);
+                    }
+                    else
+                    {
+                        sog.AttachmentPoint = ap;
+                        //m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = {1}", LogHeader, sog.AttachmentPoint);
+                    }
                 }
             }
-
-            // Handled inline above because SyncInfoBase does not have SetGroupProperties.
-            /*
-            foreach (SceneObjectPart part in sog.Parts)
+            catch (Exception e)
             {
-                syncInfos[part.UUID].SetGroupProperties(part);
-            }
-            */
-
-            sog.IsAttachment = data["IsAttachment"].AsBoolean();
-            sog.AttachedAvatar = data["AttachedAvatar"].AsUUID();
-            uint ap = data["AttachmentPoint"].AsUInteger();
-            if (ap != null)
-            {
-                if (sog.RootPart == null)
-                {
-                    //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART IS NULL", LogHeader);
-                }
-                else if (sog.RootPart.Shape == null)
-                {
-                    //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART SHAPE IS NULL", LogHeader);
-                }
-                else
-                {
-                    sog.AttachmentPoint = ap;
-                    //m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = {1}", LogHeader, sog.AttachmentPoint);
-                }
+                m_log.WarnFormat("{0} Encountered an exception: {1} {2} {3}", "DecodeSceneObject", e.Message, e.TargetSite, e.ToString());
+                ret = false;
             }
             //else
             //    m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = null", LogHeader);
+
+            return ret;
         }
 
         #endregion //Prim Property Sync management
