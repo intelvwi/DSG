@@ -1676,6 +1676,9 @@ namespace DSG.RegionSync
             //Added senderActorID, so that we don't have to include actorID in sync messages -- TODO
             switch (msg.Type)
             {
+                case SymmetricSyncMessage.MsgType.UpdatedProperties:
+                    HandleUpdatedProperties(msg, senderActorID);
+                    break;
                 case SymmetricSyncMessage.MsgType.GetTerrain:
                     HandleGetTerrainRequest(syncConnector);
                     break;
@@ -1690,9 +1693,6 @@ namespace DSG.RegionSync
                     break;
                 case SymmetricSyncMessage.MsgType.NewObject:
                     HandleSyncNewObject(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.UpdatedProperties:
-                    HandleUpdatedProperties(msg, senderActorID);
                     break;
                 case SymmetricSyncMessage.MsgType.RemovedObject:
                     HandleRemovedObject(msg, senderActorID);
@@ -1962,6 +1962,7 @@ namespace DSG.RegionSync
                 // Update local sync info and scene object/presence
                 RememberLocallyGeneratedEvent(msg.Type);
                 HashSet<SyncableProperties.Type> propertiesUpdated = m_SyncInfoManager.UpdateSyncInfoBySync(uuid, syncedProperties);
+                ForgetLocallyGeneratedEvent();
 
                 DetailedUpdateLogging(uuid, propertiesUpdated, syncedProperties, "RecUpdateN", senderActorID, msg.Data.Length);
 
@@ -2641,6 +2642,7 @@ namespace DSG.RegionSync
             //but we still need to create the script instance by reading out the inventory.
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.NewScript, agentID, localPart, itemID);
             Scene.EventManager.TriggerNewScript(agentID, localPart, itemID);
+            ForgetLocallyGeneratedEvent();
         }
         
        
@@ -2664,6 +2666,7 @@ namespace DSG.RegionSync
             //trigger the event in the local scene
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdateScript, agentID, itemID, primID, isRunning, assetID);   
             Scene.EventManager.TriggerUpdateScript(agentID, itemID, primID, isRunning, assetID);   
+            ForgetLocallyGeneratedEvent();
         }
 
         /// <summary>
@@ -2686,6 +2689,7 @@ namespace DSG.RegionSync
             }
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptReset, part.LocalId, itemID);
             Scene.EventManager.TriggerScriptReset(part.LocalId, itemID);
+            ForgetLocallyGeneratedEvent();
         }
 
         private void HandleRemoteEvent_OnChatFromClient(string actorID, ulong evSeqNum, OSDMap data)
@@ -2697,8 +2701,10 @@ namespace DSG.RegionSync
             /*
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromClient, args);   
             Scene.EventManager.TriggerOnChatFromClient(args.SenderObject, args); //Let WorldCommModule and other modules to catch the event
+            ForgetLocallyGeneratedEvent();
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, args);   
             Scene.EventManager.TriggerOnChatFromWorld(args.SenderObject, args); //This is to let ChatModule to get the event and deliver it to avatars
+            ForgetLocallyGeneratedEvent();
              * */
         }
 
@@ -2708,6 +2714,7 @@ namespace DSG.RegionSync
             //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromWorld {0}:{1}", args.From, args.Message);
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, args);   
             Scene.EventManager.TriggerOnChatFromWorld(args.SenderObject, args); //This is to let ChatModule to get the event and deliver it to avatars
+            ForgetLocallyGeneratedEvent();
         }
 
         private void HandleRemoteEvent_OnChatBroadcast(string actorID, ulong evSeqNum, OSDMap data)
@@ -2716,6 +2723,7 @@ namespace DSG.RegionSync
             //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatBroadcast {0}:{1}", args.From, args.Message);
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatBroadcast, args);   
             Scene.EventManager.TriggerOnChatBroadcast(args.SenderObject, args);
+            ForgetLocallyGeneratedEvent();
         }
 
         private OSChatMessage PrepareOnChatArgs(OSDMap data)
@@ -2782,6 +2790,7 @@ namespace DSG.RegionSync
 
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ObjectGrab, part.LocalId, originalID, offsetPos, sp.ControllingClient, surfaceArgs);
             Scene.EventManager.TriggerObjectGrab(part.LocalId, originalID, offsetPos, sp.ControllingClient, surfaceArgs);
+            ForgetLocallyGeneratedEvent();
         }
 
         private void HandleRemoteEvent_OnObjectGrabbing(string actorID, ulong evSeqNum, OSDMap data)
@@ -2823,6 +2832,7 @@ namespace DSG.RegionSync
 
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ObjectGrabbing, part.LocalId, originalID, offsetPos, sp.ControllingClient, surfaceArgs);
             Scene.EventManager.TriggerObjectGrabbing(part.LocalId, originalID, offsetPos, sp.ControllingClient, surfaceArgs);
+            ForgetLocallyGeneratedEvent();
         }
 
         private void HandleRemoteEvent_OnObjectDeGrab(string actorID, ulong evSeqNum, OSDMap data)
@@ -2864,6 +2874,7 @@ namespace DSG.RegionSync
 
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ObjectDeGrab, part.LocalId, originalID, sp.ControllingClient, surfaceArgs);
             Scene.EventManager.TriggerObjectDeGrab(part.LocalId, originalID, sp.ControllingClient, surfaceArgs);
+            ForgetLocallyGeneratedEvent();
         }
 
         private void HandleRemoteEvent_OnAttach(string actorID, ulong evSeqNum, OSDMap data)
@@ -2882,6 +2893,7 @@ namespace DSG.RegionSync
             uint localID = part.LocalId;
             RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.Attach, localID, itemID, avatarID);
             Scene.EventManager.TriggerOnAttach(localID, itemID, avatarID);
+            ForgetLocallyGeneratedEvent();
         }
 
         private void HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType msgType, string syncID, ulong evSeqNum, OSDMap data, long recvTime)
@@ -3054,31 +3066,37 @@ namespace DSG.RegionSync
                         m_log.DebugFormat("ScriptCollidingStart received for {0}", collisionPart.Name);
                         RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
                         Scene.EventManager.TriggerScriptCollidingStart(collisionPart.LocalId, StartCollidingMessage);
+                        ForgetLocallyGeneratedEvent();
                         break;
                     case SymmetricSyncMessage.MsgType.ScriptColliding:
                         m_log.DebugFormat("ScriptColliding received for {0}", collisionPart.Name);
                         RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
                         Scene.EventManager.TriggerScriptColliding(collisionPart.LocalId, StartCollidingMessage);
+                        ForgetLocallyGeneratedEvent();
                         break;
                     case SymmetricSyncMessage.MsgType.ScriptCollidingEnd:
                         m_log.DebugFormat("ScriptCollidingEnd received for {0}", collisionPart.Name);
                         RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
                         Scene.EventManager.TriggerScriptCollidingEnd(collisionPart.LocalId, StartCollidingMessage);
+                        ForgetLocallyGeneratedEvent();
                         break;
                     case SymmetricSyncMessage.MsgType.ScriptLandCollidingStart:
                         m_log.DebugFormat("ScriptLandCollidingStart received for {0}", collisionPart.Name);
                         RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
                         Scene.EventManager.TriggerScriptLandCollidingStart(collisionPart.LocalId, StartCollidingMessage);
+                        ForgetLocallyGeneratedEvent();
                         break;
                     case SymmetricSyncMessage.MsgType.ScriptLandColliding:
                         m_log.DebugFormat("ScriptLandColliding received for {0}", collisionPart.Name);
                         RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
                         Scene.EventManager.TriggerScriptLandColliding(collisionPart.LocalId, StartCollidingMessage);
+                        ForgetLocallyGeneratedEvent();
                         break;
                     case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
                         m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", collisionPart.Name);
                         RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
                         Scene.EventManager.TriggerScriptLandCollidingEnd(collisionPart.LocalId, StartCollidingMessage);
+                        ForgetLocallyGeneratedEvent();
                         break;
                 }
             }
@@ -3204,6 +3222,7 @@ namespace DSG.RegionSync
             // It is possible that some event handling routine might generate
             // an event of the same type. This would cause an event to disappear.
             LocallyGeneratedSignature = CreateLocallyGeneratedEventSignature(msgtype, parms);
+            // m_log.DebugFormat("{0} RememberLocallyGeneratedEvent. Remembering={1}", LogHeader, LocallyGeneratedSignature);      // DEBUG DEBUG
             return;
         }
 
@@ -3216,12 +3235,20 @@ namespace DSG.RegionSync
         private bool IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
         {
             bool ret = false;
+            // m_log.DebugFormat("{0} IsLocallyGeneratedEvent. Checking remembered={1} against {2}", LogHeader, LocallyGeneratedSignature, msgtype);      // DEBUG DEBUG
             if (LocallyGeneratedSignature == CreateLocallyGeneratedEventSignature(msgtype, parms))
             {
-                LocallyGeneratedSignature = "";
                 ret = true;
             }
             return ret;
+        }
+
+        /// <summary>
+        /// Forget that we are remembering a message being processed.
+        /// </summary>
+        private void ForgetLocallyGeneratedEvent()
+        {
+            LocallyGeneratedSignature = "";
         }
 
         /// <summary>
@@ -3689,14 +3716,6 @@ namespace DSG.RegionSync
 
             lock (m_propertyUpdateLock)
             {
-                bool tickLog = false;
-                DateTime startTime = DateTime.Now;
-                if (m_propertyUpdates.Count > 0)
-                {
-                    tickLog = true;
-                    m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
-                }
-
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
                 Dictionary<UUID, HashSet<SyncableProperties.Type>> updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
                 m_propertyUpdates.Clear();
@@ -3708,7 +3727,6 @@ namespace DSG.RegionSync
                     // If syncing with other nodes, send updates
                     if(IsSyncingWithOtherSyncNodes())
                     {
-                        int updateIndex = 0;
                         foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
                         {
                             UUID uuid = update.Key;
@@ -3743,26 +3761,7 @@ namespace DSG.RegionSync
                             {
                                 m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e.Message);
                             }
-
-                            /*
-                            updateIndex++;
-                            if (tickLog)
-                            {
-                                DateTime endTime = DateTime.Now;
-                                TimeSpan span = endTime - startTime;
-                                m_log.InfoFormat("SyncOutUpdates - tick {0}: after {1} updates encoding, time span {2}",
-                                    m_updateTick, updateIndex, span.Milliseconds);
-                            }
-                             * */
                         }
-                    }
-
-                    if (tickLog)
-                    {
-                        DateTime endTime = DateTime.Now;
-                        TimeSpan span = endTime - startTime;
-                        m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
-                            m_updateTick, span.Milliseconds);
                     }
 
                     // Indicate that the current batch of updates has been completed
@@ -3913,6 +3912,9 @@ namespace DSG.RegionSync
         {
             // If the scene presence update event was triggered by a call from RegionSyncModule, then we don't need to handle it.
             // Changes to scene presence that are actually local will not have originated from this module or thread.
+            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdatedProperties))
+                return;
+
             if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdatePresence))
                 return;
 
@@ -3923,7 +3925,7 @@ namespace DSG.RegionSync
             // obtain the list of properties that really have been updated
             // and should be propogated to other sync nodes.
             HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(uuid, SyncableProperties.AvatarProperties);
-            string types = "";
+            // string types = "";
             //foreach(SyncableProperties.Type t in propertiesWithSyncInfoUpdated)
             //    types += (t.ToString() + ",");
             //m_log.WarnFormat("OnScenePresenceUpdated B {0}", types);
