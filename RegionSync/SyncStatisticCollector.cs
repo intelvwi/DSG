@@ -388,17 +388,17 @@ public class SyncStatisticCollector : IDisposable
                  "UpdatedProperties_Sent", "UpdatedProperties_Rcvd",
                  "NewObject_Sent", "NewObject_Rcvd", "NewPresence_Sent", "NewPresence_Rcvd"
         };
-        Dictionary<string, double> outputValues = new Dictionary<string, double>();
 
         SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
         if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
         {
-            LogWriter connWriter = null;
-            SyncConnectorStat lastStat = null;
             foreach (string container in DSGStats.Keys)
             {
-                SortedDictionary<string, Stat> containerStats = DSGStats[container];
+                LogWriter connWriter = null;
+                SyncConnectorStat lastStat = null;
+                Dictionary<string, double> outputValues = new Dictionary<string, double>();
 
+                SortedDictionary<string, Stat> containerStats = DSGStats[container];
                 foreach (Stat aStat in containerStats.Values)
                 {
                     // Select out only the SyncConnector stats.
@@ -600,6 +600,7 @@ public class SyncStatisticCollector : IDisposable
                     bufft.Append("RegionName");
                     foreach (string fld in fields)
                     {
+                        bufft.Append(",");
                         bufft.Append(fld);
                     }
 
