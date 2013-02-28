@@ -1775,6 +1775,12 @@ namespace DSG.RegionSync
             // Get the data from message and error check
             OSDMap data = DeserializeMessage(msg);
 
+            if (data == null)
+            {
+                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
+                return;
+            }
+
             string terrain = data["terrain"].AsString();
             long lastUpdateTimeStamp = data["timeStamp"].AsLong();
             string lastUpdateActorID = data["actorID"].AsString();
@@ -1859,6 +1865,12 @@ namespace DSG.RegionSync
             // m_log.DebugFormat("{0}: HandleSyncNewObject called", LogHeader);
             OSDMap data = DeserializeMessage(msg);
 
+            if (data == null)
+            {
+                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
+                return;
+            }
+
             // Decode group and syncInfo from message data
             SceneObjectGroup group;
             Dictionary<UUID, SyncInfoBase> syncInfos;
@@ -1937,6 +1949,12 @@ namespace DSG.RegionSync
         {
             // Get the data from message and error check
             OSDMap data = DeserializeMessage(msg);
+
+            if (data == null)
+            {
+                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
+                return;
+            }
 
             UUID uuid = data["uuid"].AsUUID();
             bool softDelete = data["softDelete"].AsBoolean();
@@ -2229,6 +2247,12 @@ namespace DSG.RegionSync
         {
             // m_log.WarnFormat("{0}: HandleSyncPresence called", LogHeader);
             OSDMap data = DeserializeMessage(msg);
+
+            if (data == null)
+            {
+                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
+                return;
+            }
 
             UUID uuid = data["uuid"].AsUUID();
 
@@ -3710,6 +3734,13 @@ namespace DSG.RegionSync
                             case SymmetricSyncMessage.MsgType.ScriptCollidingEnd:
                                 {
                                     OSDMap data = DeserializeMessage(msg);
+
+                                    if (data == null)
+                                    {
+                                        SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
+                                        break;   
+                                    }
+
                                     //string init_actorID = data["actorID"].AsString();
                                     string init_syncID = data["syncID"].AsString();
                                     ulong evSeqNum = data["seqNum"].AsULong();
