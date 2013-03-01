@@ -861,7 +861,7 @@ namespace DSG.RegionSync
             {
                 //m_log.WarnFormat("{0}: Send terrain update to {1}", LogHeader, connector.otherSideActorID);
                 DetailedUpdateWrite("SndTerrUpd", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.Length);
-                connector.Send(syncMsg);
+                connector.ImmediateOutgoingMsg(syncMsg);
             }
         }
 
@@ -942,7 +942,7 @@ namespace DSG.RegionSync
                 if (!connector.otherSideActorID.Equals(init_actorID))
                 {
                     DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.Length);
-                    connector.Send(syncMsg);
+                    connector.ImmediateOutgoingMsg(syncMsg);
                 }
             }
         }
@@ -977,7 +977,7 @@ namespace DSG.RegionSync
                 {
                     lock (m_stats) m_statEventOut++;
                     DetailedUpdateWrite("SndEventtt", sog == null ? m_zeroUUID : sog.UUID.ToString(), 0, rsm.Type.ToString(), connector.otherSideActorID, rsm.Length);
-                    connector.Send(rsm);
+                    connector.ImmediateOutgoingMsg(rsm);
                 }
             }
         }
@@ -1333,7 +1333,7 @@ namespace DSG.RegionSync
                 SymmetricSyncMessage msg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.SyncStateReport);
                 ForEachSyncConnector(delegate(SyncConnector connector)
                 {
-                    connector.Send(msg);
+                    connector.ImmediateOutgoingMsg(msg);
                 });
 
             }
@@ -1655,7 +1655,7 @@ namespace DSG.RegionSync
             ForEachSyncConnector(delegate(SyncConnector syncConnector)
             {
                 DetailedUpdateWrite("SndSyncMsg", msgType.ToString(), 0, m_zeroUUID, syncConnector.otherSideActorID, msg.Length);
-                syncConnector.Send(msg);
+                syncConnector.ImmediateOutgoingMsg(msg);
             });
         }
 
@@ -1823,7 +1823,7 @@ namespace DSG.RegionSync
 
             SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.Terrain, data);
             DetailedUpdateWrite("SndTerrRsp", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.Length);
-            connector.Send(syncMsg);
+            connector.ImmediateOutgoingMsg(syncMsg);
         }
 
         private void HandleGetPresencesRequest(SyncConnector connector)
@@ -1843,7 +1843,7 @@ namespace DSG.RegionSync
                     SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.NewPresence, data);
                     m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
                     DetailedUpdateWrite("SndGetPReq", sp.UUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.Length);
-                    connector.Send(syncMsg);
+                    connector.ImmediateOutgoingMsg(syncMsg);
                 }
             }
         }

@@ -212,7 +212,6 @@ namespace DSG.RegionSync
             {
                 while (true)
                 {
-                    // Dequeue is thread safe
                     SymmetricSyncMessage msg = m_outQ.Dequeue();
                     if (m_collectingStats) currentQueue.Event(-1);
                     Send(msg);
@@ -238,9 +237,20 @@ namespace DSG.RegionSync
             if (m_collectingStats) currentQueue.Event(1);
         }
 
+        public void ImmediateOutgoingMsg(SymmetricSyncMessage msg)
+        {
+            // The old way was to just call Send and hope the networking worked out.
+            // Send(msg);
+
+            // The new way is to add a first queue and to place this message at the front.
+            m_outQ.QueueMessageFirst(msg);
+
+            if (m_collectingStats) currentQueue.Event(1);
+        }
+
         //Send out a messge directly. This should only by called for short messages that are not sent frequently.
         //Don't call this function for sending out updates. Call EnqueueOutgoingUpdate instead
-        public void Send(SymmetricSyncMessage msg)
+        private void Send(SymmetricSyncMessage msg)
         {
             // m_log.DebugFormat("{0} Send msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
             byte[] data = msg.ToBytes();

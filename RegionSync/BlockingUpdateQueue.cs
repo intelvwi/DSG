@@ -60,8 +60,12 @@ namespace DSG.RegionSync
     class BlockingUpdateQueue
     {
         private object m_syncRoot = new object();
+        private Queue<SymmetricSyncMessage> m_firstQueue = new Queue<SymmetricSyncMessage>();
         private Queue<UUID> m_queue = new Queue<UUID>();
         private Dictionary<UUID, SymmetricSyncMessage> m_updates = new Dictionary<UUID, SymmetricSyncMessage>();
+
+        // The number of times we throw away an old update for the same UUID
+        public long OverWrittenUpdates = 0;
 
         // Enqueue an update
         public void Enqueue(UUID id, SymmetricSyncMessage update)
@@ -69,8 +73,24 @@ namespace DSG.RegionSync
             lock(m_syncRoot)
             {
                 if (!m_updates.ContainsKey(id))
+                {
                     m_queue.Enqueue(id);
+                }
+                else
+                {
+                    OverWrittenUpdates++;
+                }
                 m_updates[id] = update;
+                Monitor.Pulse(m_syncRoot);
+            }
+        }
+
+        // Add a message to the first of the queue.
+        public void QueueMessageFirst(SymmetricSyncMessage update)
+        {
+            lock (m_syncRoot)
+            {
+                m_firstQueue.Enqueue(update);
                 Monitor.Pulse(m_syncRoot);
             }
         }
@@ -78,16 +98,24 @@ namespace DSG.RegionSync
         // Dequeue an update
         public SymmetricSyncMessage Dequeue()
         {
+            SymmetricSyncMessage update = null;
             lock (m_syncRoot)
             {
                 // If the queue is empty, wait for it to contain something
-                while (m_queue.Count == 0)
+                while (m_queue.Count == 0 && m_firstQueue.Count == 0)
                     Monitor.Wait(m_syncRoot);
-                UUID id = m_queue.Dequeue();
-                SymmetricSyncMessage update = m_updates[id];
-                m_updates.Remove(id);
-                return update;
+                if (m_firstQueue.Count > 0)
+                {
+                    update = m_firstQueue.Dequeue();
+                }
+                else
+                {
+                    UUID id = m_queue.Dequeue();
+                    update = m_updates[id];
+                    m_updates.Remove(id);
+                }
             }
+            return update;
         }
 
         // Count of number of items currently queued
