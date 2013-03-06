@@ -194,70 +194,51 @@ namespace DSG.RegionSync
         //Assumption: the caller already locks the access lock, and no need to lock here
         private bool CompareHashedValue_UpdateByLocal(SceneObjectPart part, SyncableProperties.Type property, long lastUpdateTS, string syncID)
         {
-            bool updated = false;
+            // If property is not in cache yet, add it with initial value from the local scene
             if (!CurrentlySyncedProperties.ContainsKey(property))
             {
                 Object initValue = GetPropertyValue(part, property);
-                bool ret = false;
-                //if (initValue != null)
-                {
-                    SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateTS, syncID);
-                    CurrentlySyncedProperties.Add(property, syncInfo);
-                    ret = true;
-                }
-                return ret;
+                SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateTS, syncID);
+                CurrentlySyncedProperties.Add(property, syncInfo);
+                return true;
             }
+
+            object value;
+            string hash;
+
+            // Property is in the cache. Get the current value and hashed value. 
             switch (property)
             {
                 case SyncableProperties.Type.Shape:
-                    string primShapeString = PropertySerializer.SerializeShape(part);
-                    string primShapeStringHash = PropertySerializer.GetPropertyHashValue(primShapeString);
-
-                    if (!CurrentlySyncedProperties[property].LastUpdateValueHash.Equals(primShapeStringHash))
-                    {
-                        //The SOP's property value has a newer timestamp, update the data in
-                        //SyncInfoManager to be consistent; otherwise, overwrite SOP's property
-                        //value by copying that from SyncInfoManager
-                        if (lastUpdateTS >= CurrentlySyncedProperties[property].LastUpdateTimeStamp)
-                        {
-                            //UpdatePropertyWithHashByLocal(property, lastUpdateTS, syncID, (Object)primShapeString, primShapeStringHash);
-                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateTS, syncID, part.Shape, primShapeStringHash);
-
-                            //DSG DEBUG
-                            //DebugLog.DebugFormat("CompareHashedValue_UpdateByLocal - Shape of {0}, {1} updated to ProfileShape {2}: SOP hashed shape: {3}, cached hash {4}",
-                            //   part.Name, part.UUID, part.Shape.ProfileShape, primShapeStringHash, CurrentlySyncedProperties[property].LastUpdateValueHash);
-
-                            updated = true;
-                        }
-                        else if (lastUpdateTS < CurrentlySyncedProperties[property].LastUpdateTimeStamp)
-                        {
-                            //PrimitiveBaseShape shape = PropertySerializer.DeSerializeShape((string)CurrentlySyncedProperties[property].LastUpdateValue);
-                            part.Shape = (PrimitiveBaseShape)CurrentlySyncedProperties[property].LastUpdateValue;
-                        }
-
-                    }
+                    value = part.Shape;
+                    hash = PropertySerializer.GetPropertyHashValue(PropertySerializer.SerializeShape(part));
                     break;
                 case SyncableProperties.Type.TaskInventory:
-                    string primTaskInventoryString = PropertySerializer.SerializeTaskInventory(part);
-                    string primTaskInventoryStringHash = Util.Md5Hash(primTaskInventoryString);
-                    if (!CurrentlySyncedProperties[property].LastUpdateValueHash.Equals(primTaskInventoryStringHash))
-                    {
-                        if (lastUpdateTS >= CurrentlySyncedProperties[property].LastUpdateTimeStamp)
-                        {
-                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateTS, syncID, primTaskInventoryString, primTaskInventoryStringHash);
-                            updated = true;
-                        }
-                        else if (lastUpdateTS < CurrentlySyncedProperties[property].LastUpdateTimeStamp)
-                        {
-                            //TaskInventoryDictionary taskInv = PropertySerializer.DeSerializeTaskInventory((string)CurrentlySyncedProperties[property].LastUpdateValue);
-                            part.TaskInventory = (TaskInventoryDictionary)CurrentlySyncedProperties[property].LastUpdateValue;
-                        }
-                    }
+                    value = PropertySerializer.SerializeTaskInventory(part);
+                    hash = Util.Md5Hash((string)value);
                     break;
                 default:
-                    break;
+                    return false;
             }
-            return updated;
+
+            // If the current hash value is different than the cached hash value
+            if (!CurrentlySyncedProperties[property].LastUpdateValueHash.Equals(hash))
+            {
+                // The SOP's property value has a newer timestamp, update the data in
+                // SyncInfoManager to be consistent; otherwise, overwrite SOP's property
+                // value by copying that from SyncInfoManager
+                if (lastUpdateTS >= CurrentlySyncedProperties[property].LastUpdateTimeStamp)
+                {
+                    CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateTS, syncID, value, hash);
+                    return true;
+                }
+                else if (lastUpdateTS < CurrentlySyncedProperties[property].LastUpdateTimeStamp)
+                {
+                    SetPropertyValue(property);
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
