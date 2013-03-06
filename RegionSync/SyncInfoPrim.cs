@@ -231,8 +231,8 @@ namespace DSG.RegionSync
                         }
                         else if (lastUpdateTS < CurrentlySyncedProperties[property].LastUpdateTimeStamp)
                         {
-                            PrimitiveBaseShape shape = PropertySerializer.DeSerializeShape((string)CurrentlySyncedProperties[property].LastUpdateValue);
-                            part.Shape = shape;
+                            //PrimitiveBaseShape shape = PropertySerializer.DeSerializeShape((string)CurrentlySyncedProperties[property].LastUpdateValue);
+                            part.Shape = (PrimitiveBaseShape)CurrentlySyncedProperties[property].LastUpdateValue;
                         }
 
                     }
@@ -249,8 +249,8 @@ namespace DSG.RegionSync
                         }
                         else if (lastUpdateTS < CurrentlySyncedProperties[property].LastUpdateTimeStamp)
                         {
-                            TaskInventoryDictionary taskInv = PropertySerializer.DeSerializeTaskInventory((string)CurrentlySyncedProperties[property].LastUpdateValue);
-                            part.TaskInventory = taskInv;
+                            //TaskInventoryDictionary taskInv = PropertySerializer.DeSerializeTaskInventory((string)CurrentlySyncedProperties[property].LastUpdateValue);
+                            part.TaskInventory = (TaskInventoryDictionary)CurrentlySyncedProperties[property].LastUpdateValue;
                         }
                     }
                     break;
