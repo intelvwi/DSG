@@ -110,7 +110,6 @@ namespace DSG.RegionSync
             NewScript,
             UpdateScript,
             ScriptReset,
-            UpdatePresence,
             ChatFromClient,
             ChatFromWorld,
             ChatBroadcast,

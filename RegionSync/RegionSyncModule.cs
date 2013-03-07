@@ -3263,7 +3263,7 @@ namespace DSG.RegionSync
         #region RememberLocallyGeneratedEvents
 
         [ThreadStatic]
-        string LocallyGeneratedSignature;
+        static string LocallyGeneratedSignature;
 
         /// <summary>
         /// There is a problem where events that call On*Event might be because we triggered
@@ -4051,9 +4051,6 @@ namespace DSG.RegionSync
             // If the scene presence update event was triggered by a call from RegionSyncModule, then we don't need to handle it.
             // Changes to scene presence that are actually local will not have originated from this module or thread.
             if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdatedProperties))
-                return;
-
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdatePresence))
                 return;
 
             UUID uuid = sp.UUID;
