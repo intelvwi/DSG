@@ -219,7 +219,7 @@ namespace DSG.RegionSync
                     break;
                 case SyncableProperties.Type.AvatarAppearance:
                     string appearance = sp.Appearance.Pack().ToString();
-                    string appearanceHash = Util.Md5Hash(appearance);
+                    string appearanceHash = PropertySerializer.GetPropertyHashValue(appearance);
                     if (!CurrentlySyncedProperties[property].LastUpdateValueHash.Equals(appearanceHash))
                     {
                         // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareHashedValue_UpdateByLocal (property={0}): spValue != syncedProperty.LastUpdateValue", property.ToString());

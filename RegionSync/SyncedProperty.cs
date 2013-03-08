@@ -217,6 +217,9 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AvatarAppearance:
                     s = ((AvatarAppearance)LastUpdateValue).Pack().ToString();
                     break;
+                default:
+                    LastUpdateValueHash = "";
+                    return;
             }
             LastUpdateValueHash = PropertySerializer.GetPropertyHashValue(s);
         }
