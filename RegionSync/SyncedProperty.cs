@@ -256,9 +256,6 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.Color:
                         value = OSD.FromString(PropertySerializer.SerializeColor((System.Drawing.Color)LastUpdateValue));
                         break;
-                    case SyncableProperties.Type.AvatarAppearance:
-                        value = ((AvatarAppearance)LastUpdateValue).Pack();
-                        break;
 
                     ////////////////////////////
                     // Integer/enum type properties
@@ -370,6 +367,7 @@ namespace DSG.RegionSync
                     ////////////////////////////
                     // String type properties
                     ////////////////////////////
+                    case SyncableProperties.Type.AvatarAppearance:
                     case SyncableProperties.Type.CreatorData:
                     case SyncableProperties.Type.Description:
                     case SyncableProperties.Type.MediaUrl:
@@ -445,10 +443,6 @@ namespace DSG.RegionSync
 
                 case SyncableProperties.Type.Color:
                     LastUpdateValue = PropertySerializer.DeSerializeColor(value.AsString());
-                    break;
-
-                case SyncableProperties.Type.AvatarAppearance:
-                    LastUpdateValue = new AvatarAppearance((OSDMap)value);
                     break;
 
                 ////////////////////////////
@@ -555,6 +549,7 @@ namespace DSG.RegionSync
                 ////////////////////////////
                 // String type properties
                 ////////////////////////////
+                case SyncableProperties.Type.AvatarAppearance:
                 case SyncableProperties.Type.CreatorData:
                 case SyncableProperties.Type.Description:
                 case SyncableProperties.Type.MediaUrl:
@@ -599,7 +594,7 @@ namespace DSG.RegionSync
                 DebugLog.WarnFormat("DecodeProperties: propertyData is missing");
                 return syncedProperties;
             }
-            syncedProperties = DecodeProperiesSyncInfo((OSDMap)data["propertyData"]);
+            syncedProperties = DecodePropertiesSyncInfo((OSDMap)data["propertyData"]);
 
             return syncedProperties;
         }
@@ -608,7 +603,7 @@ namespace DSG.RegionSync
         /// Decode a set of SyncedProperty from OSDMap.
         /// </summary>
         /// <param name="syncInfoData"></param>
-        public static HashSet<SyncedProperty> DecodeProperiesSyncInfo(OSDMap syncInfoData)
+        public static HashSet<SyncedProperty> DecodePropertiesSyncInfo(OSDMap syncInfoData)
         {
             HashSet<SyncedProperty> syncedProperties = new HashSet<SyncedProperty>();
 

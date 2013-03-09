@@ -142,7 +142,7 @@ namespace DSG.RegionSync
         //TODO: might return status such as Updated, Unchanged, etc to caller
         public HashSet<SyncableProperties.Type> UpdatePropertiesBySync(UUID uuid, HashSet<SyncedProperty> syncedProperties)
         {
-            long recvTS = DateTime.Now.Ticks;
+            long recvTS = DateTime.UtcNow.Ticks;
             HashSet<SyncableProperties.Type> propertiesUpdated = new HashSet<SyncableProperties.Type>();
 
             lock (m_syncLock)

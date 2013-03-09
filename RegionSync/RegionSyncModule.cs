@@ -480,7 +480,7 @@ namespace DSG.RegionSync
 
             TerrainSyncInfo.LastUpdateValue = terrain;
             TerrainSyncInfo.LastUpdateActorID = GetSyncID();
-            TerrainSyncInfo.LastUpdateTimeStamp = DateTime.Now.Ticks;
+            TerrainSyncInfo.LastUpdateTimeStamp = DateTime.UtcNow.Ticks;
 
             OSDMap data = new OSDMap(3);
             data["terrain"] = OSD.FromString(terrain);
@@ -506,7 +506,7 @@ namespace DSG.RegionSync
             }
 
             // Add SP to SyncInfoManager
-            m_SyncInfoManager.InsertSyncInfo(uuid, DateTime.Now.Ticks, SyncID);
+            m_SyncInfoManager.InsertSyncInfo(uuid, DateTime.UtcNow.Ticks, SyncID);
 
             if (IsSyncingWithOtherSyncNodes())
             {
@@ -557,7 +557,7 @@ namespace DSG.RegionSync
             // Add each SOP in SOG to SyncInfoManager
             foreach (SceneObjectPart part in sog.Parts)
             {
-                m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.Now.Ticks, SyncID);
+                m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, SyncID);
             }
 
             if (IsSyncingWithOtherSyncNodes())
@@ -1449,8 +1449,8 @@ namespace DSG.RegionSync
                     data["seqNum"] = OSD.FromULong(evSeq);
                     SymmetricSyncMessage rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ScriptCollidingStart, data);
 
-                    //HandleRemoteEvent_ScriptCollidingStart(ActorID, evSeq, data, DateTime.Now.Ticks);
-                    HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType.ScriptCollidingStart, ActorID, evSeq, data, DateTime.Now.Ticks);
+                    //HandleRemoteEvent_ScriptCollidingStart(ActorID, evSeq, data, DateTime.UtcNow.Ticks);
+                    HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType.ScriptCollidingStart, ActorID, evSeq, data, DateTime.UtcNow.Ticks);
                 }
             }
             */
@@ -1472,7 +1472,7 @@ namespace DSG.RegionSync
                         //into the local record
                         foreach (SceneObjectPart part in sog.Parts)
                         {
-                            m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.Now.Ticks, SyncID);
+                            m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, SyncID);
                         }
 
                         //Next test serialization
@@ -1623,7 +1623,7 @@ namespace DSG.RegionSync
             // SendSyncMessage(SymmetricSyncMessage.MsgType.SyncID, m_syncID);
 
             // message sent to help calculating the difference in the clocks
-            SendSyncMessage(SymmetricSyncMessage.MsgType.TimeStamp, DateTime.Now.Ticks.ToString());
+            SendSyncMessage(SymmetricSyncMessage.MsgType.TimeStamp, DateTime.UtcNow.Ticks.ToString());
 
             SendSyncMessage(SymmetricSyncMessage.MsgType.RegionName, Scene.RegionInfo.RegionName);
             m_log.WarnFormat("Sending region name: \"{0}\"", Scene.RegionInfo.RegionName);
@@ -2356,7 +2356,7 @@ namespace DSG.RegionSync
 
                 StringBuilder sb = new StringBuilder(op);
                 sb.Append(",");
-                sb.Append(DateTime.Now.Ticks.ToString());
+                sb.Append(DateTime.UtcNow.Ticks.ToString());
                 sb.Append(",");
                 sb.Append(sopUUID.ToString());
                 sb.Append(",");
@@ -2375,7 +2375,7 @@ namespace DSG.RegionSync
                 //    is going to be faster then all the checking that happens in String.Format().
                 m_detailedLog.Write("{0},{1},{2},{3},{4},{5},{6},{7}",
                             op,
-                            DateTime.Now.Ticks,
+                            DateTime.UtcNow.Ticks,
                             sopUUID,
                             syncedProperty.LastUpdateTimeStamp,
                             syncedProperty.Property.ToString(),
@@ -2407,7 +2407,7 @@ namespace DSG.RegionSync
         {
             if (!m_detailedLog.Enabled) return;
 
-            long nowTime = DateTime.Now.Ticks;  // save fetching the time twice
+            long nowTime = DateTime.UtcNow.Ticks;  // save fetching the time twice
             long lastUpdateTime = lastUpdate == 0 ? nowTime : lastUpdate;
 
             StringBuilder sb = new StringBuilder(op);
@@ -2429,7 +2429,7 @@ namespace DSG.RegionSync
             /*
             m_detailedLog.Write("{0},{1},{2},{3},{4},{5},{6},{7}",
                         op,
-                        DateTime.Now.Ticks,
+                        DateTime.UtcNow.Ticks,
                         uuid,
                         lastUpdateTime,
                         "Detail",
@@ -2656,8 +2656,8 @@ namespace DSG.RegionSync
                 case SymmetricSyncMessage.MsgType.ScriptLandCollidingStart:
                 case SymmetricSyncMessage.MsgType.ScriptLandColliding:
                 case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
-                    //HandleRemoteEvent_ScriptCollidingStart(init_actorID, evSeqNum, data, DateTime.Now.Ticks);
-                    HandleRemoteEvent_ScriptCollidingEvents(msg.Type, init_syncID, evSeqNum, data, DateTime.Now.Ticks);
+                    //HandleRemoteEvent_ScriptCollidingStart(init_actorID, evSeqNum, data, DateTime.UtcNow.Ticks);
+                    HandleRemoteEvent_ScriptCollidingEvents(msg.Type, init_syncID, evSeqNum, data, DateTime.UtcNow.Ticks);
                     break;
                 case SymmetricSyncMessage.MsgType.RegionInfoUpdated:
                     HandleRegionInfoUpdateMessage(init_syncID, evSeqNum, data);
@@ -3055,7 +3055,7 @@ namespace DSG.RegionSync
                             {
                                 //hard-coded expiration time to be one minute
                                 TimeSpan msgExpireTime = new TimeSpan(0, 1, 0);
-                                TimeSpan msgSavedTime = new TimeSpan(DateTime.Now.Ticks - recvTime);
+                                TimeSpan msgSavedTime = new TimeSpan(DateTime.UtcNow.Ticks - recvTime);
 
                                 if (msgSavedTime < msgExpireTime)
                                 {
@@ -3910,7 +3910,7 @@ namespace DSG.RegionSync
             if (!m_SyncInfoManager.SyncInfoExists(sog.RootPart.UUID))
             {
                 m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sog.RootPart.Name, sog.RootPart.UUID);
-                m_SyncInfoManager.InsertSyncInfo(sog.RootPart.UUID, DateTime.Now.Ticks, SyncID);
+                m_SyncInfoManager.InsertSyncInfo(sog.RootPart.UUID, DateTime.UtcNow.Ticks, SyncID);
             }
 
             OSDMap data = new OSDMap();
@@ -3928,7 +3928,7 @@ namespace DSG.RegionSync
                         m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet", 
                                     LogHeader, part.Name, part.UUID);
                         //This should not happen, but we deal with it by inserting a newly created PrimSynInfo
-                        m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.Now.Ticks, SyncID);
+                        m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, SyncID);
                     }
                     OSDMap partData = m_SyncInfoManager.EncodeProperties(part.UUID, part.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
                     otherPartsArray.Add(partData);
@@ -4083,7 +4083,7 @@ namespace DSG.RegionSync
             if (!m_SyncInfoManager.SyncInfoExists(sp.UUID))
             {
                 m_log.ErrorFormat("{0}: ERROR: EncodeScenePresence -- SP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sp.Name, sp.UUID);
-                m_SyncInfoManager.InsertSyncInfo(sp.UUID, DateTime.Now.Ticks, SyncID);
+                m_SyncInfoManager.InsertSyncInfo(sp.UUID, DateTime.UtcNow.Ticks, SyncID);
             }
 
             OSDMap data = new OSDMap();

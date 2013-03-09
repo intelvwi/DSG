@@ -52,6 +52,7 @@ using OpenMetaverse;
 using OpenMetaverse.StructuredData;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Framework;
+using System.Diagnostics;
 
 namespace DSG.RegionSync
 {
@@ -162,10 +163,6 @@ namespace DSG.RegionSync
                     switch (property)
                     {
                         case SyncableProperties.Type.AgentCircuitData:
-                        case SyncableProperties.Type.AvatarAppearance:
-                            //if(Scene.AvatarFactory.ValidateBakedTextureCache(sp))
-                            // Should we only update if the textures are valid?
-                            //Convert the value of complex properties to string and hash
                             updated = CompareHashedValue_UpdateByLocal(sp, property, lastUpdateTS, syncID);
                             break;
                         default:
@@ -216,23 +213,6 @@ namespace DSG.RegionSync
             switch (property)
             {
                 case SyncableProperties.Type.AgentCircuitData:
-                    break;
-                case SyncableProperties.Type.AvatarAppearance:
-                    string appearance = sp.Appearance.Pack().ToString();
-                    string appearanceHash = PropertySerializer.GetPropertyHashValue(appearance);
-                    if (!CurrentlySyncedProperties[property].LastUpdateValueHash.Equals(appearanceHash))
-                    {
-                        // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareHashedValue_UpdateByLocal (property={0}): spValue != syncedProperty.LastUpdateValue", property.ToString());
-                        if (lastUpdateTS >= CurrentlySyncedProperties[property].LastUpdateTimeStamp)
-                        {
-                            // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareHashedValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
-                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateTS, syncID, sp.Appearance, appearanceHash);
-                            return true;
-                        }
-
-                        // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareHashedValue_UpdateByLocal (property={0}): TS < lastTS (updating SP)", property.ToString());
-                        SetPropertyValue(property);
-                    }
                     break;
                 default:
                     break;
@@ -357,7 +337,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AllowMovement:
                     return sp.AllowMovement;
                 case SyncableProperties.Type.AvatarAppearance:
-                    return sp.Appearance;
+                    return sp.Appearance.Pack().ToString();
                 case SyncableProperties.Type.Rotation:
                     return sp.Rotation;
                 case SyncableProperties.Type.PA_Velocity:
@@ -439,7 +419,7 @@ namespace DSG.RegionSync
                     sp.AllowMovement = (bool)pValue;
                     break;
                 case SyncableProperties.Type.AvatarAppearance:
-                    sp.Appearance = (AvatarAppearance)pValue;
+                    sp.Appearance.Unpack((OSDMap)((string)pValue));
                     break;
                 case SyncableProperties.Type.Rotation:
                     sp.Rotation = (Quaternion)pValue;
