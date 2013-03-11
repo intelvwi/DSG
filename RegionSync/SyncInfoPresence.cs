@@ -337,8 +337,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AllowMovement:
                     return sp.AllowMovement;
                 case SyncableProperties.Type.AvatarAppearance:
-                    //return sp.Appearance.Pack().ToString();
-                    return OSDParser.SerializeJsonString(sp.Appearance.Pack(), true);
+                    return sp.Appearance.Pack();
                 case SyncableProperties.Type.Rotation:
                     return sp.Rotation;
                 case SyncableProperties.Type.PA_Velocity:
@@ -420,8 +419,7 @@ namespace DSG.RegionSync
                     sp.AllowMovement = (bool)pValue;
                     break;
                 case SyncableProperties.Type.AvatarAppearance:
-                    //sp.Appearance.Unpack((OSDMap)((string)pValue));
-                    sp.Appearance.Unpack(OSDParser.DeserializeJson((string)pValue) as OSDMap);
+                    sp.Appearance.Unpack((OSDMap)pValue);
                     break;
                 case SyncableProperties.Type.Rotation:
                     sp.Rotation = (Quaternion)pValue;

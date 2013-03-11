@@ -214,9 +214,6 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.Color:
                     s = PropertySerializer.SerializeColor((System.Drawing.Color)LastUpdateValue);
                     break;
-                case SyncableProperties.Type.AvatarAppearance:
-                    s = ((AvatarAppearance)LastUpdateValue).Pack().ToString();
-                    break;
                 default:
                     LastUpdateValueHash = "";
                     return;
@@ -255,6 +252,9 @@ namespace DSG.RegionSync
                         break;
                     case SyncableProperties.Type.Color:
                         value = OSD.FromString(PropertySerializer.SerializeColor((System.Drawing.Color)LastUpdateValue));
+                        break;
+                    case SyncableProperties.Type.AvatarAppearance:
+                        value = (OSDMap)LastUpdateValue;
                         break;
 
                     ////////////////////////////
@@ -367,7 +367,6 @@ namespace DSG.RegionSync
                     ////////////////////////////
                     // String type properties
                     ////////////////////////////
-                    case SyncableProperties.Type.AvatarAppearance:
                     case SyncableProperties.Type.CreatorData:
                     case SyncableProperties.Type.Description:
                     case SyncableProperties.Type.MediaUrl:
@@ -375,7 +374,7 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.SitName:
                     case SyncableProperties.Type.Text:
                     case SyncableProperties.Type.TouchName:
-                        value = OSD.FromString((string)LastUpdateValue);
+                        value = (OSDMap)LastUpdateValue;
                         break;
 
                     ////////////////////////////
@@ -430,19 +429,19 @@ namespace DSG.RegionSync
                     PrimitiveBaseShape pbs = PropertySerializer.DeSerializeShape(value.AsString());
                     LastUpdateValue = pbs;
                     break;
-
                 case SyncableProperties.Type.TaskInventory:
                     LastUpdateValue = value.AsString();
                     break;
-
                 case SyncableProperties.Type.AgentCircuitData:
                     AgentCircuitData acd = new AgentCircuitData();
                     acd.UnpackAgentCircuitData((OSDMap)value);
                     LastUpdateValue = acd;
                     break;
-
                 case SyncableProperties.Type.Color:
                     LastUpdateValue = PropertySerializer.DeSerializeColor(value.AsString());
+                    break;
+                case SyncableProperties.Type.AvatarAppearance:
+                    LastUpdateValue = (OSDMap)value;
                     break;
 
                 ////////////////////////////
@@ -549,7 +548,6 @@ namespace DSG.RegionSync
                 ////////////////////////////
                 // String type properties
                 ////////////////////////////
-                case SyncableProperties.Type.AvatarAppearance:
                 case SyncableProperties.Type.CreatorData:
                 case SyncableProperties.Type.Description:
                 case SyncableProperties.Type.MediaUrl:
