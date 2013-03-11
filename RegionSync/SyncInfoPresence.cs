@@ -396,7 +396,6 @@ namespace DSG.RegionSync
                     DebugLog.WarnFormat("{0}: Received updated AgentCircuitData. Not implemented", LogHeader);
                     break;
                 case SyncableProperties.Type.ParentId:
-                    DebugLog.WarnFormat("{0}: Received ParentId={1}.", LogHeader, (uint)pValue);
                     uint localID = (uint)pValue;
                     if (localID == 0)
                     {
@@ -439,7 +438,8 @@ namespace DSG.RegionSync
                     DebugLog.Warn("[SYNC INFO PRESENCE] Received updated PresenceType. Not implemented");
                     break;
                 case SyncableProperties.Type.IsColliding:
-                    sp.IsColliding = (bool)pValue;
+                    if(sp.PhysicsActor != null)
+                        sp.IsColliding = (bool)pValue;
                     break;
             }
 
