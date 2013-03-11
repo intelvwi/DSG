@@ -374,7 +374,7 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.SitName:
                     case SyncableProperties.Type.Text:
                     case SyncableProperties.Type.TouchName:
-                        value = (OSDMap)LastUpdateValue;
+                        value = OSD.FromString((string)LastUpdateValue);
                         break;
 
                     ////////////////////////////
