@@ -1628,6 +1628,7 @@ namespace DSG.RegionSync
             SendSyncMessage(SymmetricSyncMessage.MsgType.RegionName, Scene.RegionInfo.RegionName);
             m_log.WarnFormat("Sending region name: \"{0}\"", Scene.RegionInfo.RegionName);
 
+            SendSyncMessage(SymmetricSyncMessage.MsgType.GetRegionInfo);
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetTerrain);
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetPresences);
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetObjects);
@@ -1711,6 +1712,12 @@ namespace DSG.RegionSync
                 case SymmetricSyncMessage.MsgType.UpdatedProperties:
                     HandleUpdatedProperties(msg, senderActorID);
                     break;
+                case SymmetricSyncMessage.MsgType.GetRegionInfo:
+                    HandleGetRegionInfo(syncConnector);
+                    break;
+                case SymmetricSyncMessage.MsgType.RegionInfo:
+                    HandleRegionInfoMessage(msg, senderActorID);
+                    break;
                 case SymmetricSyncMessage.MsgType.GetTerrain:
                     HandleGetTerrainRequest(syncConnector);
                     break;
@@ -1759,7 +1766,6 @@ namespace DSG.RegionSync
                 case SymmetricSyncMessage.MsgType.ScriptLandCollidingStart:
                 case SymmetricSyncMessage.MsgType.ScriptLandColliding:
                 case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
-                case SymmetricSyncMessage.MsgType.RegionInfoUpdated:
                     HandleRemoteEvent(msg, senderActorID);
                     break;
                 case SymmetricSyncMessage.MsgType.SyncStateReport:
@@ -1791,24 +1797,61 @@ namespace DSG.RegionSync
             TerrainSyncInfo.UpdateTerrianBySync(lastUpdateTimeStamp, lastUpdateActorID, terrain);
         }
 
-        private void HandleRegionInfoUpdateMessage(string init_actorID, ulong evSeqNum, OSDMap data)
+        ///////////////////////////////////////////////////////////////////////
+        // Per property sync handlers
+        ///////////////////////////////////////////////////////////////////////
+        void estate_OnRegionInfoChange(UUID regionID)
         {
-            UUID tex1 = data["tex1"].AsUUID();
-            UUID tex2 = data["tex2"].AsUUID();
-            UUID tex3 = data["tex3"].AsUUID();
-            UUID tex4 = data["tex4"].AsUUID();
-            Scene.RegionInfo.RegionSettings.TerrainTexture1 = tex1;
-            Scene.RegionInfo.RegionSettings.TerrainTexture2 = tex2;
-            Scene.RegionInfo.RegionSettings.TerrainTexture3 = tex3;
-            Scene.RegionInfo.RegionSettings.TerrainTexture4 = tex4;
+            if (regionID != Scene.RegionInfo.RegionID)
+                return;
+            if(IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.RegionInfo, null))
+                return;
+            SymmetricSyncMessage msg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RegionInfo, GetRegionInfo());
+            foreach (SyncConnector connector in GetSyncConnectorsForUpdates())
+            {
+                DetailedUpdateWrite("SndRgnInfo", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, msg.Length);
+                connector.ImmediateOutgoingMsg(msg);
+            }
+        }
+        
+        private void HandleGetRegionInfo(SyncConnector connector)
+        {
+            DetailedUpdateWrite("RcvInfoReq", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, 0);
+            SymmetricSyncMessage msg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RegionInfo, GetRegionInfo());
+            DetailedUpdateWrite("SndRgnInfo", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, msg.Length);
+            connector.ImmediateOutgoingMsg(msg);
+        }
+        
+        private void HandleRegionInfoMessage(SymmetricSyncMessage msg, string senderActorID)
+        {
+            OSDMap data = DeserializeMessage(msg);
+            RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.RegionInfo);
+            SetRegionInfo(data);
+            ForgetLocallyGeneratedEvent();
+        }
+
+        private OSDMap GetRegionInfo()
+        {
+            OSDMap data = new OSDMap(5);
+            data["tex1"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture1);
+            data["tex2"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture2);
+            data["tex3"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture3);
+            data["tex4"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture4);
+            data["waterheight"] = OSD.FromReal(Scene.RegionInfo.RegionSettings.WaterHeight);
+            return data;
+        }
+
+        private void SetRegionInfo(OSDMap data)
+        {
+            Scene.RegionInfo.RegionSettings.TerrainTexture1 = data["tex1"].AsUUID();
+            Scene.RegionInfo.RegionSettings.TerrainTexture2 = data["tex2"].AsUUID();
+            Scene.RegionInfo.RegionSettings.TerrainTexture3 = data["tex3"].AsUUID();
+            Scene.RegionInfo.RegionSettings.TerrainTexture4 = data["tex4"].AsUUID();
+            Scene.RegionInfo.RegionSettings.WaterHeight = data["waterheight"].AsReal();
             IEstateModule estate = Scene.RequestModuleInterface<IEstateModule>();
             if (estate != null)
                 estate.sendRegionHandshakeToAll();
         }
-
-        ///////////////////////////////////////////////////////////////////////
-        // Per property sync handlers
-        ///////////////////////////////////////////////////////////////////////
 
         private void HandleGetTerrainRequest(SyncConnector connector)
         {
@@ -1818,8 +1861,6 @@ namespace DSG.RegionSync
             data["terrain"] = OSD.FromString((string)TerrainSyncInfo.LastUpdateValue);
             data["actorID"] = OSD.FromString(TerrainSyncInfo.LastUpdateActorID);
             data["timeStamp"] = OSD.FromLong(TerrainSyncInfo.LastUpdateTimeStamp);
-
-            //m_log.WarnFormat("{0}: Send out terrain", LogHeader);
 
             SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.Terrain, data);
             DetailedUpdateWrite("SndTerrRsp", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.Length);
@@ -2529,20 +2570,6 @@ namespace DSG.RegionSync
         }
         // END DSG DEBUG
 
-
-        void estate_OnRegionInfoChange(UUID regionID)
-        {
-            if (regionID != Scene.RegionInfo.RegionID)
-                return;
-
-            OSDMap data = new OSDMap(4);
-            data["tex1"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture1);
-            data["tex2"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture2);
-            data["tex3"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture3);
-            data["tex4"] = OSD.FromUUID(Scene.RegionInfo.RegionSettings.TerrainTexture4);
-            //SendSceneEvent(SymmetricSyncMessage.MsgType.RegionInfoUpdated, data);
-        }
-
         // Returns 'null' if the message cannot be deserialized
         private static HashSet<string> exceptions = new HashSet<string>();
         private static OSDMap DeserializeMessage(SymmetricSyncMessage msg)
@@ -2658,9 +2685,6 @@ namespace DSG.RegionSync
                 case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
                     //HandleRemoteEvent_ScriptCollidingStart(init_actorID, evSeqNum, data, DateTime.UtcNow.Ticks);
                     HandleRemoteEvent_ScriptCollidingEvents(msg.Type, init_syncID, evSeqNum, data, DateTime.UtcNow.Ticks);
-                    break;
-                case SymmetricSyncMessage.MsgType.RegionInfoUpdated:
-                    HandleRegionInfoUpdateMessage(init_syncID, evSeqNum, data);
                     break;
                 case SymmetricSyncMessage.MsgType.TimeStamp:
                     {
