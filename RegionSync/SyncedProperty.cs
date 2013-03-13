@@ -202,17 +202,8 @@ namespace DSG.RegionSync
             string s = "";
             switch (Property)
             {
-                case SyncableProperties.Type.Shape:
-                    s = PropertySerializer.SerializeShape((PrimitiveBaseShape)LastUpdateValue);
-                    break;
-                case SyncableProperties.Type.TaskInventory:
-                    s = (string)LastUpdateValue;
-                    break;
                 case SyncableProperties.Type.AgentCircuitData:
                     s = ((AgentCircuitData)LastUpdateValue).PackAgentCircuitData().ToString();
-                    break;
-                case SyncableProperties.Type.Color:
-                    s = PropertySerializer.SerializeColor((System.Drawing.Color)LastUpdateValue);
                     break;
                 default:
                     LastUpdateValueHash = "";
@@ -241,17 +232,8 @@ namespace DSG.RegionSync
                     ///////////////////////////////////////
                     //SOP properties with complex structure
                     ///////////////////////////////////////
-                    case SyncableProperties.Type.Shape:
-                        value = OSD.FromString(PropertySerializer.SerializeShape((PrimitiveBaseShape)LastUpdateValue));
-                        break;
-                    case SyncableProperties.Type.TaskInventory:
-                        value = OSD.FromString((string)LastUpdateValue);
-                        break;
                     case SyncableProperties.Type.AgentCircuitData:
                         value = ((AgentCircuitData)LastUpdateValue).PackAgentCircuitData();
-                        break;
-                    case SyncableProperties.Type.Color:
-                        value = OSD.FromString(PropertySerializer.SerializeColor((System.Drawing.Color)LastUpdateValue));
                         break;
                     case SyncableProperties.Type.AvatarAppearance:
                         value = (OSDMap)LastUpdateValue;
@@ -367,11 +349,14 @@ namespace DSG.RegionSync
                     ////////////////////////////
                     // String type properties
                     ////////////////////////////
+                    case SyncableProperties.Type.Color:
                     case SyncableProperties.Type.CreatorData:
                     case SyncableProperties.Type.Description:
                     case SyncableProperties.Type.MediaUrl:
                     case SyncableProperties.Type.Name:
+                    case SyncableProperties.Type.Shape:
                     case SyncableProperties.Type.SitName:
+                    case SyncableProperties.Type.TaskInventory:
                     case SyncableProperties.Type.Text:
                     case SyncableProperties.Type.TouchName:
                         value = OSD.FromString((string)LastUpdateValue);
@@ -425,20 +410,10 @@ namespace DSG.RegionSync
                 ///////////////////////////////////////
                 // Complex structure properties
                 ///////////////////////////////////////
-                case SyncableProperties.Type.Shape:
-                    PrimitiveBaseShape pbs = PropertySerializer.DeSerializeShape(value.AsString());
-                    LastUpdateValue = pbs;
-                    break;
-                case SyncableProperties.Type.TaskInventory:
-                    LastUpdateValue = value.AsString();
-                    break;
                 case SyncableProperties.Type.AgentCircuitData:
                     AgentCircuitData acd = new AgentCircuitData();
                     acd.UnpackAgentCircuitData((OSDMap)value);
                     LastUpdateValue = acd;
-                    break;
-                case SyncableProperties.Type.Color:
-                    LastUpdateValue = PropertySerializer.DeSerializeColor(value.AsString());
                     break;
                 case SyncableProperties.Type.AvatarAppearance:
                     LastUpdateValue = (OSDMap)value;
@@ -548,11 +523,14 @@ namespace DSG.RegionSync
                 ////////////////////////////
                 // String type properties
                 ////////////////////////////
+                case SyncableProperties.Type.Color:
                 case SyncableProperties.Type.CreatorData:
                 case SyncableProperties.Type.Description:
                 case SyncableProperties.Type.MediaUrl:
                 case SyncableProperties.Type.Name:
+                case SyncableProperties.Type.Shape:
                 case SyncableProperties.Type.SitName:
+                case SyncableProperties.Type.TaskInventory:
                 case SyncableProperties.Type.Text:
                 case SyncableProperties.Type.TouchName:
                     LastUpdateValue = value.AsString();
