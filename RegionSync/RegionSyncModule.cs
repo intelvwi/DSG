@@ -3147,7 +3147,6 @@ namespace DSG.RegionSync
             {
                 m_log.ErrorFormat("HandleRemoteEvent_ScriptCollidingStart Error: {0}", e.Message);
             }
-
            
             if (colliding.Count > 0)
             {
@@ -3719,6 +3718,11 @@ namespace DSG.RegionSync
         
         private void OnSceneObjectPartUpdated(SceneObjectPart part, bool full)
         {
+            // If the scene presence update event was triggered by a call from RegionSyncModule, then we don't need to handle it.
+            // Changes to scene presence that are actually local will not have originated from this module or thread.
+            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdatedProperties))
+                return;
+
             UUID uuid = part.UUID;
             HashSet<SyncableProperties.Type> properties = new HashSet<SyncableProperties.Type>(full ? SyncableProperties.FullUpdateProperties : SyncableProperties.TerseUpdateProperties);
 

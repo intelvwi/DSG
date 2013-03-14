@@ -64,11 +64,6 @@ namespace DSG.RegionSync
             return Util.Md5Hash(initValue);
         }
 
-        public static string SerializeShape(SceneObjectPart part)
-        {
-            return SerializeShape(part.Shape);
-        }
-
         public static string SerializeShape(PrimitiveBaseShape shape)
         {
             string serializedShape;
@@ -105,14 +100,14 @@ namespace DSG.RegionSync
             return shapeValue;
         }
 
-        public static string SerializeTaskInventory(SceneObjectPart part)
+        public static string SerializeTaskInventory(TaskInventoryDictionary inventory, Scene scene)
         {
             string serializedTaskInventory;
             using (StringWriter sw = new StringWriter())
             {
                 using (XmlTextWriter writer = new XmlTextWriter(sw))
                 {
-                    SceneObjectSerializer.WriteTaskInventory(writer, part.TaskInventory, new Dictionary<string, object>(), part.ParentGroup.Scene);
+                    SceneObjectSerializer.WriteTaskInventory(writer, inventory, new Dictionary<string, object>(), scene);
                 }
                 serializedTaskInventory = sw.ToString();
             }

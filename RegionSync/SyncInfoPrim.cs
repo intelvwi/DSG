@@ -202,14 +202,9 @@ namespace DSG.RegionSync
             if (!CurrentlySyncedProperties.ContainsKey(property))
             {
                 Object initValue = GetPropertyValue(part, property);
-                bool ret = false;
-                //if (initValue != null)
-                {
-                    SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateByLocalTS, syncID);
-                    CurrentlySyncedProperties.Add(property, syncInfo);
-                    ret = true;
-                }
-                return ret;
+                SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateByLocalTS, syncID);
+                CurrentlySyncedProperties.Add(property, syncInfo);
+                return true;
             }
 
             // First, check if the value maintained here is different from that in SOP's. 
@@ -231,12 +226,15 @@ namespace DSG.RegionSync
                     if (syncedProperty.LastUpdateValue == null && partValue == null)
                         return false;
 
-                    // If one is null and the other is not, or if the references are different, the property was changed.
-                    // This will perform a value comparison for strings in C#. We could use String.Clone instead for string properties.
+                    // If one is null and the other is not, or if they are not equal, the property was changed.
                     if ((partValue == null && syncedProperty.LastUpdateValue != null) || 
                         (partValue != null && syncedProperty.LastUpdateValue == null) ||
                         (!partValue.Equals(syncedProperty.LastUpdateValue)))
                     {
+                        if (property == SyncableProperties.Type.Shape)
+                        {
+                            DebugLog.WarnFormat("[SYNC INFO PRIM]: SHAPES DIFFER {0} {1}", (string)partValue, (string)syncedProperty.LastUpdateValue);
+                        }
                         // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): partValue != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
@@ -392,7 +390,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.ScriptAccessPin:
                     return part.ScriptAccessPin;
                 case SyncableProperties.Type.Shape:
-                    return PropertySerializer.SerializeShape(part);
+                    return PropertySerializer.SerializeShape(part.Shape);
                 case SyncableProperties.Type.SitName:
                     return part.SitName;
                 case SyncableProperties.Type.SitTargetOrientation:
@@ -408,7 +406,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.Sound:
                     return part.Sound;
                 case SyncableProperties.Type.TaskInventory:
-                    return PropertySerializer.SerializeTaskInventory(part);
+                    return PropertySerializer.SerializeTaskInventory(part.TaskInventory, Scene);
                 case SyncableProperties.Type.Text:
                     return part.Text;
                 case SyncableProperties.Type.TextureAnimation:
