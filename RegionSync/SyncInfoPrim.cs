@@ -445,10 +445,6 @@ namespace DSG.RegionSync
                     if (part.PhysActor == null)
                         return null;
                     return part.PhysActor.CollidingGround;
-                case SyncableProperties.Type.IsPhysical:
-                    if (part.PhysActor == null)
-                        return null;
-                    return part.PhysActor.IsPhysical;
                 case SyncableProperties.Type.Kinematic:
                     if (part.PhysActor == null)
                         return null;
@@ -816,10 +812,6 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.CollidingGround:
                     if (part.PhysActor != null)
                         part.PhysActor.CollidingGround = (bool)LastUpdateValue;
-                    break;
-                case SyncableProperties.Type.IsPhysical:
-                    //if (part.PhysActor != null)
-                    //    part.PhysActor.IsPhysical = (bool)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.Kinematic:
                     if (part.PhysActor != null)
@@ -1208,7 +1200,6 @@ namespace DSG.RegionSync
                                 case SyncableProperties.Type.Flying:
                                 case SyncableProperties.Type.IsColliding:
                                 case SyncableProperties.Type.CollidingGround:
-                                case SyncableProperties.Type.IsPhysical:
                                 case SyncableProperties.Type.Kinematic:
                                     estimateBytes += 1;
                                     break;

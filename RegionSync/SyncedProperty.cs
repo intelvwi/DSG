@@ -273,7 +273,6 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.Flying:
                     case SyncableProperties.Type.IsColliding:
                     case SyncableProperties.Type.CollidingGround:
-                    case SyncableProperties.Type.IsPhysical:
                     case SyncableProperties.Type.Kinematic:
                     case SyncableProperties.Type.IsSelected:
                     case SyncableProperties.Type.AllowMovement:
@@ -450,7 +449,6 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.Flying:
                 case SyncableProperties.Type.IsColliding:
                 case SyncableProperties.Type.CollidingGround:
-                case SyncableProperties.Type.IsPhysical:
                 case SyncableProperties.Type.Kinematic:
                 case SyncableProperties.Type.IsSelected:
                 case SyncableProperties.Type.AllowMovement:
