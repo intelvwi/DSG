@@ -64,12 +64,27 @@ namespace DSG.RegionSync
             return Util.Md5Hash(initValue);
         }
 
+
+        public class MyXmlTextWriter : XmlTextWriter
+        {
+            public MyXmlTextWriter(StringWriter sw)
+                : base(sw)
+            {
+
+            }
+
+            public override void WriteEndElement()
+            {
+                base.WriteFullEndElement();
+            }
+        }
+
         public static string SerializeShape(PrimitiveBaseShape shape)
         {
             string serializedShape;
             using (StringWriter sw = new StringWriter())
             {
-                using (XmlTextWriter writer = new XmlTextWriter(sw))
+                using (XmlTextWriter writer = new MyXmlTextWriter(sw))
                 {
                     SceneObjectSerializer.WriteShape(writer, shape, new Dictionary<string, object>());
                 }
