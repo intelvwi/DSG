@@ -177,6 +177,11 @@ namespace DSG.RegionSync
             return propertiesUpdatedByLocal;
         }
 
+
+        const float ROTATION_TOLERANCE = 0.01f;
+        const float VELOCITY_TOLERANCE = 0.001f;
+        const float POSITION_TOLERANCE = 0.05f;
+
         /// <summary>
         /// Compare the value (not "reference") of the given property. 
         /// Assumption: the caller has already checked if PhysActor exists
@@ -231,6 +236,42 @@ namespace DSG.RegionSync
                         (partValue != null && syncedProperty.LastUpdateValue == null) ||
                         (!partValue.Equals(syncedProperty.LastUpdateValue)))
                     {
+                        switch (property)
+                        {
+                            case SyncableProperties.Type.RotationOffset:
+                                {
+                                    Quaternion partVal = (Quaternion)partValue;
+                                    Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                    if(partVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.Velocity:
+                                {
+                                    Vector3 partVal = (Vector3)partValue;
+                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                    // If velocity difference is small but not zero, don't update
+                                    if(partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE) && !partVal.Equals(Vector3.Zero))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.AngularVelocity:
+                                {
+                                    Quaternion partVal = (Quaternion)partValue;
+                                    Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                    if(partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.OffsetPosition:
+                                {
+                                    Vector3 partVal = (Vector3)partValue;
+                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                    if(partVal.ApproxEquals(lastVal, POSITION_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                        }
                         if (property == SyncableProperties.Type.Shape)
                         {
                             DebugLog.WarnFormat("[SYNC INFO PRIM]: SHAPES DIFFER {0} {1}", (string)partValue, (string)syncedProperty.LastUpdateValue);
