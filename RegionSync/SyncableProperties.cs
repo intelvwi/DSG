@@ -121,7 +121,6 @@ namespace DSG.RegionSync
             PA_TargetVelocity,
             Torque,
             Orientation,
-            IsPhysical,
             Flying,
             Buoyancy,
             Kinematic,
@@ -206,7 +205,6 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.Force:
                     case SyncableProperties.Type.IsColliding:
                     case SyncableProperties.Type.CollidingGround:
-                    case SyncableProperties.Type.IsPhysical:
                     case SyncableProperties.Type.Kinematic:
                     case SyncableProperties.Type.Orientation:
                     case SyncableProperties.Type.PA_Acceleration:

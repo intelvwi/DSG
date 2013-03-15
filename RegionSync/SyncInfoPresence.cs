@@ -220,6 +220,9 @@ namespace DSG.RegionSync
             return updated;
         }
 
+        const float ROTATION_TOLERANCE = 0.01f;
+        const float VELOCITY_TOLERANCE = 0.001f;
+        const float POSITION_TOLERANCE = 0.05f;
 
         /// <summary>
         /// Compare the value (not "reference") of the given property. 
@@ -277,6 +280,34 @@ namespace DSG.RegionSync
                         (spValue != null && syncedProperty.LastUpdateValue == null) ||
                         (!spValue.Equals(syncedProperty.LastUpdateValue)))
                     {
+                        switch (property)
+                        {
+                            case SyncableProperties.Type.Velocity:
+                                {
+                                    Vector3 spVal = (Vector3)spValue;
+                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                    // If velocity difference is small but not zero, don't update
+                                    if (spVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE) && !spVal.Equals(Vector3.Zero))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.Rotation:
+                                {
+                                    Quaternion spVal = (Quaternion)spValue;
+                                    Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                    if (spVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.Position:
+                                {
+                                    Vector3 spVal = (Vector3)spValue;
+                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                    if (spVal.ApproxEquals(lastVal, POSITION_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                        }
                         // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): spValue != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
@@ -396,7 +427,6 @@ namespace DSG.RegionSync
                     DebugLog.WarnFormat("{0}: Received updated AgentCircuitData. Not implemented", LogHeader);
                     break;
                 case SyncableProperties.Type.ParentId:
-                    DebugLog.WarnFormat("{0}: Received ParentId={1}.", LogHeader, (uint)pValue);
                     uint localID = (uint)pValue;
                     if (localID == 0)
                     {
@@ -439,7 +469,8 @@ namespace DSG.RegionSync
                     DebugLog.Warn("[SYNC INFO PRESENCE] Received updated PresenceType. Not implemented");
                     break;
                 case SyncableProperties.Type.IsColliding:
-                    sp.IsColliding = (bool)pValue;
+                    if(sp.PhysicsActor != null)
+                        sp.IsColliding = (bool)pValue;
                     break;
             }
 

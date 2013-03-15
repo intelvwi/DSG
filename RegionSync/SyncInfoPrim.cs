@@ -160,20 +160,7 @@ namespace DSG.RegionSync
             {
                 foreach (SyncableProperties.Type property in updatedProperties)
                 {
-                    bool updated = false;
-                    //Compare if the value of the property in this SyncModule is different than the value in SOP
-                    switch (property)
-                    {
-                        case SyncableProperties.Type.Shape:
-                        case SyncableProperties.Type.TaskInventory:
-                            updated = CompareHashedValue_UpdateByLocal(part, property, lastUpdateTS, syncID);
-                            break;
-                        default:
-                            updated = CompareValue_UpdateByLocal(part, property, lastUpdateTS, syncID);
-                            break;
-                    }
-
-                    if (updated)
+                    if (CompareValue_UpdateByLocal(part, property, lastUpdateTS, syncID))
                     {
                         propertiesUpdatedByLocal.Add(property);
                     }
@@ -191,55 +178,9 @@ namespace DSG.RegionSync
         }
 
 
-        //Assumption: the caller already locks the access lock, and no need to lock here
-        private bool CompareHashedValue_UpdateByLocal(SceneObjectPart part, SyncableProperties.Type property, long lastUpdateTS, string syncID)
-        {
-            // If property is not in cache yet, add it with initial value from the local scene
-            if (!CurrentlySyncedProperties.ContainsKey(property))
-            {
-                Object initValue = GetPropertyValue(part, property);
-                SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateTS, syncID);
-                CurrentlySyncedProperties.Add(property, syncInfo);
-                return true;
-            }
-
-            object value;
-            string hash;
-
-            // Property is in the cache. Get the current value and hashed value. 
-            switch (property)
-            {
-                case SyncableProperties.Type.Shape:
-                    value = part.Shape;
-                    hash = PropertySerializer.GetPropertyHashValue(PropertySerializer.SerializeShape(part));
-                    break;
-                case SyncableProperties.Type.TaskInventory:
-                    value = PropertySerializer.SerializeTaskInventory(part);
-                    hash = Util.Md5Hash((string)value);
-                    break;
-                default:
-                    return false;
-            }
-
-            // If the current hash value is different than the cached hash value
-            if (!CurrentlySyncedProperties[property].LastUpdateValueHash.Equals(hash))
-            {
-                // The SOP's property value has a newer timestamp, update the data in
-                // SyncInfoManager to be consistent; otherwise, overwrite SOP's property
-                // value by copying that from SyncInfoManager
-                if (lastUpdateTS >= CurrentlySyncedProperties[property].LastUpdateTimeStamp)
-                {
-                    CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateTS, syncID, value, hash);
-                    return true;
-                }
-                else if (lastUpdateTS < CurrentlySyncedProperties[property].LastUpdateTimeStamp)
-                {
-                    SetPropertyValue(property);
-                }
-            }
-
-            return false;
-        }
+        const float ROTATION_TOLERANCE = 0.01f;
+        const float VELOCITY_TOLERANCE = 0.001f;
+        const float POSITION_TOLERANCE = 0.05f;
 
         /// <summary>
         /// Compare the value (not "reference") of the given property. 
@@ -266,14 +207,9 @@ namespace DSG.RegionSync
             if (!CurrentlySyncedProperties.ContainsKey(property))
             {
                 Object initValue = GetPropertyValue(part, property);
-                bool ret = false;
-                //if (initValue != null)
-                {
-                    SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateByLocalTS, syncID);
-                    CurrentlySyncedProperties.Add(property, syncInfo);
-                    ret = true;
-                }
-                return ret;
+                SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateByLocalTS, syncID);
+                CurrentlySyncedProperties.Add(property, syncInfo);
+                return true;
             }
 
             // First, check if the value maintained here is different from that in SOP's. 
@@ -295,12 +231,51 @@ namespace DSG.RegionSync
                     if (syncedProperty.LastUpdateValue == null && partValue == null)
                         return false;
 
-                    // If one is null and the other is not, or if the references are different, the property was changed.
-                    // This will perform a value comparison for strings in C#. We could use String.Clone instead for string properties.
+                    // If one is null and the other is not, or if they are not equal, the property was changed.
                     if ((partValue == null && syncedProperty.LastUpdateValue != null) || 
                         (partValue != null && syncedProperty.LastUpdateValue == null) ||
                         (!partValue.Equals(syncedProperty.LastUpdateValue)))
                     {
+                        switch (property)
+                        {
+                            case SyncableProperties.Type.RotationOffset:
+                                {
+                                    Quaternion partVal = (Quaternion)partValue;
+                                    Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                    if(partVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.Velocity:
+                                {
+                                    Vector3 partVal = (Vector3)partValue;
+                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                    // If velocity difference is small but not zero, don't update
+                                    if(partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE) && !partVal.Equals(Vector3.Zero))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.AngularVelocity:
+                                {
+                                    Quaternion partVal = (Quaternion)partValue;
+                                    Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                    if(partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                            case SyncableProperties.Type.OffsetPosition:
+                                {
+                                    Vector3 partVal = (Vector3)partValue;
+                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                    if(partVal.ApproxEquals(lastVal, POSITION_TOLERANCE))
+                                        return false;
+                                    break;
+                                }
+                        }
+                        if (property == SyncableProperties.Type.Shape)
+                        {
+                            DebugLog.WarnFormat("[SYNC INFO PRIM]: SHAPES DIFFER {0} {1}", (string)partValue, (string)syncedProperty.LastUpdateValue);
+                        }
                         // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): partValue != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
@@ -364,12 +339,6 @@ namespace DSG.RegionSync
         {
             switch (property)
             {
-                case SyncableProperties.Type.Shape:
-                    //return PropertySerializer.SerializeShape(part);
-                    return part.Shape;
-                case SyncableProperties.Type.TaskInventory:
-                    return PropertySerializer.SerializeTaskInventory(part);
-
                 ///////////////////////
                 //SOP properties
                 ///////////////////////
@@ -396,7 +365,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.CollisionSoundVolume:
                     return part.CollisionSoundVolume;
                 case SyncableProperties.Type.Color:
-                    return part.Color;
+                    return PropertySerializer.SerializeColor(part.Color);
                 case SyncableProperties.Type.CreationDate:
                     return part.CreationDate;
                 case SyncableProperties.Type.CreatorData:
@@ -450,7 +419,7 @@ namespace DSG.RegionSync
                     return part.OwnershipCost;
                 case SyncableProperties.Type.ParticleSystem:
                     //byte[], return a cloned copy
-                    return part.ParticleSystem;//.Clone();
+                    return part.ParticleSystem;//.Clone()
                 case SyncableProperties.Type.PassTouches:
                     return part.PassTouches;
                 case SyncableProperties.Type.RotationOffset:
@@ -461,7 +430,8 @@ namespace DSG.RegionSync
                     return part.Scale;
                 case SyncableProperties.Type.ScriptAccessPin:
                     return part.ScriptAccessPin;
-                //case SyncableProperties.Shape: -- For "Shape", we need to call CompareHashValues
+                case SyncableProperties.Type.Shape:
+                    return PropertySerializer.SerializeShape(part.Shape);
                 case SyncableProperties.Type.SitName:
                     return part.SitName;
                 case SyncableProperties.Type.SitTargetOrientation:
@@ -476,7 +446,8 @@ namespace DSG.RegionSync
                     return part.Acceleration;
                 case SyncableProperties.Type.Sound:
                     return part.Sound;
-                //case SyncableProperties.TaskInventory:-- For "TaskInventory", we need to call CompareHashValues
+                case SyncableProperties.Type.TaskInventory:
+                    return PropertySerializer.SerializeTaskInventory(part.TaskInventory, Scene);
                 case SyncableProperties.Type.Text:
                     return part.Text;
                 case SyncableProperties.Type.TextureAnimation:
@@ -515,10 +486,6 @@ namespace DSG.RegionSync
                     if (part.PhysActor == null)
                         return null;
                     return part.PhysActor.CollidingGround;
-                case SyncableProperties.Type.IsPhysical:
-                    if (part.PhysActor == null)
-                        return null;
-                    return part.PhysActor.IsPhysical;
                 case SyncableProperties.Type.Kinematic:
                     if (part.PhysActor == null)
                         return null;
@@ -574,11 +541,6 @@ namespace DSG.RegionSync
             SceneObjectPart part = (SceneObjectPart)SceneThing;
             // DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(property={0})", property.ToString());
             SetPropertyValue(part, property);
-            if (property == SyncableProperties.Type.TaskInventory)
-            {
-                //Mark the inventory as has changed, for proper backup
-                part.Inventory.ForceInventoryPersistence();
-            }
             part.ParentGroup.HasGroupChanged = true;
         }
 
@@ -613,25 +575,6 @@ namespace DSG.RegionSync
 
             switch (property)
             {
-                case SyncableProperties.Type.Shape:
-                    PrimitiveBaseShape shapeVal = (PrimitiveBaseShape)LastUpdateValue;
-                    // Scale and State are actually synchronized as part properties so existing values
-                    // should be preserved when updating a shape
-                    if (part.Shape != null)
-                    {
-                        shapeVal.Scale = part.Shape.Scale;
-                        shapeVal.State = part.Shape.State;
-                    }
-                    part.Shape = shapeVal;
-                    break;
-                case SyncableProperties.Type.TaskInventory:
-                    TaskInventoryDictionary taskVal = PropertySerializer.DeSerializeTaskInventory((string)LastUpdateValue);
-                    if (taskVal != null)
-                    {
-                        part.TaskInventory = taskVal;
-                    }
-                    break;
-
                 ///////////////////////
                 //SOP properties
                 ///////////////////////
@@ -706,14 +649,13 @@ namespace DSG.RegionSync
                     part.ClickAction = (byte)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.CollisionSound:
-                    //part.CollisionSound = (UUID)LastUpdateValue;
                     SetSOPCollisionSound(part, (UUID)LastUpdateValue);
                     break;
                 case SyncableProperties.Type.CollisionSoundVolume:
                     part.CollisionSoundVolume = (float)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.Color:
-                    part.Color = (System.Drawing.Color)LastUpdateValue;
+                    part.Color = PropertySerializer.DeSerializeColor((string)LastUpdateValue);
                     break;
                 case SyncableProperties.Type.CreationDate:
                     part.CreationDate = (int)LastUpdateValue;
@@ -731,7 +673,6 @@ namespace DSG.RegionSync
                     part.EveryoneMask = (uint)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.Flags:
-                    //part.Flags = (PrimFlags)LastUpdateValue;
                     SetSOPFlags(part, (PrimFlags)(int)LastUpdateValue);
                     break;
                 case SyncableProperties.Type.FolderID:
@@ -814,7 +755,17 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.ScriptAccessPin:
                     part.ScriptAccessPin = (int)LastUpdateValue;
                     break;
-                //case SyncableProperties.Shape: -- For "Shape", we need to call CompareHashValues
+                case SyncableProperties.Type.Shape:
+                    PrimitiveBaseShape shapeVal = PropertySerializer.DeSerializeShape((string)LastUpdateValue);
+                    // Scale and State are actually synchronized as part properties so existing values
+                    // should be preserved when updating a shape
+                    if (part.Shape != null)
+                    {
+                        shapeVal.Scale = part.Shape.Scale;
+                        shapeVal.State = part.Shape.State;
+                    }
+                    part.Shape = shapeVal;
+                    break;
                 case SyncableProperties.Type.SitName:
                     part.SitName = (string)LastUpdateValue;
                     break;
@@ -836,7 +787,15 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.Sound:
                     part.Sound = (UUID)LastUpdateValue;
                     break;
-                //case SyncableProperties.TaskInventory:-- For "TaskInventory", we need to call CompareHashValues
+                case SyncableProperties.Type.TaskInventory:
+                    TaskInventoryDictionary taskVal = PropertySerializer.DeSerializeTaskInventory((string)LastUpdateValue);
+                    if (taskVal != null)
+                    {
+                        part.TaskInventory = taskVal;
+                        //Mark the inventory as has changed, for proper backup
+                        part.Inventory.ForceInventoryPersistence();
+                    }
+                    break;
                 case SyncableProperties.Type.Text:
                     part.Text = (string)LastUpdateValue;
                     break;
@@ -894,10 +853,6 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.CollidingGround:
                     if (part.PhysActor != null)
                         part.PhysActor.CollidingGround = (bool)LastUpdateValue;
-                    break;
-                case SyncableProperties.Type.IsPhysical:
-                    //if (part.PhysActor != null)
-                    //    part.PhysActor.IsPhysical = (bool)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.Kinematic:
                     if (part.PhysActor != null)
@@ -1116,19 +1071,7 @@ namespace DSG.RegionSync
                         estimateBytes += 4; //syncedProperty.LastUpdateSource, enum
                         estimateBytes += syncedProperty.LastUpdateSyncID.Length;
 
-                        if (valPair.Key == SyncableProperties.Type.Shape)
-                        {
-                            //The value is only a reference to SOP.Shape, shouldn't use too many bytes in memory
-
-                            //estimateBytes += syncedProperty.LastUpdateValue
-                            estimateBytes += ((String)syncedProperty.LastUpdateValueHash).Length;
-                        }
-                        else if (valPair.Key == SyncableProperties.Type.TaskInventory)
-                        {
-                            estimateBytes += ((String)syncedProperty.LastUpdateValue).Length;
-                            estimateBytes += ((String)syncedProperty.LastUpdateValueHash).Length;
-                        }
-                        else if (syncedProperty.LastUpdateValue != null)
+                        if (syncedProperty.LastUpdateValue != null)
                         {
                             /*
                             Type pType = syncedProperty.LastUpdateValue.GetType(); 
@@ -1241,13 +1184,6 @@ namespace DSG.RegionSync
                                     break;
 
                                 ////////////////////////////
-                                //SOP properties, Color(struct type)
-                                ////////////////////////////
-                                case SyncableProperties.Type.Color:
-                                    estimateBytes += 4;
-                                    break;
-
-                                ////////////////////////////
                                 //SOP properties, int types
                                 ////////////////////////////
                                 case SyncableProperties.Type.CreationDate:
@@ -1261,11 +1197,14 @@ namespace DSG.RegionSync
                                 ////////////////////////////
                                 //SOP properties, string types
                                 ////////////////////////////
+                                case SyncableProperties.Type.Color:
                                 case SyncableProperties.Type.CreatorData:
                                 case SyncableProperties.Type.Description:
                                 case SyncableProperties.Type.MediaUrl:
                                 case SyncableProperties.Type.Name:
+                                case SyncableProperties.Type.Shape:
                                 case SyncableProperties.Type.SitName:
+                                case SyncableProperties.Type.TaskInventory:
                                 case SyncableProperties.Type.Text:
                                 case SyncableProperties.Type.TouchName:
                                     estimateBytes += ((string)syncedProperty.LastUpdateValue).Length;
@@ -1302,7 +1241,6 @@ namespace DSG.RegionSync
                                 case SyncableProperties.Type.Flying:
                                 case SyncableProperties.Type.IsColliding:
                                 case SyncableProperties.Type.CollidingGround:
-                                case SyncableProperties.Type.IsPhysical:
                                 case SyncableProperties.Type.Kinematic:
                                     estimateBytes += 1;
                                     break;

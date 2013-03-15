@@ -87,9 +87,11 @@ namespace DSG.RegionSync
             GetTerrain,
             GetObjects,
             GetPresences,
+            GetRegionInfo,
             
             // SIM <-> CM
             Terrain,
+            RegionInfo,
             
             NewObject,       // objects
             RemovedObject,   // objects
@@ -102,7 +104,6 @@ namespace DSG.RegionSync
             NewPresence,
             RemovedPresence,
             RegionName,
-            RegionInfoUpdated,
             RegionStatus,
             ActorID,
             ActorType,
