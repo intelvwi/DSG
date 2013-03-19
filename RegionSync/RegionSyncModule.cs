@@ -3766,8 +3766,8 @@ namespace DSG.RegionSync
             EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
         }
 
-        private int m_updateTick = 0;
-        private StringBuilder m_updateLoopLogSB;
+        //private int m_updateTick = 0;
+        //private StringBuilder m_updateLoopLogSB;
         /// <summary>
         /// Triggered periodically to send out sync messages that include 
         /// prim and scene presence properties that have been updated since last SyncOut.
@@ -3824,10 +3824,11 @@ namespace DSG.RegionSync
                 return;
             }
 
-            m_updateTick++;
+            //m_updateTick++;
 
             lock (m_propertyUpdateLock)
             {
+                /*
                 bool tickLog = false;
                 DateTime startTime = DateTime.Now;
                 if (m_propertyUpdates.Count > 0)
@@ -3836,6 +3837,7 @@ namespace DSG.RegionSync
                     //m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
                     m_updateLoopLogSB = new StringBuilder(m_updateTick.ToString());
                 }
+                 * */ 
 
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
                 Dictionary<UUID, HashSet<SyncableProperties.Type>> updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
@@ -3871,6 +3873,7 @@ namespace DSG.RegionSync
 
                                 syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
 
+                                /*
                                 //Log encoding delays
                                 if (tickLog)
                                 {
@@ -3878,11 +3881,13 @@ namespace DSG.RegionSync
                                     TimeSpan span = encodeEndTime - startTime;
                                     m_updateLoopLogSB.Append(",update-" +updateIndex+"," + span.TotalMilliseconds.ToString());
                                 }
+                                 * */
 
                                 if (syncData.Count > 0)
                                 {
                                     SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.UpdatedProperties, syncData);
 
+                                    /*
                                     //Log encoding delays
                                     if (tickLog)
                                     {
@@ -3890,6 +3895,7 @@ namespace DSG.RegionSync
                                         TimeSpan span = syncMsgendTime - startTime;
                                         m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
                                     }
+                                     * */ 
 
                                     HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
                                     // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
@@ -3921,6 +3927,7 @@ namespace DSG.RegionSync
                                         connector.EnqueueOutgoingUpdate(uuid, syncMsg);
                                     }
 
+                                    /*
                                     //Log encoding delays
                                     if (tickLog)
                                     {
@@ -3928,6 +3935,7 @@ namespace DSG.RegionSync
                                         TimeSpan span = syncConnectorendTime - startTime;
                                         m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
                                     }
+                                     * */
                                 }
 
                             }
@@ -3941,6 +3949,7 @@ namespace DSG.RegionSync
                         }
                     }
 
+                    /*
                     if (tickLog)
                     {
                         DateTime endTime = DateTime.Now;
@@ -3949,6 +3958,7 @@ namespace DSG.RegionSync
                         //m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
                         //    m_updateTick, span.Milliseconds);
                     }
+                     * */ 
 
                     // Indicate that the current batch of updates has been completed
                     Interlocked.Exchange(ref m_sendingPropertyUpdates, 0);
