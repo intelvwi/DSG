@@ -348,19 +348,19 @@ namespace DSG.RegionSync
         }
 
         List<string> regionStatFields = new List<string>
-    {       "RootAgents", "ChildAgents", "SimFPS", "PhysicsFPS", "TotalPrims",
-            "ActivePrims", "ActiveScripts", "ScriptLines",
-            "FrameTime", "PhysicsTime", "AgentTime", "ImageTime", "NetTime", "OtherTime", "SimSpareMS",
-            "AgentUpdates", "SlowFrames", "TimeDilation",
-    };
+        {       "RootAgents", "ChildAgents", "SimFPS", "PhysicsFPS", "TotalPrims",
+                "ActivePrims", "ActiveScripts", "ScriptLines",
+                "FrameTime", "PhysicsTime", "AgentTime", "ImageTime", "NetTime", "OtherTime", "SimSpareMS",
+                "AgentUpdates", "SlowFrames", "TimeDilation",
+        };
         List<string> serverStatFields = new List<string>
-    {
-            "CPUPercent", "TotalProcessorTime", "UserProcessorTime", "PrivilegedProcessorTime",
-            "Threads",
-            "AverageMemoryChurn", "LastMemoryChurn",
-            "ObjectMemory", "ProcessMemory",
-            "BytesRcvd", "BytesSent", "TotalBytes",
-    };
+        {
+                "CPUPercent", "TotalProcessorTime", "UserProcessorTime", "PrivilegedProcessorTime",
+                "Threads",
+                "AverageMemoryChurn", "LastMemoryChurn",
+                "ObjectMemory", "ProcessMemory",
+                // "BytesRcvd", "BytesSent", "TotalBytes",
+        };
 
         private void StatsTimerElapsed(object source, System.Timers.ElapsedEventArgs e)
         {
@@ -501,7 +501,6 @@ namespace DSG.RegionSync
                         ComputePerSecond("Msgs_Rcvd", "Msgs_Rcvd_Per_Sec", ref outputValues, ref lastMsgs_Rcvd, msSinceLast);
                         ComputePerSecond("Bytes_Sent", "Bytes_Sent_Per_Sec", ref outputValues, ref lastBytes_Sent, msSinceLast);
                         ComputePerSecond("Bytes_Rcvd", "Bytes_Rcvd_Per_Sec", ref outputValues, ref lastBytes_Rcvd, msSinceLast);
-                        lastStatTime = Util.EnvironmentTickCount();
 
                         StringBuilder buff = new StringBuilder();
                         buff.Append(lastStat.RegionName);
@@ -531,6 +530,7 @@ namespace DSG.RegionSync
                     }
                 }
             }
+            lastStatTime = Util.EnvironmentTickCount();
         }
 
         // Compute an avarea per second givne the current values and pointers to the previous values and time since previous sample.
@@ -622,7 +622,19 @@ namespace DSG.RegionSync
                 foreach (string container in categoryStats.Keys)
                 {
                     SortedDictionary<string, Stat> containerStats = categoryStats[container];
-
+                    if (container == "network")
+                    {
+                        // Super special kludge that adds the field headers for the network stats.
+                        // This is done this way because the name includes the name of the NIC
+                        //     and there could be more than one NIC.
+                        foreach (Stat rStat in containerStats.Values)
+                        {
+                            if (!serverStatFields.Contains(rStat.Name))
+                            {
+                                serverStatFields.Add(rStat.Name);
+                            }
+                        }
+                    }
                     foreach (Stat rStat in containerStats.Values)
                     {
                         outputValues.Add(rStat.Name, rStat.Value.ToString());

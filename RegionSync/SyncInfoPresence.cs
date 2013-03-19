@@ -266,6 +266,9 @@ namespace DSG.RegionSync
 
             switch (property)
             {
+                case SyncableProperties.Type.AvatarAppearance:
+                    return false; 
+
                 default:
                     SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
                     Object spValue = GetPropertyValue(sp, property);
@@ -308,6 +311,7 @@ namespace DSG.RegionSync
                                     break;
                                 }
 
+                                /*
                             case SyncableProperties.Type.AvatarAppearance:
                                 {
                                     //if (PropertyValueEquals_AvatarAppearance((OSDMap)spValue, (OSDMap)syncedProperty.LastUpdateValue))
@@ -315,6 +319,7 @@ namespace DSG.RegionSync
                                     return false;
                                     break;
                                 }
+                                 * */ 
                         }
                         // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): spValue != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
