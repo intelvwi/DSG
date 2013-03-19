@@ -139,10 +139,12 @@ namespace DSG.RegionSync
         {
             SyncInfoBase thisSyncInfo = null;
             lock(m_syncLock)
-                if (m_syncedUUIDs.ContainsKey(uuid))
+                //if (m_syncedUUIDs.ContainsKey(uuid))
+                if(m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo))
                 {
                     //DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} FOUND.", uuid);
-                    return m_syncedUUIDs[uuid].UpdatePropertiesBySync(uuid, syncedProperties);
+                    //return m_syncedUUIDs[uuid].UpdatePropertiesBySync(uuid, syncedProperties);
+                    return thisSyncInfo.UpdatePropertiesBySync(uuid, syncedProperties);
                 }
 
             //This should not happen, as we should only receive UpdatedPrimProperties after receiving a NewObject message

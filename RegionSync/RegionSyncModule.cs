@@ -1902,8 +1902,8 @@ namespace DSG.RegionSync
                 OSDMap encodedSOG = EncodeSceneObject(sog);
                 SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.NewObject, encodedSOG);
                 DetailedUpdateWrite("SndGetORsp", sog.UUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.Length);
-                //connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
-                connector.ImmediateOutgoingMsg(syncMsg);
+                connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
+                //connector.ImmediateOutgoingMsg(syncMsg);
             });
         } 
 
