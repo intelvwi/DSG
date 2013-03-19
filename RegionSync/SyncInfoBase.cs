@@ -137,6 +137,23 @@ namespace DSG.RegionSync
             return propertyData;
         }
 
+        public HashSet<string> GetLastUpdateSyncIDs(HashSet<SyncableProperties.Type> propertiesToSync)
+        {
+            HashSet<string> syncIDs = new HashSet<string>();
+            SyncedProperty prop;
+            lock (m_syncLock)
+            {
+                foreach (SyncableProperties.Type ptype in propertiesToSync)
+                {
+                    if (CurrentlySyncedProperties.TryGetValue(ptype, out prop))
+                    {
+                        syncIDs.Add(prop.LastUpdateSyncID);
+                    }
+                }
+            }
+            return syncIDs;
+        }
+
         public abstract HashSet<SyncableProperties.Type> UpdatePropertiesByLocal(UUID uuid, HashSet<SyncableProperties.Type> updatedProperties, long lastUpdateTS, string syncID);
 
         //TODO: might return status such as Updated, Unchanged, etc to caller

@@ -837,6 +837,7 @@ namespace DSG.RegionSync
 
         private string GetSyncID()
         {
+            /*
             if (Scene != null)
             {
                 return Scene.RegionInfo.RegionID.ToString();
@@ -845,6 +846,8 @@ namespace DSG.RegionSync
             {
                 return String.Empty;
             }
+             * */
+            return ActorID;
         }
 
         private void StatsTimerElapsed(object source, System.Timers.ElapsedEventArgs e)
@@ -890,6 +893,7 @@ namespace DSG.RegionSync
 
         //Object updates are sent by enqueuing into each connector's outQueue.
         // UNUSED??
+        /*
         private void SendPrimUpdateToRelevantSyncConnectors(SceneObjectPart updatedPart, SymmetricSyncMessage syncMsg, string lastUpdateActorID)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
@@ -905,6 +909,7 @@ namespace DSG.RegionSync
                 }
             }
         }
+         * */ 
 
         private void SendDelinkObjectToRelevantSyncConnectors(string senderActorID, List<SceneObjectGroup> beforeDelinkGroups, SymmetricSyncMessage syncMsg)
         {
@@ -3857,10 +3862,13 @@ namespace DSG.RegionSync
                             //updatedProperties.UnionWith(propertiesWithSyncInfoUpdated);
 
                             OSDMap syncData;
+                            HashSet<string> syncIDs = null;
                             try
                             {
                                 syncData = m_SyncInfoManager.EncodeProperties(uuid, updatedProperties);
                                 // m_log.WarnFormat("{0}: SyncOutUpdates(): Sending {1} updates for uuid {2}", LogHeader, syncData.Count, uuid);
+
+                                syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
 
                                 //Log encoding delays
                                 if (tickLog)
@@ -3886,6 +3894,25 @@ namespace DSG.RegionSync
                                     // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
                                     foreach (SyncConnector connector in syncConnectors)
                                     {
+                                        //If the updated properties are from the same actor, the no need to send this sync message to that actor
+                                        if (syncIDs.Count == 1)
+                                        {
+                                            if (syncIDs.Contains(connector.otherSideActorID))
+                                            {
+                                                m_log.DebugFormat("Skip sending to {0}", connector.otherSideActorID);
+                                                continue;
+                                            }
+
+                                        }
+                                        else
+                                        {
+                                            string logstr="";
+                                            foreach (string sid in syncIDs)
+                                            {
+                                                logstr += sid+",";
+                                            }
+                                            m_log.DebugFormat("Updates from {0}", logstr);
+                                        }
                                         DetailedUpdateLogging(uuid, updatedProperties, null, "SendUpdate", connector.otherSideActorID, syncMsg.Length);
                                         connector.EnqueueOutgoingUpdate(uuid, syncMsg);
                                     }

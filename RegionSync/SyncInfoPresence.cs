@@ -307,6 +307,14 @@ namespace DSG.RegionSync
                                         return false;
                                     break;
                                 }
+
+                            case SyncableProperties.Type.AvatarAppearance:
+                                {
+                                    //if (PropertyValueEquals_AvatarAppearance((OSDMap)spValue, (OSDMap)syncedProperty.LastUpdateValue))
+                                    //    return false;
+                                    return false;
+                                    break;
+                                }
                         }
                         // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): spValue != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
@@ -345,6 +353,84 @@ namespace DSG.RegionSync
         public override Object GetPropertyValue(SyncableProperties.Type property)
         {
             return GetPropertyValue((ScenePresence)SceneThing, property);
+        }
+
+        //The input, two ODSMaps, are assumed to be packed by AvatarAppearance.Pack(),
+        //that is, they each have the fields:
+        //serial
+        //height
+        //wearables
+        //textures
+        //visualparams
+        //attachments
+        private bool PropertyValueEquals_AvatarAppearance(OSDMap sceneValue, OSDMap syncValue)
+        {
+            
+            if (sceneValue.ContainsKey("serial") && syncValue.ContainsKey("serial"))
+            {
+                if (!sceneValue["serial"].AsInteger().Equals(syncValue["serial"].AsInteger()))
+                    return false;
+            }
+
+            if (sceneValue.ContainsKey("height") && syncValue.ContainsKey("height"))
+            {
+                if (!sceneValue["height"].AsReal().Equals(syncValue["height"].AsReal()))
+                    return false;
+            }
+
+            if (sceneValue.ContainsKey("wearables") && syncValue.ContainsKey("wearables"))
+            {
+                OSDArray sceneWears = (OSDArray)sceneValue["wearables"];
+                OSDArray syncWears = (OSDArray)syncValue["wearables"];
+
+                if (sceneWears.Count != syncWears.Count)
+                    return false;
+
+                if (!sceneWears.ToString().Equals(syncWears.ToString()))
+                    return false;
+            }
+
+            if (sceneValue.ContainsKey("textures") && syncValue.ContainsKey("textures"))
+            {
+                OSDArray sceneTextures = (OSDArray)sceneValue["textures"];
+                OSDArray syncTextures = (OSDArray)syncValue["textures"];
+
+                if (sceneTextures.Count != syncTextures.Count)
+                    return false;
+
+                if (!sceneTextures.ToString().Equals(syncTextures.ToString()))
+                    return false;
+            }
+
+            if (sceneValue.ContainsKey("visualparams") && syncValue.ContainsKey("visualparams"))
+            {
+                OSDBinary sceneTextures = (OSDBinary)sceneValue["visualparams"];
+                OSDBinary syncTextures = (OSDBinary)syncValue["visualparams"];
+
+                byte[] sceneBytes = sceneTextures.AsBinary();
+                byte[] syncBytes = syncTextures.AsBinary();
+                if (sceneBytes.Length != syncBytes.Length)
+                    return false;
+                for (int i = 0; i < sceneBytes.Length; i++)
+                {
+                    if (!sceneBytes[i].Equals(syncBytes[i]))
+                        return false;
+                }
+            }
+
+            if (sceneValue.ContainsKey("attachments") && syncValue.ContainsKey("attachments"))
+            {
+                OSDArray sceneAttachs = (OSDArray)sceneValue["attachments"];
+                OSDArray syncAttachs = (OSDArray)syncValue["attachments"];
+
+                if (sceneAttachs.Count != syncAttachs.Count)
+                    return false;
+
+                if (!sceneAttachs.ToString().Equals(syncAttachs.ToString()))
+                    return false;
+            }
+
+            return true;
         }
 
         // Gets the value out of the SP in local scene and returns it as an object

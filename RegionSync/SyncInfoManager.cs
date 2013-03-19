@@ -124,7 +124,7 @@ namespace DSG.RegionSync
         /// <returns>The list properties among updatedProperties whose value have been copied over to SyncInfo.</returns>
         public HashSet<SyncableProperties.Type> UpdateSyncInfoByLocal(UUID uuid, HashSet<SyncableProperties.Type> updatedProperties)
         {
-            SyncInfoBase thisSyncInfo;
+            SyncInfoBase thisSyncInfo=null;
             lock(m_syncLock)
                 if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo))
                 {
@@ -137,6 +137,7 @@ namespace DSG.RegionSync
 
         public HashSet<SyncableProperties.Type> UpdateSyncInfoBySync(UUID uuid, HashSet<SyncedProperty> syncedProperties)
         {
+            SyncInfoBase thisSyncInfo = null;
             lock(m_syncLock)
                 if (m_syncedUUIDs.ContainsKey(uuid))
                 {
@@ -151,12 +152,15 @@ namespace DSG.RegionSync
 
         public HashSet<SyncableProperties.Type> UpdateSyncInfoBySync(UUID uuid, SyncInfoBase updatedSyncInfo)
         {
+            SyncInfoBase thisSyncInfo = null;
             lock(m_syncLock)
-                if (m_syncedUUIDs.ContainsKey(uuid))
+                //if (m_syncedUUIDs.ContainsKey(uuid))
+                if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo)) 
                 {
                     // DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} FOUND.", uuid);
                     // Update properties listed in updatedSyncInfo
-                    return m_syncedUUIDs[uuid].UpdatePropertiesBySync(uuid, new HashSet<SyncedProperty>(updatedSyncInfo.CurrentlySyncedProperties.Values));
+                    //return m_syncedUUIDs[uuid].UpdatePropertiesBySync(uuid, new HashSet<SyncedProperty>(updatedSyncInfo.CurrentlySyncedProperties.Values));
+                    return thisSyncInfo.UpdatePropertiesBySync(uuid, new HashSet<SyncedProperty>(updatedSyncInfo.CurrentlySyncedProperties.Values));
                 }
 
             //This should not happen, as we should only receive UpdatedPrimProperties after receiving a NewObject message
@@ -167,18 +171,36 @@ namespace DSG.RegionSync
         public OSDMap EncodeProperties(UUID uuid, HashSet<SyncableProperties.Type> propertiesToEncode)
         {
             // DebugLog.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0}", uuid);
+            SyncInfoBase thisSyncInfo = null;
             lock(m_syncLock)
-                if (m_syncedUUIDs.ContainsKey(uuid))
+                //if (m_syncedUUIDs.ContainsKey(uuid))
+                if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo)) 
                 {
                     OSDMap data = new OSDMap();
                     data["uuid"] = OSDMap.FromUUID(uuid);
-                    OSDMap propertyData = m_syncedUUIDs[uuid].EncodeSyncedProperties(propertiesToEncode);
+                    //OSDMap propertyData = m_syncedUUIDs[uuid].EncodeSyncedProperties(propertiesToEncode);
+                    OSDMap propertyData = thisSyncInfo.EncodeSyncedProperties(propertiesToEncode);
                     data["propertyData"] = propertyData;
                     return data;
                 }
 
             // DebugLog.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0} not in m_syncedUUIDs.", uuid);
             return new OSDMap();
+        }
+
+        public HashSet<string> GetLastUpdatedSyncIDs(UUID uuid, HashSet<SyncableProperties.Type> properties)
+        {
+            HashSet<string> syncIDs=null;
+            SyncInfoBase thisSyncInfo=null;
+            lock (m_syncLock)
+            {
+                m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo);
+                if (thisSyncInfo != null)
+                {
+                    syncIDs = thisSyncInfo.GetLastUpdateSyncIDs(properties);
+                }
+            }
+            return syncIDs;
         }
 
         /// <summary>
