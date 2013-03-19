@@ -133,7 +133,13 @@ namespace DSG.RegionSync
         //                      ...
         //                },
         //                "Histograms": {
-        //                    histogramName: [histogramValues],
+        //                    histogramName: {
+        //                         "Buckets": numberOfBuckets,
+        //                         "BucketMilliseconds": millisecondsOfEachBucket,
+        //                         "TotalMilliseconds": totalMillisecondsSpannedByHistogram,
+        //                         "BaseNumber": numberOfFirstBucket,
+        //                         "Values": [ arrayOfBucketValues ]
+        //                    }
         //                    ...
         //                },
         //           },
@@ -160,7 +166,7 @@ namespace DSG.RegionSync
                         {
                             try
                             {
-                                float val = (float)connStat.Value;
+                                // If the first entry for this container, initialize the container block
                                 if (!containerMap.ContainsKey(container))
                                 {
                                     OSDMap connectorNew = new OSDMap();
@@ -174,22 +180,32 @@ namespace DSG.RegionSync
 
                                     containerMap.Add(container, connectorNew);
                                 }
+                                // Get the structure being built for this container
                                 OSDMap connectorMap = (OSDMap)containerMap[container];
+
+                                // Add this statistic value
+                                float val = (float)connStat.Value;
                                 connectorMap.Add(connStat.Name, OSD.FromReal(val));
+
+                                // If this value is a message type entry, add the info to the by message type table
                                 if (!string.IsNullOrEmpty(connStat.MessageType))
                                 {
                                     OSDMap messagesMap = (OSDMap)connectorMap["MessagesByType"];
+                                    // If the first entry for this message type, add a place to account this message type
                                     if (!messagesMap.ContainsKey(connStat.MessageType))
                                     {
                                         messagesMap.Add(connStat.MessageType, new OSDMap());
                                     }
+                                    // Add the message type count
                                     OSDMap messageMap = (OSDMap)messagesMap[connStat.MessageType];
                                     messagesMap.Add(connStat.Name, OSD.FromReal(val));
                                 }
+
+                                // If there are histograms on the statistics, add them to the structure
                                 OSDMap histogramMap = (OSDMap)connectorMap["Histograms"];
                                 connStat.ForEachHistogram((histoName, histo) =>
                                 {
-                                    histogramMap.Add(histoName, histo.GetHistogramAsOSDArray());
+                                    histogramMap.Add(histoName, histo.GetHistogramAsOSDMap());
                                 });
                             }
                             catch
@@ -418,7 +434,7 @@ namespace DSG.RegionSync
                  "Queued_Msgs",
                  "UpdatedProperties_Sent", "UpdatedProperties_Rcvd",
                  "NewObject_Sent", "NewObject_Rcvd", "NewPresence_Sent", "NewPresence_Rcvd"
-        };
+                };
 
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
             if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
