@@ -243,7 +243,7 @@ namespace DSG.RegionSync
             Scene.EventManager.OnNewPresence                    += OnNewPresence;
             Scene.EventManager.OnRemovePresence                 += OnRemovePresence;
             Scene.EventManager.OnScenePresenceUpdated           += OnScenePresenceUpdated;
-            Scene.EventManager.OnAvatarAppearanceChange         += OnScenePresenceUpdated;
+            Scene.EventManager.OnAvatarAppearanceChange         += OnAvatarAppearanceChange;
 
             Scene.EventManager.OnRegionStarted                  += OnRegionStarted;
             Scene.EventManager.OnTerrainTainted                 += OnTerrainTainted;
@@ -4101,6 +4101,23 @@ namespace DSG.RegionSync
         #endregion //Prim Property Sync management
 
         #region Presence Property Sync management
+
+        private void OnAvatarAppearanceChange(ScenePresence sp)
+        {
+            // If the scene presence update event was triggered by a call from RegionSyncModule, then we don't need to handle it.
+            // Changes to scene presence that are actually local will not have originated from this module or thread.
+            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdatedProperties))
+                return;
+            UUID uuid = sp.UUID;
+            
+            // Sync values with SP data and update timestamp according, to 
+            // obtain the list of properties that really have been updated
+            // and should be propogated to other sync nodes.
+            HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(uuid, new HashSet<SyncableProperties.Type>() { SyncableProperties.Type.AvatarAppearance });
+            
+            //Enqueue the set of changed properties
+            EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
+        }
 
         private void OnScenePresenceUpdated(ScenePresence sp)
         {
