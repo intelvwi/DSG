@@ -2257,7 +2257,8 @@ namespace DSG.RegionSync
 
             // Create a client and add it to the local scene
             IClientAPI client = new RegionSyncAvatar(acd.circuitcode, Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
-            syncInfo.SceneThing = Scene.AddNewClient(client, pt);
+            bool resAttachment = false;
+            syncInfo.SceneThing = Scene.AddNewClient2(client, pt, resAttachment);
             // Might need to trigger something here to send new client messages to connected clients
         }
 
