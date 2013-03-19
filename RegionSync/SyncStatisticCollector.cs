@@ -420,10 +420,19 @@ namespace DSG.RegionSync
         }
 
         int lastStatTime = 0;
-        double lastMsgs_Sent = 0;
-        double lastMsgs_Rcvd = 0;
-        double lastBytes_Sent = 0;
-        double lastBytes_Rcvd = 0;
+        // Structure kept per connection to remember last values so we can do per-second calculations
+        private class LastStatValues
+        {
+            public LastStatValues()
+            {
+                lastMsgs_Rcvd = lastMsgs_Sent = lastBytes_Rcvd = lastBytes_Sent = 0d;
+            }
+            public double lastMsgs_Sent;
+            public double lastMsgs_Rcvd;
+            public double lastBytes_Sent;
+            public double lastBytes_Rcvd;
+        }
+        private Dictionary<string, LastStatValues> m_lastStatValues = new Dictionary<string, LastStatValues>();
 
         private Dictionary<string, LogWriter> ConnectionLoggers = new Dictionary<string, LogWriter>();
         private void LogConnectorStats()
@@ -435,6 +444,9 @@ namespace DSG.RegionSync
                  "UpdatedProperties_Sent", "UpdatedProperties_Rcvd",
                  "NewObject_Sent", "NewObject_Rcvd", "NewPresence_Sent", "NewPresence_Rcvd"
                 };
+
+            // Milliseconds since the last time we collected statistics
+            int msSinceLast = Util.EnvironmentTickCountSubtract(lastStatTime);
 
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
             if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
@@ -495,12 +507,18 @@ namespace DSG.RegionSync
                             }
                         }
 
+                        LastStatValues lastValues;
+                        if (!m_lastStatValues.TryGetValue(container, out lastValues))
+                        {
+                            lastValues = new LastStatValues();
+                            m_lastStatValues.Add(container, lastValues);
+
+                        }
                         // Compute some useful values
-                        int msSinceLast = Util.EnvironmentTickCountSubtract(lastStatTime);
-                        ComputePerSecond("Msgs_Sent", "Msgs_Sent_Per_Sec", ref outputValues, ref lastMsgs_Sent, msSinceLast);
-                        ComputePerSecond("Msgs_Rcvd", "Msgs_Rcvd_Per_Sec", ref outputValues, ref lastMsgs_Rcvd, msSinceLast);
-                        ComputePerSecond("Bytes_Sent", "Bytes_Sent_Per_Sec", ref outputValues, ref lastBytes_Sent, msSinceLast);
-                        ComputePerSecond("Bytes_Rcvd", "Bytes_Rcvd_Per_Sec", ref outputValues, ref lastBytes_Rcvd, msSinceLast);
+                        ComputePerSecond("Msgs_Sent", "Msgs_Sent_Per_Sec", ref outputValues, ref lastValues.lastMsgs_Sent, msSinceLast);
+                        ComputePerSecond("Msgs_Rcvd", "Msgs_Rcvd_Per_Sec", ref outputValues, ref lastValues.lastMsgs_Rcvd, msSinceLast);
+                        ComputePerSecond("Bytes_Sent", "Bytes_Sent_Per_Sec", ref outputValues, ref lastValues.lastBytes_Sent, msSinceLast);
+                        ComputePerSecond("Bytes_Rcvd", "Bytes_Rcvd_Per_Sec", ref outputValues, ref lastValues.lastBytes_Rcvd, msSinceLast);
 
                         StringBuilder buff = new StringBuilder();
                         buff.Append(lastStat.RegionName);
