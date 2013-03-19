@@ -1903,6 +1903,7 @@ namespace DSG.RegionSync
                 SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.NewObject, encodedSOG);
                 DetailedUpdateWrite("SndGetORsp", sog.UUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.Length);
                 connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
+                //connector.ImmediateOutgoingMsg(syncMsg);
             });
         } 
 
@@ -3899,19 +3900,22 @@ namespace DSG.RegionSync
                                         {
                                             if (syncIDs.Contains(connector.otherSideActorID))
                                             {
-                                                m_log.DebugFormat("Skip sending to {0}", connector.otherSideActorID);
+                                                //m_log.DebugFormat("Skip sending to {0}", connector.otherSideActorID);
                                                 continue;
                                             }
 
                                         }
                                         else
                                         {
+                                            //debug
+                                            /*
                                             string logstr="";
                                             foreach (string sid in syncIDs)
                                             {
                                                 logstr += sid+",";
                                             }
                                             m_log.DebugFormat("Updates from {0}", logstr);
+                                             * */
                                         }
                                         DetailedUpdateLogging(uuid, updatedProperties, null, "SendUpdate", connector.otherSideActorID, syncMsg.Length);
                                         connector.EnqueueOutgoingUpdate(uuid, syncMsg);
