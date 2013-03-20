@@ -233,8 +233,8 @@ namespace DSG.RegionSync
         {
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
             // Enqueue is thread safe
-            m_outQ.Enqueue(id, update);
-            if (m_collectingStats) currentQueue.Event(1);
+            if (m_outQ.Enqueue(id, update) && m_collectingStats)
+                currentQueue.Event(1);
         }
 
         public void ImmediateOutgoingMsg(SymmetricSyncMessage msg)
@@ -245,7 +245,8 @@ namespace DSG.RegionSync
             // The new way is to add a first queue and to place this message at the front.
             m_outQ.QueueMessageFirst(msg);
 
-            if (m_collectingStats) currentQueue.Event(1);
+            if (m_collectingStats)
+                currentQueue.Event(1);
         }
 
         //Send out a messge directly. This should only by called for short messages that are not sent frequently.

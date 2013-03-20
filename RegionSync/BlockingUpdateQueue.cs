@@ -68,13 +68,18 @@ namespace DSG.RegionSync
         public long OverWrittenUpdates = 0;
 
         // Enqueue an update
-        public void Enqueue(UUID id, SymmetricSyncMessage update)
+        // Note that only one update for each id is queued so it is possible that this particular
+        //      update will not get queued if there is already one queued for that id.
+        // Returns 'true' if the object was actually enqueued.
+        public bool Enqueue(UUID id, SymmetricSyncMessage update)
         {
+            bool ret = false;
             lock(m_syncRoot)
             {
                 if (!m_updates.ContainsKey(id))
                 {
                     m_queue.Enqueue(id);
+                    ret = true;
                 }
                 else
                 {
@@ -83,6 +88,7 @@ namespace DSG.RegionSync
                 m_updates[id] = update;
                 Monitor.Pulse(m_syncRoot);
             }
+            return ret;
         }
 
         // Add a message to the first of the queue.
