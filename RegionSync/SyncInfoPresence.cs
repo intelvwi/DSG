@@ -286,6 +286,9 @@ namespace DSG.RegionSync
                         switch (property)
                         {
                             case SyncableProperties.Type.Velocity:
+                            case SyncableProperties.Type.PA_Velocity:
+                            case SyncableProperties.Type.PA_TargetVelocity:
+                            case SyncableProperties.Type.RotationalVelocity:
                                 {
                                     Vector3 spVal = (Vector3)spValue;
                                     Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
@@ -295,6 +298,7 @@ namespace DSG.RegionSync
                                     break;
                                 }
                             case SyncableProperties.Type.Rotation:
+                            case SyncableProperties.Type.Orientation:
                                 {
                                     Quaternion spVal = (Quaternion)spValue;
                                     Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;

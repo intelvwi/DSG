@@ -240,20 +240,24 @@ namespace DSG.RegionSync
                         {
                             switch (property)
                             {
-                                case SyncableProperties.Type.RotationOffset:
-                                    {
-                                        Quaternion partVal = (Quaternion)partValue;
-                                        Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
-                                        if (partVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
-                                            return false;
-                                        break;
-                                    }
                                 case SyncableProperties.Type.Velocity:
+                                case SyncableProperties.Type.PA_Velocity:
+                                case SyncableProperties.Type.PA_TargetVelocity:
+                                case SyncableProperties.Type.RotationalVelocity:
                                     {
                                         Vector3 partVal = (Vector3)partValue;
                                         Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
                                         // If velocity difference is small but not zero, don't update
                                         if (partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE) && !partVal.Equals(Vector3.Zero))
+                                            return false;
+                                        break;
+                                    }
+                                case SyncableProperties.Type.RotationOffset:
+                                case SyncableProperties.Type.Orientation:
+                                    {
+                                        Quaternion partVal = (Quaternion)partValue;
+                                        Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                        if (partVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
                                             return false;
                                         break;
                                     }
