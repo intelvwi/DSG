@@ -271,65 +271,62 @@ namespace DSG.RegionSync
 
                 default:
                     SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
-                    Object spValue = GetPropertyValue(sp, property);
+                    Object value = GetPropertyValue(sp, property);
 
                     // If both null, no update needed
-                    if (syncedProperty.LastUpdateValue == null && spValue == null)
+                    if (syncedProperty.LastUpdateValue == null && value == null)
                         return false;
 
                     // If one is null and the other is not, or if the references are different, the property was changed.
                     // This will perform a value comparison for strings in C#. We could use String.Clone instead for string properties.
-                    if ((spValue == null && syncedProperty.LastUpdateValue != null) ||
-                        (spValue != null && syncedProperty.LastUpdateValue == null) ||
-                        (!spValue.Equals(syncedProperty.LastUpdateValue)))
+                    if ((value == null && syncedProperty.LastUpdateValue != null) ||
+                        (value != null && syncedProperty.LastUpdateValue == null) ||
+                        (!value.Equals(syncedProperty.LastUpdateValue)))
                     {
-                        switch (property)
+                        if (value != null)
                         {
-                            case SyncableProperties.Type.Velocity:
-                            case SyncableProperties.Type.PA_Velocity:
-                            case SyncableProperties.Type.PA_TargetVelocity:
-                            case SyncableProperties.Type.RotationalVelocity:
-                                {
-                                    Vector3 spVal = (Vector3)spValue;
-                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
-                                    // If velocity difference is small but not zero, don't update
-                                    if (spVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE) && !spVal.Equals(Vector3.Zero))
-                                        return false;
-                                    break;
-                                }
-                            case SyncableProperties.Type.Rotation:
-                            case SyncableProperties.Type.Orientation:
-                                {
-                                    Quaternion spVal = (Quaternion)spValue;
-                                    Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
-                                    if (spVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
-                                        return false;
-                                    break;
-                                }
-                            case SyncableProperties.Type.Position:
-                                {
-                                    Vector3 spVal = (Vector3)spValue;
-                                    Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
-                                    if (spVal.ApproxEquals(lastVal, POSITION_TOLERANCE))
-                                        return false;
-                                    break;
-                                }
-
-                                /*
-                            case SyncableProperties.Type.AvatarAppearance:
-                                {
-                                    //if (PropertyValueEquals_AvatarAppearance((OSDMap)spValue, (OSDMap)syncedProperty.LastUpdateValue))
-                                    //    return false;
-                                    return false;
-                                    break;
-                                }
-                                 * */ 
+                            switch (property)
+                            {
+                                case SyncableProperties.Type.Velocity:
+                                case SyncableProperties.Type.PA_Velocity:
+                                case SyncableProperties.Type.PA_TargetVelocity:
+                                case SyncableProperties.Type.RotationalVelocity:
+                                case SyncableProperties.Type.AngularVelocity:
+                                    {
+                                        Vector3 partVal = (Vector3)value;
+                                        Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                        // If velocity difference is small but not zero, don't update
+                                        if (partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE) && !partVal.Equals(Vector3.Zero))
+                                            return false;
+                                        break;
+                                    }
+                                case SyncableProperties.Type.RotationOffset:
+                                case SyncableProperties.Type.Orientation:
+                                    {
+                                        Quaternion partVal = (Quaternion)value;
+                                        Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                        if (partVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
+                                            return false;
+                                        break;
+                                    }
+                                case SyncableProperties.Type.OffsetPosition:
+                                case SyncableProperties.Type.AbsolutePosition:
+                                case SyncableProperties.Type.Position:
+                                case SyncableProperties.Type.GroupPosition:
+                                    {
+                                        Vector3 partVal = (Vector3)value;
+                                        Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
+                                        if (partVal.ApproxEquals(lastVal, POSITION_TOLERANCE))
+                                            return false;
+                                        break;
+                                    }
+                            }
                         }
-                        // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): spValue != syncedProperty.LastUpdateValue", property.ToString());
+                        // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): value != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
                             // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
-                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, spValue);
+                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
 /*
                             // Updating either absolute position or position also requires checking for updates to group position
                             if (property == SyncableProperties.Type.AbsolutePosition || property == SyncableProperties.Type.Position)
