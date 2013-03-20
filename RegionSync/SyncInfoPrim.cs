@@ -225,49 +225,49 @@ namespace DSG.RegionSync
 
                 default:
                     SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
-                    Object partValue = GetPropertyValue(part, property);
+                    Object value = GetPropertyValue(part, property);
 
                     // If both null, no update needed
-                    if (syncedProperty.LastUpdateValue == null && partValue == null)
+                    if (syncedProperty.LastUpdateValue == null && value == null)
                         return false;
 
                     // If one is null and the other is not, or if they are not equal, the property was changed.
-                    if ((partValue == null && syncedProperty.LastUpdateValue != null) || 
-                        (partValue != null && syncedProperty.LastUpdateValue == null) ||
-                        (!partValue.Equals(syncedProperty.LastUpdateValue)))
+                    if ((value == null && syncedProperty.LastUpdateValue != null) || 
+                        (value != null && syncedProperty.LastUpdateValue == null) ||
+                        (!value.Equals(syncedProperty.LastUpdateValue)))
                     {
-                        if (partValue != null)
+                        if (value != null)
                         {
                             switch (property)
                             {
-                                case SyncableProperties.Type.RotationOffset:
-                                    {
-                                        Quaternion partVal = (Quaternion)partValue;
-                                        Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
-                                        if (partVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
-                                            return false;
-                                        break;
-                                    }
                                 case SyncableProperties.Type.Velocity:
+                                case SyncableProperties.Type.PA_Velocity:
+                                case SyncableProperties.Type.PA_TargetVelocity:
+                                case SyncableProperties.Type.RotationalVelocity:
+                                case SyncableProperties.Type.AngularVelocity:
                                     {
-                                        Vector3 partVal = (Vector3)partValue;
+                                        Vector3 partVal = (Vector3)value;
                                         Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
                                         // If velocity difference is small but not zero, don't update
                                         if (partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE) && !partVal.Equals(Vector3.Zero))
                                             return false;
                                         break;
                                     }
-                                case SyncableProperties.Type.AngularVelocity:
+                                case SyncableProperties.Type.RotationOffset:
+                                case SyncableProperties.Type.Orientation:
                                     {
-                                        Vector3 partVal = (Vector3)partValue;
-                                        Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
-                                        if (partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE))
+                                        Quaternion partVal = (Quaternion)value;
+                                        Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                        if (partVal.ApproxEquals(lastVal, ROTATION_TOLERANCE))
                                             return false;
                                         break;
                                     }
                                 case SyncableProperties.Type.OffsetPosition:
+                                case SyncableProperties.Type.AbsolutePosition:
+                                case SyncableProperties.Type.Position:
+                                case SyncableProperties.Type.GroupPosition:
                                     {
-                                        Vector3 partVal = (Vector3)partValue;
+                                        Vector3 partVal = (Vector3)value;
                                         Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
                                         if (partVal.ApproxEquals(lastVal, POSITION_TOLERANCE))
                                             return false;
@@ -277,13 +277,13 @@ namespace DSG.RegionSync
                         }
                         if (property == SyncableProperties.Type.Shape)
                         {
-                            //DebugLog.WarnFormat("[SYNC INFO PRIM]: SHAPES DIFFER {0} {1}", (string)partValue, (string)syncedProperty.LastUpdateValue);
+                            //DebugLog.WarnFormat("[SYNC INFO PRIM]: SHAPES DIFFER {0} {1}", (string)value, (string)syncedProperty.LastUpdateValue);
                         }
-                        // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): partValue != syncedProperty.LastUpdateValue", property.ToString());
+                        // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): value != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
                             // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
-                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, partValue);
+                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
 
                             // Updating either absolute position or position also requires checking for updates to group position
                             if (property == SyncableProperties.Type.AbsolutePosition || property == SyncableProperties.Type.Position)
