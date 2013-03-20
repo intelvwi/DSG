@@ -266,9 +266,6 @@ namespace DSG.RegionSync
 
             switch (property)
             {
-                case SyncableProperties.Type.AvatarAppearance:
-                    return false; 
-
                 default:
                     SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
                     Object value = GetPropertyValue(sp, property);
@@ -287,6 +284,12 @@ namespace DSG.RegionSync
                         {
                             switch (property)
                             {
+                                case SyncableProperties.Type.AvatarAppearance:
+                                    String stringValue = OSDParser.SerializeJsonString((OSDMap)value);
+                                    String lastStringValue = OSDParser.SerializeJsonString((OSDMap)syncedProperty.LastUpdateValue);
+                                    if (stringValue == lastStringValue)
+                                        return false;
+                                    break;
                                 case SyncableProperties.Type.Velocity:
                                 case SyncableProperties.Type.PA_Velocity:
                                 case SyncableProperties.Type.PA_TargetVelocity:
