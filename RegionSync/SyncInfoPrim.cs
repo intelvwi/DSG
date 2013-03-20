@@ -259,8 +259,8 @@ namespace DSG.RegionSync
                                     }
                                 case SyncableProperties.Type.AngularVelocity:
                                     {
-                                        Quaternion partVal = (Quaternion)partValue;
-                                        Quaternion lastVal = (Quaternion)syncedProperty.LastUpdateValue;
+                                        Vector3 partVal = (Vector3)partValue;
+                                        Vector3 lastVal = (Vector3)syncedProperty.LastUpdateValue;
                                         if (partVal.ApproxEquals(lastVal, VELOCITY_TOLERANCE))
                                             return false;
                                         break;
