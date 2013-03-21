@@ -4146,7 +4146,9 @@ namespace DSG.RegionSync
             // Sync values with SP data and update timestamp according, to 
             // obtain the list of properties that really have been updated
             // and should be propogated to other sync nodes.
-            HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(uuid, SyncableProperties.AvatarProperties);
+            //HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(uuid, SyncableProperties.AvatarProperties);
+            HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(uuid, SyncableProperties.AvatarSyncableProperties); 
+
             // string types = "";
             //foreach(SyncableProperties.Type t in propertiesWithSyncInfoUpdated)
             //    types += (t.ToString() + ",");

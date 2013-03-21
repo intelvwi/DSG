@@ -160,6 +160,7 @@ namespace DSG.RegionSync
         public readonly static HashSet<SyncableProperties.Type> NonPhysActorProperties = SyncableProperties.GetNonPhysActorProperties();
         public readonly static HashSet<SyncableProperties.Type> GroupProperties = SyncableProperties.GetGroupProperties();
         public readonly static HashSet<SyncableProperties.Type> AvatarProperties = SyncableProperties.GetAvatarProperties();
+        public readonly static HashSet<SyncableProperties.Type> AvatarSyncableProperties = SyncableProperties.GetAvatarSyncableProperties();
         public readonly static HashSet<SyncableProperties.Type> AttachmentNonSyncProperties = SyncableProperties.GetAttachmentNonSyncProperties();
 
         /// <summary>
@@ -261,6 +262,26 @@ namespace DSG.RegionSync
         }
 
         private static HashSet<SyncableProperties.Type> GetAvatarProperties()
+        {
+            HashSet<SyncableProperties.Type> allProperties = new HashSet<SyncableProperties.Type>();
+            allProperties.Add(SyncableProperties.Type.AbsolutePosition); 
+            allProperties.Add(SyncableProperties.Type.AgentCircuitData);
+            allProperties.Add(SyncableProperties.Type.AgentControlFlags);
+            allProperties.Add(SyncableProperties.Type.ParentId);
+            allProperties.Add(SyncableProperties.Type.AllowMovement);
+            allProperties.Add(SyncableProperties.Type.AvatarAppearance);
+            allProperties.Add(SyncableProperties.Type.Rotation);
+            allProperties.Add(SyncableProperties.Type.PA_Velocity);
+            allProperties.Add(SyncableProperties.Type.PA_TargetVelocity);
+            allProperties.Add(SyncableProperties.Type.Flying);
+            allProperties.Add(SyncableProperties.Type.PresenceType);
+            allProperties.Add(SyncableProperties.Type.IsColliding);
+
+            return allProperties;
+        }
+
+        //No AvatarAppearance in AvatarSyncableProperties 
+        private static HashSet<SyncableProperties.Type> GetAvatarSyncableProperties()
         {
             HashSet<SyncableProperties.Type> allProperties = new HashSet<SyncableProperties.Type>();
             allProperties.Add(SyncableProperties.Type.AbsolutePosition); 
