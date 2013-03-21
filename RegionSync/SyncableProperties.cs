@@ -268,7 +268,7 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.AgentControlFlags);
             allProperties.Add(SyncableProperties.Type.ParentId);
             allProperties.Add(SyncableProperties.Type.AllowMovement);
-            allProperties.Add(SyncableProperties.Type.AvatarAppearance);
+            //allProperties.Add(SyncableProperties.Type.AvatarAppearance);
             allProperties.Add(SyncableProperties.Type.Rotation);
             allProperties.Add(SyncableProperties.Type.PA_Velocity);
             allProperties.Add(SyncableProperties.Type.PA_TargetVelocity);
