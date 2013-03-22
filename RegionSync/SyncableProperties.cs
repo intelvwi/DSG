@@ -240,6 +240,9 @@ namespace DSG.RegionSync
             groupProperties.Add(SyncableProperties.Type.IsSelected);
             groupProperties.Add(SyncableProperties.Type.AbsolutePosition);
             groupProperties.Add(SyncableProperties.Type.GroupPosition);
+            groupProperties.Add(SyncableProperties.Type.AttachedAvatar);
+            groupProperties.Add(SyncableProperties.Type.AttachmentPoint);
+            groupProperties.Add(SyncableProperties.Type.IsAttachment);
             return groupProperties;
         }
 
