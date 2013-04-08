@@ -71,7 +71,6 @@ namespace DSG.RegionSync
         /// subproperties) is serialized and stored.
         /// </summary>
         public Object LastUpdateValue { get; private set; }
-        public String LastUpdateValueHash { get; private set; }
 
         /// <summary>
         /// Record the time the last sync message about this property is received.
@@ -100,8 +99,6 @@ namespace DSG.RegionSync
             LastUpdateValue = initValue;
             LastUpdateTimeStamp = initTS;
             LastUpdateSyncID = syncID;
-            //LastSyncUpdateRecvTime == ??
-            UpdateHash();
         }
 
         /// <summary>
@@ -125,15 +122,12 @@ namespace DSG.RegionSync
 
         /// <summary>
         /// Update SyncInfo when the property is updated locally. This interface
-        /// is for complex properties that need hashValue for fast comparison,
-        /// such as Shape and TaskInventory.
+        /// is for properties of simple types.
         /// </summary>
         /// <param name="ts"></param>
         /// <param name="syncID"></param>
         /// <param name="pValue"></param>
-        /// <param name="pHashedValue">This is only meaningful for complex properties:
-        /// Shape & TaskInventory. For other properties, it is ignore.</param>
-        public void UpdateSyncInfoByLocal(long ts, string syncID, Object pValue, string pHashedValue)
+        public void UpdateSyncInfoByLocal(long ts, string syncID, Object pValue)
         {
             // DebugLog.WarnFormat("[SYNCED PROPERTY] UpdateSyncInfoByLocal property={0}", Property.ToString());
             lock (m_lock)
@@ -142,20 +136,7 @@ namespace DSG.RegionSync
                 LastUpdateTimeStamp = ts;
                 LastUpdateSyncID = syncID;
                 LastUpdateSource = PropertyUpdateSource.Local;
-                LastUpdateValueHash = pHashedValue;
             }
-        }
-
-        /// <summary>
-        /// Update SyncInfo when the property is updated locally. This interface
-        /// is for properties of simple types.
-        /// </summary>
-        /// <param name="ts"></param>
-        /// <param name="syncID"></param>
-        /// <param name="pValue"></param>
-        public void UpdateSyncInfoByLocal(long ts, string syncID, Object pValue)
-        {
-            UpdateSyncInfoByLocal(ts, syncID, pValue, null);
         }
 
         /// <summary>
@@ -193,23 +174,7 @@ namespace DSG.RegionSync
                 LastUpdateSyncID = syncID;
                 LastSyncUpdateRecvTime = recvTS;
                 LastUpdateSource = PropertyUpdateSource.BySync;
-                UpdateHash();
             }
-        }
-
-        private void UpdateHash()
-        {
-            string s = "";
-            switch (Property)
-            {
-                case SyncableProperties.Type.AgentCircuitData:
-                    s = ((AgentCircuitData)LastUpdateValue).PackAgentCircuitData().ToString();
-                    break;
-                default:
-                    LastUpdateValueHash = "";
-                    return;
-            }
-            LastUpdateValueHash = PropertySerializer.GetPropertyHashValue(s);
         }
 
         /// <summary>
@@ -233,8 +198,6 @@ namespace DSG.RegionSync
                     //SOP properties with complex structure
                     ///////////////////////////////////////
                     case SyncableProperties.Type.AgentCircuitData:
-                        value = ((AgentCircuitData)LastUpdateValue).PackAgentCircuitData();
-                        break;
                     case SyncableProperties.Type.AvatarAppearance:
                         value = (OSDMap)LastUpdateValue;
                         break;
@@ -410,10 +373,6 @@ namespace DSG.RegionSync
                 // Complex structure properties
                 ///////////////////////////////////////
                 case SyncableProperties.Type.AgentCircuitData:
-                    AgentCircuitData acd = new AgentCircuitData();
-                    acd.UnpackAgentCircuitData((OSDMap)value);
-                    LastUpdateValue = acd;
-                    break;
                 case SyncableProperties.Type.AvatarAppearance:
                     LastUpdateValue = (OSDMap)value;
                     break;
@@ -557,7 +516,6 @@ namespace DSG.RegionSync
                     DebugLog.WarnFormat("[SYNCED PROPERTY] FromOSDMap: No handler for property {0} ", Property);
                     break;
             }
-            UpdateHash();
         }
 
         public static HashSet<SyncedProperty> DecodeProperties(OSDMap data)

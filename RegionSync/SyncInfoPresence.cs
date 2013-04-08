@@ -157,20 +157,7 @@ namespace DSG.RegionSync
             {
                 foreach (SyncableProperties.Type property in updatedProperties)
                 {
-                    bool updated = false;
-                    //Compare if the value of the property in this SyncModule is 
-                    //different than the value in SP
-                    switch (property)
-                    {
-                        case SyncableProperties.Type.AgentCircuitData:
-                            updated = CompareHashedValue_UpdateByLocal(sp, property, lastUpdateTS, syncID);
-                            break;
-                        default:
-                            updated = CompareValue_UpdateByLocal(sp, property, lastUpdateTS, syncID);
-                            break;
-                    }
-
-                    if (updated)
+                    if (CompareValue_UpdateByLocal(sp, property, lastUpdateTS, syncID))
                     {
                         propertiesUpdatedByLocal.Add(property);
                     }
@@ -191,33 +178,6 @@ namespace DSG.RegionSync
             {
                 SetPropertyValue(sp, property);
             }
-        }
-
-        //Assumption: the caller already locks the access lock, and no need to lock here
-        private bool CompareHashedValue_UpdateByLocal(ScenePresence sp, SyncableProperties.Type property, long lastUpdateTS, string syncID)
-        {
-            bool updated = false;
-            if (!CurrentlySyncedProperties.ContainsKey(property))
-            {
-                Object initValue = GetPropertyValue(sp, property);
-                bool ret = false;
-                if (initValue != null)
-                {
-                    SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateTS, syncID);
-                    CurrentlySyncedProperties.Add(property, syncInfo);
-                    ret = true;
-                }
-                return ret;
-            }
-            
-            switch (property)
-            {
-                case SyncableProperties.Type.AgentCircuitData:
-                    break;
-                default:
-                    break;
-            }
-            return updated;
         }
 
         const float ROTATION_TOLERANCE = 0.01f;
@@ -455,7 +415,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AbsolutePosition:
                     return sp.AbsolutePosition;
                 case SyncableProperties.Type.AgentCircuitData:
-                    return Scene.AuthenticateHandler.GetAgentCircuitData(sp.ControllingClient.CircuitCode);
+                    return Scene.AuthenticateHandler.GetAgentCircuitData(sp.ControllingClient.CircuitCode).PackAgentCircuitData();
                 case SyncableProperties.Type.ParentId:
                     return sp.ParentID;
                 case SyncableProperties.Type.AgentControlFlags:

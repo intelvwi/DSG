@@ -2255,7 +2255,10 @@ namespace DSG.RegionSync
 
             // Get ACD and PresenceType from decoded SyncInfoPresence
             // NASTY CASTS AHEAD!
-            AgentCircuitData acd = (AgentCircuitData)((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue;
+            AgentCircuitData acd = new AgentCircuitData();
+            acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
+            // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
+            acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
             PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
 
             // Add the decoded circuit to local scene
@@ -2263,8 +2266,7 @@ namespace DSG.RegionSync
 
             // Create a client and add it to the local scene
             IClientAPI client = new RegionSyncAvatar(acd.circuitcode, Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
-            bool resAttachment = false;
-            syncInfo.SceneThing = Scene.AddNewClient2(client, pt, resAttachment);
+            syncInfo.SceneThing = Scene.AddNewClient(client, pt);
             // Might need to trigger something here to send new client messages to connected clients
         }
 

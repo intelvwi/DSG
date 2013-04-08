@@ -283,12 +283,13 @@ namespace DSG.RegionSync
             return allProperties;
         }
 
-        //No AvatarAppearance in AvatarSyncableProperties 
+        // No AvatarAppearance in AvatarSyncableProperties 
+        // Don't sync AgentCircuitData after initial NewPresence message
         private static HashSet<SyncableProperties.Type> GetAvatarSyncableProperties()
         {
             HashSet<SyncableProperties.Type> allProperties = new HashSet<SyncableProperties.Type>();
             allProperties.Add(SyncableProperties.Type.AbsolutePosition); 
-            allProperties.Add(SyncableProperties.Type.AgentCircuitData);
+            //allProperties.Add(SyncableProperties.Type.AgentCircuitData);
             allProperties.Add(SyncableProperties.Type.AgentControlFlags);
             allProperties.Add(SyncableProperties.Type.ParentId);
             allProperties.Add(SyncableProperties.Type.AllowMovement);
