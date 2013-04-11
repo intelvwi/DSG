@@ -1,0 +1,8 @@
+Things to lookat/consider while doing msgClass refactor
+=======================================================
+RegionSyncModule.m_savedSyncMessage
+    Currently disabled (although most code is executed).
+    Useful for hanging onto messages received for objects not created yet.
+    Generalize into message saving mechanism that can be used for events,
+    updates and operations.
+

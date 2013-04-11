@@ -880,6 +880,7 @@ namespace DSG.RegionSync
 
         //Object updates are sent by enqueuing into each connector's outQueue.
         // UNUSED??
+        /*
         private void SendObjectUpdateToRelevantSyncConnectors(SceneObjectGroup sog, SymmetricSyncMessage syncMsg)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
@@ -890,6 +891,7 @@ namespace DSG.RegionSync
                 connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
             }
         }
+         */
 
         //Object updates are sent by enqueuing into each connector's outQueue.
         // UNUSED??
@@ -938,7 +940,7 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sog"></param>
         /// <param name="syncMsg"></param>
-        private void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, string logReason, UUID sendingUUID, SymmetricSyncMessage syncMsg)
+        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, string logReason, UUID sendingUUID, SymmetricSyncMessage syncMsg)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
 
@@ -1623,20 +1625,20 @@ namespace DSG.RegionSync
         {
             Scene.DeleteAllSceneObjects();
             
-            SendSyncMessage(SymmetricSyncMessage.MsgType.ActorID, ActorID);
-            // SendSyncMessage(SymmetricSyncMessage.MsgType.ActorType, ActorType.ToString());
-            // SendSyncMessage(SymmetricSyncMessage.MsgType.SyncID, m_syncID);
+            SendSyncMessage(new SyncMsgActorID(ActorID));
+            // SendSyncMessage(new SyncMsgActorType(ActorType.ToString());
+            // SendSyncMessage(new SyncMsgSyncID(m_syncID));
 
             // message sent to help calculating the difference in the clocks
-            SendSyncMessage(SymmetricSyncMessage.MsgType.TimeStamp, DateTime.UtcNow.Ticks.ToString());
+            SendSyncMessage(new SyncMsgTimeStamp(DateTime.UtcNow.Ticks));
 
-            SendSyncMessage(SymmetricSyncMessage.MsgType.RegionName, Scene.RegionInfo.RegionName);
+            SendSyncMessage(new SyncMsgRegionName(Scene.RegionInfo.RegionName));
             m_log.WarnFormat("Sending region name: \"{0}\"", Scene.RegionInfo.RegionName);
 
-            SendSyncMessage(SymmetricSyncMessage.MsgType.GetRegionInfo);
-            SendSyncMessage(SymmetricSyncMessage.MsgType.GetTerrain);
-            SendSyncMessage(SymmetricSyncMessage.MsgType.GetPresences);
-            SendSyncMessage(SymmetricSyncMessage.MsgType.GetObjects);
+            SendSyncMessage(new SyncMsgGetRegionInfo());
+            SendSyncMessage(new SyncMsgGetTerrain());
+            SendSyncMessage(new SyncMsgGetPresences());
+            SendSyncMessage(new SyncMsgGetObjects());
 
             //We'll deal with Event a bit later
 
@@ -1651,25 +1653,15 @@ namespace DSG.RegionSync
         /// This function will send out the sync message right away, without putting it into the SyncConnector's queue.
         /// Should only be called for infrequent or high prority messages.
         /// </summary>
-        /// <param name="msgType"></param>
-        /// <param name="data"></param>
-        private void SendSyncMessage(SymmetricSyncMessage.MsgType msgType, string data)
+        /// <param name="msg"></param>
+        private void SendSyncMessage(SyncMsg msg)
         {
-            //See RegionSyncClientView for initial implementation by Dan Lake
-
-            SymmetricSyncMessage msg = new SymmetricSyncMessage(msgType, data);
+            msg.ConvertOut(this);
             ForEachSyncConnector(delegate(SyncConnector syncConnector)
             {
-                DetailedUpdateWrite("SndSyncMsg", msgType.ToString(), 0, m_zeroUUID, syncConnector.otherSideActorID, msg.Length);
+                DetailedUpdateWrite("SndSyncMsg", msg.MType.ToString(), 0, m_zeroUUID, syncConnector.otherSideActorID, msg.DataLength);
                 syncConnector.ImmediateOutgoingMsg(msg);
             });
-        }
-
-        private void SendSyncMessage(SymmetricSyncMessage.MsgType msgType)
-        {
-            //See RegionSyncClientView for initial implementation by Dan Lake
-
-            SendSyncMessage(msgType, "");
         }
 
         private void ForEachSyncConnector(Action<SyncConnector> action)
@@ -1771,6 +1763,7 @@ namespace DSG.RegionSync
                 case SymmetricSyncMessage.MsgType.ScriptLandCollidingStart:
                 case SymmetricSyncMessage.MsgType.ScriptLandColliding:
                 case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
+                    lock (m_stats) m_statEventIn++;
                     HandleRemoteEvent(msg, senderActorID);
                     break;
                 case SymmetricSyncMessage.MsgType.SyncStateReport:
@@ -1811,14 +1804,16 @@ namespace DSG.RegionSync
                 return;
             if(IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.RegionInfo, null))
                 return;
-            SymmetricSyncMessage msg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RegionInfo, GetRegionInfo());
+            SyncMsgRegionInfo msg = new SyncMsgRegionInfo(Scene.RegionInfo);
+            msg.ConvertOut(this);
             foreach (SyncConnector connector in GetSyncConnectorsForUpdates())
             {
-                DetailedUpdateWrite("SndRgnInfo", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, msg.Length);
+                DetailedUpdateWrite("SndRgnInfo", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, msg.DataLength);
                 connector.ImmediateOutgoingMsg(msg);
             }
         }
         
+        /*
         private void HandleGetRegionInfo(SyncConnector connector)
         {
             DetailedUpdateWrite("RcvInfoReq", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, 0);
@@ -1857,6 +1852,7 @@ namespace DSG.RegionSync
             if (estate != null)
                 estate.sendRegionHandshakeToAll();
         }
+        */
 
         private void HandleGetTerrainRequest(SyncConnector connector)
         {
@@ -2033,293 +2029,6 @@ namespace DSG.RegionSync
                     Scene.UnlinkSceneObject(sog, true);
                 }
             }
-        }
-
-        private void HandleUpdatedProperties(SymmetricSyncMessage msg, string senderActorID)
-        {
-            OSDMap data = DeserializeMessage(msg);
-            if (data == null)
-            {
-                m_log.Error("HandleUpdatedProperties could not deserialize message!");
-                return;
-            }
-            UUID uuid = data["uuid"].AsUUID();
-            if (uuid == null)
-            {
-                m_log.Error("HandleUpdatedProperties could not get UUID!");
-                return;
-            }
-
-            // Decode synced properties from the message
-            HashSet<SyncedProperty> syncedProperties = SyncedProperty.DecodeProperties(data);
-            if (syncedProperties == null)
-            {
-                m_log.Error("HandleUpdatedProperties could not get syncedProperties");
-                return;
-            }
-
-            if (syncedProperties.Count > 0)
-            {
-                // Update local sync info and scene object/presence
-                RememberLocallyGeneratedEvent(msg.Type);
-                HashSet<SyncableProperties.Type> propertiesUpdated = m_SyncInfoManager.UpdateSyncInfoBySync(uuid, syncedProperties);
-                ForgetLocallyGeneratedEvent();
-
-                DetailedUpdateLogging(uuid, propertiesUpdated, syncedProperties, "RecUpdateN", senderActorID, msg.Data.Length);
-
-                // Relay the update properties
-                if (IsSyncRelay)
-                    EnqueueUpdatedProperty(uuid, propertiesUpdated);    
-            }
-        }
-
-        private void HandleSyncLinkObject(SymmetricSyncMessage msg, string senderActorID)
-        {
-
-            // Get the data from message and error check
-            OSDMap data = DeserializeMessage(msg);
-            if (data == null)
-            {
-                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize JSON data.");
-                return;
-            }
-
-            OSDMap encodedSOG = (OSDMap)data["linkedGroup"];
-            SceneObjectGroup linkedGroup;
-            Dictionary<UUID, SyncInfoBase> groupSyncInfos;
-            if (!DecodeSceneObject(encodedSOG, out linkedGroup, out groupSyncInfos))
-            {
-                m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncLinkObject", LogHeader);
-                return;
-            }
-            DetailedUpdateWrite("RecLnkObjj", linkedGroup.UUID, 0, m_zeroUUID, senderActorID, msg.Data.Length);
-
-            //TEMP DEBUG
-            // m_log.DebugFormat(" received linkedGroup: {0}", linkedGroup.DebugObjectUpdateResult());
-            //m_log.DebugFormat(linkedGroup.DebugObjectUpdateResult());
-
-            if (linkedGroup == null)
-            {
-                m_log.ErrorFormat("{0}: HandleSyncLinkObject, no valid Linked-Group has been deserialized", LogHeader);
-                return;
-            }
-
-            UUID rootID = data["rootID"].AsUUID();
-            int partCount = data["partCount"].AsInteger();
-            List<UUID> childrenIDs = new List<UUID>();
-
-            for (int i = 0; i < partCount; i++)
-            {
-                string partTempID = "part" + i;
-                childrenIDs.Add(data[partTempID].AsUUID());
-            }
-
-            // if this is a relay node, forward the message
-            if (IsSyncRelay)
-            {
-                //SendSceneEventToRelevantSyncConnectors(senderActorID, msg, linkedGroup);
-                SendSpecialUpdateToRelevantSyncConnectors(senderActorID, "SndLnkObjR", rootID, msg);
-            }
-
-            //TEMP SYNC DEBUG
-            //m_log.DebugFormat("{0}: received LinkObject from {1}", LogHeader, senderActorID);
-
-            //DSL Scene.LinkObjectBySync(linkedGroup, rootID, childrenIDs);
-
-            //Update properties, if any has changed
-            foreach (KeyValuePair<UUID, SyncInfoBase> partSyncInfo in groupSyncInfos)
-            {
-                UUID uuid = partSyncInfo.Key;
-                SyncInfoBase updatedPrimSyncInfo = partSyncInfo.Value;
-
-                SceneObjectPart part = Scene.GetSceneObjectPart(uuid);
-                if (part == null)
-                {
-                    m_log.ErrorFormat("{0}: HandleSyncLinkObject, prim {1} not in local Scene Graph after LinkObjectBySync is called", LogHeader, uuid);
-                }
-                else
-                {
-                    m_SyncInfoManager.UpdateSyncInfoBySync(part.UUID, updatedPrimSyncInfo);
-                }
-            }
-        }
-
-        private void HandleSyncDelinkObject(SymmetricSyncMessage msg, string senderActorID)
-        {
-            OSDMap data = DeserializeMessage(msg);
-            if (data == null)
-            {
-                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize JSON data.");
-                return;
-            }
-
-            //List<SceneObjectPart> localPrims = new List<SceneObjectPart>();
-            List<UUID> delinkPrimIDs = new List<UUID>();
-            List<UUID> beforeDelinkGroupIDs = new List<UUID>();
-            List<SceneObjectGroup> incomingAfterDelinkGroups = new List<SceneObjectGroup>();
-            List<Dictionary<UUID, SyncInfoBase>> incomingPrimSyncInfo = new List<Dictionary<UUID, SyncInfoBase>>();
-
-            int partCount = data["partCount"].AsInteger();
-            for (int i = 0; i < partCount; i++)
-            {
-                string partTempID = "part" + i;
-                UUID primID = data[partTempID].AsUUID();
-                //SceneObjectPart localPart = Scene.GetSceneObjectPart(primID);
-                //localPrims.Add(localPart);
-                delinkPrimIDs.Add(primID);
-            }
-
-            int beforeGroupCount = data["beforeGroupsCount"].AsInteger();
-            for (int i = 0; i < beforeGroupCount; i++)
-            {
-                string groupTempID = "beforeGroup" + i;
-                UUID beforeGroupID = data[groupTempID].AsUUID();
-                beforeDelinkGroupIDs.Add(beforeGroupID);
-            }
-
-            int afterGroupsCount = data["afterGroupsCount"].AsInteger();
-            for (int i = 0; i < afterGroupsCount; i++)
-            {
-                string groupTempID = "afterGroup" + i;
-                //string sogxml = data[groupTempID].AsString();
-                SceneObjectGroup afterGroup;
-                OSDMap encodedSOG = (OSDMap)data[groupTempID];
-                Dictionary<UUID, SyncInfoBase> groupSyncInfo;
-                if(!DecodeSceneObject(encodedSOG, out afterGroup, out groupSyncInfo))
-                {
-                    m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncDelinkObject", LogHeader);
-                    return;
-                }
-
-                incomingAfterDelinkGroups.Add(afterGroup);
-                incomingPrimSyncInfo.Add(groupSyncInfo);
-            }
-
-            // if this is a relay node, forward the message
-            if (IsSyncRelay)
-            {
-                List<SceneObjectGroup> beforeDelinkGroups = new List<SceneObjectGroup>();
-                foreach (UUID sogID in beforeDelinkGroupIDs)
-                {
-                    SceneObjectGroup sog = Scene.GetGroupByPrim(sogID);
-                    beforeDelinkGroups.Add(sog);
-                }
-                SendDelinkObjectToRelevantSyncConnectors(senderActorID, beforeDelinkGroups, msg);
-            }
-
-            //DSL Scene.DelinkObjectsBySync(delinkPrimIDs, beforeDelinkGroupIDs, incomingAfterDelinkGroups);
-
-            //Sync properties 
-            //Update properties, for each prim in each deLinked-Object
-            foreach (Dictionary<UUID, SyncInfoBase> primsSyncInfo in incomingPrimSyncInfo)
-            {
-                foreach (KeyValuePair<UUID, SyncInfoBase> inPrimSyncInfo in primsSyncInfo)
-                {
-                    UUID uuid = inPrimSyncInfo.Key;
-                    SyncInfoBase updatedPrimSyncInfo = inPrimSyncInfo.Value;
-
-                    SceneObjectPart part = Scene.GetSceneObjectPart(uuid);
-                    if (part == null)
-                    {
-                        m_log.ErrorFormat("{0}: HandleSyncDelinkObject, prim {1} not in local Scene Graph after DelinkObjectsBySync is called", LogHeader, uuid);
-                    }
-                    else
-                    {
-                        m_SyncInfoManager.UpdateSyncInfoBySync(part.UUID, updatedPrimSyncInfo);
-                    }
-                }
-            }
-        }
-        
-        private void HandleSyncNewPresence(SymmetricSyncMessage msg, string senderActorID)
-        {
-            // m_log.WarnFormat("{0}: HandleSyncNewPresence called", LogHeader);
-            OSDMap data = DeserializeMessage(msg);
-            if(data == null)
-            {
-                m_log.ErrorFormat("{0}: HandleSyncNewPresence. Failed deserialization of new object data. Sender={1}", LogHeader, senderActorID);
-                return;
-            }
-
-            // Decode presence and syncInfo from message data
-            SyncInfoBase syncInfo;
-            DecodeScenePresence(data, out syncInfo);
-            DetailedUpdateWrite("RecNewPres", syncInfo.UUID, 0, m_zeroUUID, senderActorID, msg.Length);
-
-            // if this is a relay node, forward the message
-            if (IsSyncRelay)
-                SendSpecialUpdateToRelevantSyncConnectors(senderActorID, "SndNewPreR", syncInfo.UUID, msg);
-
-            //Add the SyncInfo to SyncInfoManager
-            m_SyncInfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
-
-            // Get ACD and PresenceType from decoded SyncInfoPresence
-            // NASTY CASTS AHEAD!
-            AgentCircuitData acd = new AgentCircuitData();
-            acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
-            // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
-            acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
-            PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
-
-            // Add the decoded circuit to local scene
-            Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
-
-            // Create a client and add it to the local scene
-            IClientAPI client = new RegionSyncAvatar(acd.circuitcode, Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
-            syncInfo.SceneThing = Scene.AddNewClient(client, pt);
-            // Might need to trigger something here to send new client messages to connected clients
-        }
-
-        // Decodes scene presence data into sync info
-        private void DecodeScenePresence(OSDMap data, out SyncInfoBase syncInfo)
-        {
-            syncInfo = null;
-            if (!data.ContainsKey("ScenePresence"))
-            {
-                m_log.ErrorFormat("{0}: DecodeScenePresence, no ScenePresence found in the OSDMap", LogHeader);
-                return;
-            }
-
-            OSDMap presenceData = (OSDMap)data["ScenePresence"];
-
-            //Decode the syncInfo
-            try
-            {
-                syncInfo = new SyncInfoPresence(presenceData["uuid"], (OSDMap)presenceData["propertyData"], Scene);
-            }
-            catch (Exception e)
-            {
-                m_log.ErrorFormat("{0} DecodeScenePresence caught exception: {1}", LogHeader, e);
-                return;
-            }
-        }
-
-        private void HandleRemovedPresence(SymmetricSyncMessage msg, string senderActorID)
-        {
-            // m_log.WarnFormat("{0}: HandleSyncPresence called", LogHeader);
-            OSDMap data = DeserializeMessage(msg);
-
-            if (data == null)
-            {
-                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
-                return;
-            }
-
-            UUID uuid = data["uuid"].AsUUID();
-
-            DetailedUpdateWrite("RecRemPres", uuid.ToString(), 0, m_zeroUUID, senderActorID, msg.Length);
-
-            if (!m_SyncInfoManager.SyncInfoExists(uuid))
-                return;
-
-            // if this is a relay node, forward the message
-            if (IsSyncRelay)
-            {
-                SendSpecialUpdateToRelevantSyncConnectors(senderActorID, "SndRemPreR", uuid, msg);
-            }
-            
-            // This limits synced avatars to real clients (no npcs) until we sync PresenceType field
-            Scene.RemoveClient(uuid, false);
         }
 
         // DSG DEBUG
@@ -2614,6 +2323,7 @@ namespace DSG.RegionSync
         private EventsReceived m_eventsReceived = new EventsReceived();
 
         
+        /*
         /// <summary>
         /// The common actions for handling remote events (event initiated at other actors and propogated here)
         /// </summary>
@@ -2713,6 +2423,7 @@ namespace DSG.RegionSync
             }
 
         }
+         */
 
         /// <summary>
         /// 
@@ -3307,7 +3018,7 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="msgtype"></param>
         /// <param name="parms">Parameters being passed to the event</param>
-        private void RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
+        public void RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
         {
             // This is a terrible kludge but it will work for the short term.
             // We mark the thread used to call Trigger*Event with the name of the type of event
@@ -3333,7 +3044,7 @@ namespace DSG.RegionSync
         /// <param name="msgtype">SymmetricSyncMessage.MsgType of the event</param>
         /// <param name="parms">the parameters received for the event</param>
         /// <returns>true if this is an event we just called Trigger* for</returns>
-        private bool IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
+        public bool IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
         {
             bool ret = false;
             // m_log.DebugFormat("{0} IsLocallyGeneratedEvent. Checking remembered={1} against {2}", LogHeader, LocallyGeneratedSignature, msgtype);      // DEBUG DEBUG
@@ -3347,7 +3058,7 @@ namespace DSG.RegionSync
         /// <summary>
         /// Forget that we are remembering a message being processed.
         /// </summary>
-        private void ForgetLocallyGeneratedEvent()
+        public void ForgetLocallyGeneratedEvent()
         {
             LocallyGeneratedSignature = "";
         }
@@ -3721,6 +3432,7 @@ namespace DSG.RegionSync
         #endregion //Remote Event handlers
 
         private SyncInfoManager m_SyncInfoManager;
+        public SyncInfoManager InfoManager { get { return m_SyncInfoManager; } }
 
         #region Prim Property Sync management
         //private 
@@ -4015,105 +3727,6 @@ namespace DSG.RegionSync
             return data;
         }
 
-        /// <summary>
-        /// Decode & create a SOG data structure. Due to the fact that PhysActor
-        /// is only created when SOG.AttachToScene() is called, the returned SOG
-        /// here only have non PhysActor properties decoded and values set. The
-        /// PhysActor properties should be set later by the caller.
-        /// </summary>
-        /// <param name="data"></param>
-        /// <param name="sog"></param>
-        /// <param name="syncInfos"></param>
-        /// <returns>True of decoding sucessfully</returns>
-        private bool DecodeSceneObject(OSDMap data, out SceneObjectGroup sog, out Dictionary<UUID, SyncInfoBase> syncInfos)
-        {
-            sog = new SceneObjectGroup();
-            syncInfos = new Dictionary<UUID, SyncInfoBase>();
-            bool ret = true;
-
-            try{
-                UUID uuid = ((OSDMap)data["RootPart"])["uuid"].AsUUID();
-
-                OSDMap propertyData = (OSDMap)((OSDMap)data["RootPart"])["propertyData"];
-                //m_log.WarnFormat("{0} DecodeSceneObject for RootPart uuid: {1}", LogHeader, uuid);
-
-                //Decode and copy to the list of PrimSyncInfo
-                SyncInfoPrim sip = new SyncInfoPrim(uuid, propertyData, Scene);
-                SceneObjectPart root = (SceneObjectPart)sip.SceneThing;
-
-                sog.SetRootPart(root);
-                sip.SetPropertyValues(SyncableProperties.GroupProperties);
-                syncInfos.Add(root.UUID, sip);
-
-                if (sog.UUID == UUID.Zero)
-                    sog.UUID = sog.RootPart.UUID;
-
-                //Decode the remaining parts and add them to the object group
-                if (data.ContainsKey("OtherParts"))
-                {
-                    //int otherPartsCount = data["OtherPartsCount"].AsInteger();
-                    OSDArray otherPartsArray = (OSDArray)data["OtherParts"];
-                    for (int i = 0; i < otherPartsArray.Count; i++)
-                    {
-                        uuid = ((OSDMap)otherPartsArray[i])["uuid"].AsUUID();
-                        propertyData = (OSDMap)((OSDMap)otherPartsArray[i])["propertyData"];
-
-                        //m_log.WarnFormat("{0} DecodeSceneObject for OtherParts[{1}] uuid: {2}", LogHeader, i, uuid);
-                        sip = new SyncInfoPrim(uuid, propertyData, Scene);
-                        SceneObjectPart part = (SceneObjectPart)sip.SceneThing;
-
-                        if (part == null)
-                        {
-                            m_log.ErrorFormat("{0} DecodeSceneObject could not decode root part.", LogHeader);
-                            sog = null;
-                            return false;
-                        }
-                        sog.AddPart(part);
-                        // Should only need to set group properties from the root part, not other parts
-                        //sip.SetPropertyValues(SyncableProperties.GroupProperties);
-                        syncInfos.Add(part.UUID, sip);
-                    }
-                }
-
-                // Handled inline above because SyncInfoBase does not have SetGroupProperties.
-                /*
-                foreach (SceneObjectPart part in sog.Parts)
-                {
-                    syncInfos[part.UUID].SetGroupProperties(part);
-                }
-                */
-
-                sog.IsAttachment = data["IsAttachment"].AsBoolean();
-                sog.AttachedAvatar = data["AttachedAvatar"].AsUUID();
-                uint ap = data["AttachmentPoint"].AsUInteger();
-                if (ap != null)
-                {
-                    if (sog.RootPart == null)
-                    {
-                        //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART IS NULL", LogHeader);
-                    }
-                    else if (sog.RootPart.Shape == null)
-                    {
-                        //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART SHAPE IS NULL", LogHeader);
-                    }
-                    else
-                    {
-                        sog.AttachmentPoint = ap;
-                        //m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = {1}", LogHeader, sog.AttachmentPoint);
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                m_log.WarnFormat("{0} Encountered an exception: {1} {2} {3}", "DecodeSceneObject", e.Message, e.TargetSite, e.ToString());
-                ret = false;
-            }
-            //else
-            //    m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = null", LogHeader);
-
-            return ret;
-        }
-
         #endregion //Prim Property Sync management
 
         #region Presence Property Sync management
@@ -4187,7 +3800,7 @@ namespace DSG.RegionSync
 
         #endregion //Presence Property Sync management
 
-        private void EnqueueUpdatedProperty(UUID uuid, HashSet<SyncableProperties.Type> updatedProperties)
+        public void EnqueueUpdatedProperty(UUID uuid, HashSet<SyncableProperties.Type> updatedProperties)
         {
             // m_log.WarnFormat("{0} EnqueueUpdatedProperty: propertiesWithSyncInfoUpdated.Count = {1}", LogHeader, updatedProperties.Count);
             if (updatedProperties.Count == 0)
