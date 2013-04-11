@@ -504,7 +504,6 @@ namespace DSG.RegionSync
 
             if (IsSyncingWithOtherSyncNodes())
             {
-                // If we are syncing with other nodes, send out the message
                 SyncMsgNewPresence msg = new SyncMsgNewPresence(sp);
                 msg.ConvertOut(this);
                 m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
@@ -957,29 +956,6 @@ namespace DSG.RegionSync
             return syncConnectors;
         }
 
-        /*
-        private void OnNewPresence(ScenePresence avatar)
-        {
-            //Go through the objects, if any of them are attachments of the
-            //new avatar, link them.
-            //DSL Warning, this can make adding a new avatar very slow if there are a lot of prims to iterate through
-            EntityBase[] entities = Scene.GetEntities();
-            foreach (EntityBase e in entities)
-            {
-                if (e is SceneObjectGroup)
-                {
-                    SceneObjectGroup sog = (SceneObjectGroup)e;
-                    if (sog.AttachedAvatar == avatar.UUID)
-                    {
-                        //Scene.AttachObjectBySync(avatar, sog);
-                        Scene.AttachmentsModule.AttachObject(avatar, sog, sog.AttachmentPoint, false);
-                    }
-                }
-            }
-
-        }
-         */ 
-
         private void StartLocalSyncListener()
         {
             RegionSyncListenerInfo localSyncListenerInfo = GetLocalSyncListenerInfo();
@@ -1366,6 +1342,7 @@ namespace DSG.RegionSync
             */
         }
 
+        /*
         private void PrimSyncSerializationDebug()
         {
             if (Scene != null)
@@ -1422,6 +1399,7 @@ namespace DSG.RegionSync
             }
 
         }
+         */
 
         //end of debug functions
 
@@ -1616,7 +1594,7 @@ namespace DSG.RegionSync
         {
             if (regionID != Scene.RegionInfo.RegionID)
                 return;
-            if(IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.RegionInfo, null))
+            if(IsLocallyGeneratedEvent(SyncMsg.MsgType.RegionInfo, null))
                 return;
             SyncMsgRegionInfo msg = new SyncMsgRegionInfo(Scene.RegionInfo);
             msg.ConvertOut(this);
@@ -1884,245 +1862,12 @@ namespace DSG.RegionSync
         }
         // END DSG DEBUG
 
-        // Returns 'null' if the message cannot be deserialized
-        private static HashSet<string> exceptions = new HashSet<string>();
-        private static OSDMap DeserializeMessage(SymmetricSyncMessage msg)
-        {
-            OSDMap data = null;
-            try
-            {
-                data = OSDParser.DeserializeJson(Encoding.ASCII.GetString(msg.Data, 0, msg.Length)) as OSDMap;
-            }
-            catch (Exception e)
-            {
-                lock (exceptions)
-                {
-                    // If this is a new message, then print the underlying data that caused it
-                    //if (!exceptions.Contains(e.Message))
-                    {
-                        exceptions.Add(e.Message);  // remember we've seen this type of error
-                        // print out the unparsable message
-                        m_log.Error(LogHeader + " " + Encoding.ASCII.GetString(msg.Data, 0, msg.Length));
-                        // after all of that, print out the actual error
-                        m_log.ErrorFormat("{0}: {1}", LogHeader, e);
-                    }
-                }
-                data = null;
-            }
-            return data;
-        }
-
         #endregion //Sync message handlers
 
         #region Remote Event handlers
 
         public EventsReceived EventRecord = new EventsReceived();
         
-        private void HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType msgType, string syncID, ulong evSeqNum, OSDMap data, long recvTime)
-        {
-            if (!data.ContainsKey("uuid") || !data.ContainsKey("collisionUUIDs"))
-            {
-                m_log.ErrorFormat("{0}: HandleRemoteEvent_{1}: either uuid or collisionUUIDs is missing in incoming OSDMap",
-                            LogHeader, msgType.ToString());
-                return;
-            }
-
-            ColliderArgs StartCollidingMessage = new ColliderArgs();
-            List<DetectedObject> colliding = new List<DetectedObject>();
-            SceneObjectPart collisionPart = null;
-            OSDArray collidersNotFound = new OSDArray();
-
-            try
-            {
-                UUID uuid = data["uuid"].AsUUID();
-                //OSDArray collisionLocalIDs = (OSDArray)data["collisionLocalIDs"];
-                OSDArray collisionUUIDs = (OSDArray)data["collisionUUIDs"];
-
-                collisionPart = Scene.GetSceneObjectPart(uuid);
-                if (collisionPart == null)
-                {
-                    m_log.ErrorFormat("{0}: HandleRemoteEvent_{1}: no part with UUID {2} found, event initiator {3}", 
-                                    LogHeader, msgType.ToString(), uuid, syncID);
-                    return;
-                }
-                if (collisionUUIDs == null)
-                {
-                    m_log.ErrorFormat("{0}: HandleRemoteEvent_{1}: no collisionLocalIDs", LogHeader, msgType.ToString());
-                    return;
-                }
-                if (collisionPart.ParentGroup.IsDeleted == true)
-                    return;
-
-                switch (msgType)
-                {
-                    case SymmetricSyncMessage.MsgType.ScriptCollidingStart:
-                    case SymmetricSyncMessage.MsgType.ScriptColliding:
-                    case SymmetricSyncMessage.MsgType.ScriptCollidingEnd:
-                        {
-                            for (int i = 0; i < collisionUUIDs.Count; i++)
-                            {
-                                OSD arg = collisionUUIDs[i];
-                                UUID collidingUUID = arg.AsUUID();
-
-                                SceneObjectPart obj = Scene.GetSceneObjectPart(collidingUUID);
-                                if (obj != null)
-                                {
-                                    DetectedObject detobj = new DetectedObject();
-                                    detobj.keyUUID = obj.UUID;
-                                    detobj.nameStr = obj.Name;
-                                    detobj.ownerUUID = obj.OwnerID;
-                                    detobj.posVector = obj.AbsolutePosition;
-                                    detobj.rotQuat = obj.GetWorldRotation();
-                                    detobj.velVector = obj.Velocity;
-                                    detobj.colliderType = 0;
-                                    detobj.groupUUID = obj.GroupID;
-                                    colliding.Add(detobj);
-                                }
-                                else
-                                {
-                                    //collision object is not a prim, check if it's an avatar
-                                    ScenePresence av = Scene.GetScenePresence(collidingUUID);
-                                    if (av != null)
-                                    {
-                                        DetectedObject detobj = new DetectedObject();
-                                        detobj.keyUUID = av.UUID;
-                                        detobj.nameStr = av.ControllingClient.Name;
-                                        detobj.ownerUUID = av.UUID;
-                                        detobj.posVector = av.AbsolutePosition;
-                                        detobj.rotQuat = av.Rotation;
-                                        detobj.velVector = av.Velocity;
-                                        detobj.colliderType = 0;
-                                        detobj.groupUUID = av.ControllingClient.ActiveGroupId;
-                                        colliding.Add(detobj);
-                                    }
-                                    else
-                                    {
-                                        // m_log.WarnFormat("HandleRemoteEvent_ScriptCollidingStart for SOP {0},{1} with SOP/SP {2}, but the latter is not found in local Scene. Saved for later processing",
-                                        //             collisionPart.Name, collisionPart.UUID, collidingUUID);
-                                        collidersNotFound.Add(OSD.FromUUID(collidingUUID));
-                                    }
-                                }
-                            }
-
-                            if (collidersNotFound.Count > 0)
-                            {
-                                //hard-coded expiration time to be one minute
-                                TimeSpan msgExpireTime = new TimeSpan(0, 1, 0);
-                                TimeSpan msgSavedTime = new TimeSpan(DateTime.UtcNow.Ticks - recvTime);
-
-                                if (msgSavedTime < msgExpireTime)
-                                {
-
-                                    OSDMap newdata = new OSDMap();
-                                    newdata["uuid"] = OSD.FromUUID(collisionPart.UUID);
-                                    newdata["collisionUUIDs"] = collidersNotFound;
-
-                                    //newdata["actorID"] = OSD.FromString(actorID);
-                                    newdata["syncID"] = OSD.FromString(syncID);
-                                    newdata["seqNum"] = OSD.FromULong(evSeqNum);
-
-                                    SymmetricSyncMessage rsm = null;
-                                    switch (msgType)
-                                    {
-                                        case SymmetricSyncMessage.MsgType.ScriptCollidingStart:
-                                            rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ScriptCollidingStart, newdata);
-                                            break;
-                                        case SymmetricSyncMessage.MsgType.ScriptColliding:
-                                            rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ScriptColliding, newdata);
-                                            break;
-                                        case SymmetricSyncMessage.MsgType.ScriptCollidingEnd:
-                                            rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ScriptCollidingEnd, newdata);
-                                            break;
-                                    }
-                                    SyncMessageRecord syncMsgToSave = new SyncMessageRecord();
-                                    syncMsgToSave.ReceivedTime = recvTime;
-                                    syncMsgToSave.SyncMessage = rsm;
-                                    lock (m_savedSyncMessage)
-                                    {
-                                        m_savedSyncMessage.Add(syncMsgToSave);
-                                    }
-                                }
-                            }
-                        }
-                        break;
-                    case SymmetricSyncMessage.MsgType.ScriptLandCollidingStart:
-                    case SymmetricSyncMessage.MsgType.ScriptLandColliding:
-                    case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
-                        {
-                            for (int i = 0; i < collisionUUIDs.Count; i++)
-                            {
-                                OSD arg = collisionUUIDs[i];
-                                UUID collidingUUID = arg.AsUUID();
-                                if (collidingUUID.Equals(UUID.Zero))
-                                {
-                                    //Hope that all is left is ground!
-                                    DetectedObject detobj = new DetectedObject();
-                                    detobj.keyUUID = UUID.Zero;
-                                    detobj.nameStr = "";
-                                    detobj.ownerUUID = UUID.Zero;
-                                    detobj.posVector = collisionPart.ParentGroup.RootPart.AbsolutePosition;
-                                    detobj.rotQuat = Quaternion.Identity;
-                                    detobj.velVector = Vector3.Zero;
-                                    detobj.colliderType = 0;
-                                    detobj.groupUUID = UUID.Zero;
-                                    colliding.Add(detobj);
-                                }
-                            }
-                        }
-                        break;
-                }
-            }
-            catch (Exception e)
-            {
-                m_log.ErrorFormat("HandleRemoteEvent_ScriptCollidingStart Error: {0}", e.Message);
-            }
-           
-            if (colliding.Count > 0)
-            {
-                StartCollidingMessage.Colliders = colliding;
-                // always running this check because if the user deletes the object it would return a null reference.
-                switch (msgType)
-                {
-                    case SymmetricSyncMessage.MsgType.ScriptCollidingStart:
-                        m_log.DebugFormat("ScriptCollidingStart received for {0}", collisionPart.Name);
-                        RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
-                        Scene.EventManager.TriggerScriptCollidingStart(collisionPart.LocalId, StartCollidingMessage);
-                        ForgetLocallyGeneratedEvent();
-                        break;
-                    case SymmetricSyncMessage.MsgType.ScriptColliding:
-                        m_log.DebugFormat("ScriptColliding received for {0}", collisionPart.Name);
-                        RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
-                        Scene.EventManager.TriggerScriptColliding(collisionPart.LocalId, StartCollidingMessage);
-                        ForgetLocallyGeneratedEvent();
-                        break;
-                    case SymmetricSyncMessage.MsgType.ScriptCollidingEnd:
-                        m_log.DebugFormat("ScriptCollidingEnd received for {0}", collisionPart.Name);
-                        RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
-                        Scene.EventManager.TriggerScriptCollidingEnd(collisionPart.LocalId, StartCollidingMessage);
-                        ForgetLocallyGeneratedEvent();
-                        break;
-                    case SymmetricSyncMessage.MsgType.ScriptLandCollidingStart:
-                        m_log.DebugFormat("ScriptLandCollidingStart received for {0}", collisionPart.Name);
-                        RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
-                        Scene.EventManager.TriggerScriptLandCollidingStart(collisionPart.LocalId, StartCollidingMessage);
-                        ForgetLocallyGeneratedEvent();
-                        break;
-                    case SymmetricSyncMessage.MsgType.ScriptLandColliding:
-                        m_log.DebugFormat("ScriptLandColliding received for {0}", collisionPart.Name);
-                        RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
-                        Scene.EventManager.TriggerScriptLandColliding(collisionPart.LocalId, StartCollidingMessage);
-                        ForgetLocallyGeneratedEvent();
-                        break;
-                    case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
-                        m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", collisionPart.Name);
-                        RememberLocallyGeneratedEvent(msgType, collisionPart.LocalId, StartCollidingMessage);
-                        Scene.EventManager.TriggerScriptLandCollidingEnd(collisionPart.LocalId, StartCollidingMessage);
-                        ForgetLocallyGeneratedEvent();
-                        break;
-                }
-            }
-        }
-
         private int spErrCount = 0;
         private HashSet<UUID> errUUIDs = new HashSet<UUID>(); 
         private void HandleRemoteEvent_PhysicsCollision(string actorID, ulong evSeqNum, OSDMap data)
@@ -2227,7 +1972,7 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="msgtype"></param>
         /// <param name="parms">Parameters being passed to the event</param>
-        public void RememberLocallyGeneratedEvent(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
+        public void RememberLocallyGeneratedEvent(SyncMsg.MsgType msgtype, params Object[] parms)
         {
             // This is a terrible kludge but it will work for the short term.
             // We mark the thread used to call Trigger*Event with the name of the type of event
@@ -2253,7 +1998,7 @@ namespace DSG.RegionSync
         /// <param name="msgtype">SymmetricSyncMessage.MsgType of the event</param>
         /// <param name="parms">the parameters received for the event</param>
         /// <returns>true if this is an event we just called Trigger* for</returns>
-        public bool IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
+        public bool IsLocallyGeneratedEvent(SyncMsg.MsgType msgtype, params Object[] parms)
         {
             bool ret = false;
             // m_log.DebugFormat("{0} IsLocallyGeneratedEvent. Checking remembered={1} against {2}", LogHeader, LocallyGeneratedSignature, msgtype);      // DEBUG DEBUG
@@ -2279,7 +2024,7 @@ namespace DSG.RegionSync
         /// <param name="msgtype"></param>
         /// <param name="parms"></param>
         /// <returns></returns>
-        private string CreateLocallyGeneratedEventSignature(SymmetricSyncMessage.MsgType msgtype, params Object[] parms)
+        private string CreateLocallyGeneratedEventSignature(SyncMsg.MsgType msgtype, params Object[] parms)
         {
             return msgtype.ToString();
         }
@@ -2296,7 +2041,7 @@ namespace DSG.RegionSync
         {
             UUID uuid = part.UUID;
             // m_log.DebugFormat("{0}: RegionSyncModule_OnLocalNewScript", LogHeader);
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.NewScript, clientID, part, itemID))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.NewScript, clientID, part, itemID))
                 return;
 
             SceneObjectGroup sog = part.ParentGroup;
@@ -2310,7 +2055,7 @@ namespace DSG.RegionSync
 
             //It is very likely that the TaskInventory cache data in SyncInfoManager
             //has been updated by local RezScript(), which will only update
-            //inventory but not creating script instance unless this is a 
+            //inventory but not create a script instance unless this is a 
             //script engine. We just make sure that if that does not happen 
             //ealier than this, we are sync'ing the new TaskInventory.
             updatedProperties.Add(SyncableProperties.Type.TaskInventory);
@@ -2320,7 +2065,9 @@ namespace DSG.RegionSync
             syncData["agentID"] = OSD.FromUUID(clientID);
             syncData["itemID"] = OSD.FromUUID(itemID); //id of the new inventory item of the part
 
-            SendSceneEvent(SymmetricSyncMessage.MsgType.NewScript, syncData);
+            SyncMsgNewScript msg = new SyncMsgNewScript(SyncID, GetNextEventSeq(), part.UUID, clientID, itemID);
+
+            SendSceneEvent(SyncMsg.MsgType.NewScript, syncData);
         }
 
         /// <summary>
@@ -2334,50 +2081,41 @@ namespace DSG.RegionSync
         private void OnLocalUpdateScript(UUID agentID, UUID itemId, UUID primId, bool isScriptRunning, UUID newAssetID)
         {
             // m_log.DebugFormat("{0}: RegionSyncModule_OnUpdateScript", LogHeader);
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.UpdateScript, agentID, itemId, isScriptRunning, newAssetID))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.UpdateScript, agentID, itemId, isScriptRunning, newAssetID))
                 return;
 
-            OSDMap data = new OSDMap();
-            data["agentID"] = OSD.FromUUID(agentID);
-            data["itemID"] = OSD.FromUUID(itemId);
-            data["primID"] = OSD.FromUUID(primId);
-            data["running"] = OSD.FromBoolean(isScriptRunning);
-            data["assetID"] = OSD.FromUUID(newAssetID);
-
-            SendSceneEvent(SymmetricSyncMessage.MsgType.UpdateScript, data);
+            SyncMsgUpdateScript msg = new SyncMsgUpdateScript(agentID, itemId, primId, isScriptRunning, newAssetID);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
 
         private void OnLocalScriptReset(uint localID, UUID itemID)
         {
             // m_log.DebugFormat("{0}: OnLocalScriptReset: obj={1}", LogHeader, itemID);
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptReset, localID, itemID))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptReset, localID, itemID))
                 return;
 
             //we will use the prim's UUID as the identifier, not the localID, to publish the event for the prim                
             SceneObjectPart part = Scene.GetSceneObjectPart(localID);
-
             if (part == null)
             {
                 m_log.Warn(LogHeader + ": part with localID " + localID + " not exist");
                 return;
             }
-
-            OSDMap data = new OSDMap();
-            data["primID"] = OSD.FromUUID(part.UUID);
-            data["itemID"] = OSD.FromUUID(itemID);
-
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ScriptReset, data);
+            SyncMsgScriptReset msg = new SyncMsgScriptReset(part.UUID, itemID);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
 
         private void OnLocalChatBroadcast(Object sender, OSChatMessage chat)
         {
             
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatBroadcast, sender, chat))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ChatBroadcast, sender, chat))
                 return;
 
-            //m_log.WarnFormat("RegionSyncModule.OnLocalChatBroadcast {0}:{1}", chat.From, chat.Message);
-            OSDMap data = PrepareChatArgs(chat);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ChatBroadcast, data);
+            SyncMsgChatBroadcast msg = new SyncMsgChatBroadcast(chat);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
 
         private void OnLocalChatFromClient(Object sender, OSChatMessage chat)
@@ -2387,38 +2125,25 @@ namespace DSG.RegionSync
             //if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromClient, sender, chat))
             //    return;
 
-            //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromClient {0}:{1}", chat.From, chat.Message);
-            OSDMap data = PrepareChatArgs(chat);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ChatFromClient, data);
+            SyncMsgChatFromClient msg = new SyncMsgChatFromClient(chat);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
 
         private void OnLocalChatFromWorld(Object sender, OSChatMessage chat)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, sender, chat))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ChatFromWorld, sender, chat))
                 return;
 
             //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromWorld {0}:{1}", chat.From, chat.Message);
-            OSDMap data = PrepareChatArgs(chat);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ChatFromWorld, data);
+            SyncMsgChatFromWorld msg = new SyncMsgChatFromWorld(chat);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
-
-        /*
-        private OSDMap PrepareChatArgs(OSChatMessage chat)
-        {
-            OSDMap data = new OSDMap();
-            data["channel"] = OSD.FromInteger(chat.Channel);
-            data["msg"] = OSD.FromString(chat.Message);
-            data["pos"] = OSD.FromVector3(chat.Position);
-            data["name"] = OSD.FromString(chat.From); //note this is different from OnLocalChatFromClient
-            data["id"] = OSD.FromUUID(chat.SenderUUID);
-            data["type"] = OSD.FromInteger((int)chat.Type);
-            return data;
-        }
-         */
 
         private void OnLocalAttach(uint localID, UUID itemID, UUID avatarID)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.Attach, localID, itemID, avatarID))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.Attach, localID, itemID, avatarID))
                 return;
 
             OSDMap data = new OSDMap();
@@ -2428,12 +2153,12 @@ namespace DSG.RegionSync
                 m_log.Warn(LogHeader + ", OnLocalAttach: no part with localID: " + localID);
                 return;
             }
-            data["primID"] = OSD.FromUUID(part.UUID);
-            data["itemID"] = OSD.FromUUID(itemID);
-            data["avatarID"] = OSD.FromUUID(avatarID);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.Attach, data);
+            SyncMsgAttach msg = new SyncMsgAttach(part.UUID, itemID, avatarID);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
 
+        /* UNUSED??
         private void OnLocalPhysicsCollision(UUID partUUID, OSDArray collisionUUIDs)
         {
             //temp solution for reducing collision events for demo
@@ -2468,96 +2193,86 @@ namespace DSG.RegionSync
                 SendSceneEvent(SymmetricSyncMessage.MsgType.PhysicsCollision, data);
             }
         }
+         */
 
         private void OnLocalGrabObject(uint localID, uint originalID, Vector3 offsetPos, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ObjectGrab, localID, originalID, offsetPos, remoteClient, surfaceArgs))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ObjectGrab, localID, originalID, offsetPos, remoteClient, surfaceArgs))
                 return;
 
-            OSDMap data = PrepareObjectGrabArgs(localID, originalID, offsetPos, remoteClient, surfaceArgs);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ObjectGrab, data);
+            UUID localUUID, originalUUID;
+            GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
+            SyncMsgObjectGrab msg = new SyncMsgObjectGrab(remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
+            SendSceneEvent(msg);
         }
 
         private void OnLocalObjectGrabbing(uint localID, uint originalID, Vector3 offsetPos, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ObjectGrabbing, localID, originalID, offsetPos, remoteClient, surfaceArgs))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ObjectGrabbing, localID, originalID, offsetPos, remoteClient, surfaceArgs))
                 return;
 
-            OSDMap data = PrepareObjectGrabArgs(localID, originalID, offsetPos, remoteClient, surfaceArgs);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ObjectGrabbing, data);
+            UUID localUUID, originalUUID;
+            GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
+            SyncMsgObjectGrabbing msg = new SyncMsgObjectGrabbing(remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
 
-        // Returns 'null' when the object can't be found or other construction errors.
-        private OSDMap PrepareObjectGrabArgs(uint localID, uint originalID, Vector3 offsetPos, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
+        private void OnLocalDeGrabObject(uint localID, uint originalID, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
         {
-            //we will use the prim's UUID as the identifier, not the localID, to publish the event for the prim                
-            SceneObjectPart part = Scene.GetSceneObjectPart(localID);
-            if (part == null)
-            {
-                m_log.ErrorFormat("{0}: PrepareObjectGrabArgs - part with localID {1} does not exist", LogHeader, localID);
-                return null;
-            }
-
-            //this seems to be useful if the prim touched and the prim handling the touch event are different:
-            //i.e. a child part is touched, pass the event to root, and root handles the event. then root is the "part",
-            //and the child part is the "originalPart"
-            SceneObjectPart originalPart = null;
-            if (originalID != 0)
-            {
-                originalPart = Scene.GetSceneObjectPart(originalID);
-                if (originalPart == null)
-                {
-                    m_log.ErrorFormat("{0}: PrepareObjectGrabArgs - part with localID {1} does not exist", LogHeader, localID);
-                    return null;
-                }
-            }
-
-            OSDMap data = new OSDMap();
-            data["agentID"] = OSD.FromUUID(remoteClient.AgentId);
-            data["primID"] = OSD.FromUUID(part.UUID);
-            if (originalID != 0)
-            {
-                data["originalPrimID"] = OSD.FromUUID(originalPart.UUID);
-            }
-            else
-            {
-                data["originalPrimID"] = OSD.FromUUID(UUID.Zero);
-            }
-            data["offsetPos"] = OSD.FromVector3(offsetPos);
-
-            data["binormal"] = OSD.FromVector3(surfaceArgs.Binormal);
-            data["faceIndex"] = OSD.FromInteger(surfaceArgs.FaceIndex);
-            data["normal"] = OSD.FromVector3(surfaceArgs.Normal);
-            data["position"] = OSD.FromVector3(surfaceArgs.Position);
-            data["stCoord"] = OSD.FromVector3(surfaceArgs.STCoord);
-            data["uvCoord"] = OSD.FromVector3(surfaceArgs.UVCoord);
-
-            return data;
-        }
-
-         private void OnLocalDeGrabObject(uint localID, uint originalID, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
-        {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ObjectDeGrab, localID, originalID, remoteClient, surfaceArgs))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ObjectDeGrab, localID, originalID, remoteClient, surfaceArgs))
                 return;
 
             Vector3 offsetPos = Vector3.Zero;
-            OSDMap data = PrepareObjectGrabArgs(localID, originalID, offsetPos, remoteClient, surfaceArgs);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ObjectDeGrab, data);
+            UUID localUUID, originalUUID;
+            GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
+            SyncMsgObjectDeGrab msg = new SyncMsgObjectDeGrab(remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
+        }
+
+
+        private bool GetGrabUUIDs(uint partID, out UUID partUUID, uint origPartID, out UUID origPartUUID)
+        {
+            partUUID = UUID.Zero;
+            origPartUUID = UUID.Zero;
+
+            SceneObjectPart part = Scene.GetSceneObjectPart(partID);
+            if (part == null)
+            {
+                m_log.ErrorFormat("{0}: GetGrabUUIDs - part with localID {1} does not exist", LogHeader, partID);
+                return false;
+            }
+            partUUID = part.UUID;
+
+            SceneObjectPart originalPart = null;
+            if (origPartID != 0)
+            {
+                originalPart = Scene.GetSceneObjectPart(origPartID);
+                if (originalPart == null)
+                {
+                    m_log.ErrorFormat("{0}: GetGrabUUIDs - part with localID {1} does not exist", LogHeader, origPartID);
+                    return false;
+                }
+                origPartUUID = originalPart.UUID;
+            }
+            return true;
         }
 
         private void OnLocalScriptCollidingStart(uint localID, ColliderArgs colliders)
         {
             m_log.WarnFormat("{0}: OnLocalScriptCollidingStart", LogHeader);
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptCollidingStart, localID, colliders))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptCollidingStart, localID, colliders))
                 return;
 
-            OSDMap data = PrepareCollisionArgs(localID, colliders);
-            SendSceneEvent(SymmetricSyncMessage.MsgType.ScriptCollidingStart, data);
+            SyncMsgCollisionStart msg = new SyncMsgCollisionStart(GetSOPUUID(localID), colliders);
+            msg.ConvertOut(this);
+            SendSceneEvent(msg);
         }
 
         private void OnLocalScriptColliding(uint localID, ColliderArgs colliders)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptColliding, localID, colliders))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptColliding, localID, colliders))
                 return;
 
             OSDMap data = PrepareCollisionArgs(localID, colliders);
@@ -2567,7 +2282,7 @@ namespace DSG.RegionSync
         private void OnLocalScriptCollidingEnd(uint localID, ColliderArgs colliders)
         {
             m_log.WarnFormat("{0}: OnLocalScriptCollidingEnd", LogHeader);
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptCollidingEnd, localID, colliders))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptCollidingEnd, localID, colliders))
                 return;
 
             OSDMap data = PrepareCollisionArgs(localID, colliders);
@@ -2576,7 +2291,7 @@ namespace DSG.RegionSync
 
         private void OnLocalScriptLandCollidingStart(uint localID, ColliderArgs colliders)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptLandCollidingStart, localID, colliders))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptLandCollidingStart, localID, colliders))
                 return;
 
             OSDMap data = PrepareCollisionArgs(localID, colliders);
@@ -2585,7 +2300,7 @@ namespace DSG.RegionSync
 
         private void OnLocalScriptLandColliding(uint localID, ColliderArgs colliders)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptLandColliding, localID, colliders))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptLandColliding, localID, colliders))
                 return;
 
             OSDMap data = PrepareCollisionArgs(localID, colliders);
@@ -2594,7 +2309,7 @@ namespace DSG.RegionSync
 
         private void OnLocalScriptLandCollidingEnd(uint localID, ColliderArgs colliders)
         {
-            if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd, localID, colliders))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptLandCollidingEnd, localID, colliders))
                 return;
 
             OSDMap data = PrepareCollisionArgs(localID, colliders);
@@ -2618,21 +2333,27 @@ namespace DSG.RegionSync
             data["collisionUUIDs"] = collisionUUIDs;
             return data;
         }
+        private UUID GetSOPUUID(uint localID)
+        {
+            UUID ret = UUID.Zero;
+            SceneObjectPart part = Scene.GetSceneObjectPart(localID);
+            if (part != null)
+                ret = part.UUID;
+            return ret;
+        }
 
         // Several routines rely on the check for 'data == null' to skip processing
         // when there are selection errors.
-        private void SendSceneEvent(SymmetricSyncMessage.MsgType msgType, OSDMap data)
+        private void SendSceneEvent(SyncMsg msg)
         {
-            if (data == null)
-                return;
-
-            //data["actorID"] = OSD.FromString(ActorID);
-            data["syncID"] = OSD.FromString(SyncID);
-            data["seqNum"] = OSD.FromULong(GetNextEventSeq());
-            SymmetricSyncMessage rsm = new SymmetricSyncMessage(msgType, data);
-
+            SyncMsgEvent msgEvent = msg as SyncMsgEvent;
+            if (msgEvent != null)
+            {
+                msgEvent.SyncID = SyncID;
+                msgEvent.SequenceNum = GetNextEventSeq();
+            }
             //send to actors who are interested in the event
-            SendSceneEventToRelevantSyncConnectors(ActorID, rsm, null);
+            SendSceneEventToRelevantSyncConnectors(ActorID, msg, null);
         }
 
         private ulong GetNextEventSeq()

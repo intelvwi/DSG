@@ -100,10 +100,10 @@ namespace DSG.RegionSync
         }
 
         //the actorID of the other end of the connection
-        public string otherSideActorID { get; private set; }
+        public string otherSideActorID { get; set; }
 
         //The region name of the other side of the connection
-        public string otherSideRegionName { get; private set; }
+        public string otherSideRegionName { get; set; }
 
         // Check if the client is connected
         public bool connected
@@ -212,7 +212,7 @@ namespace DSG.RegionSync
             {
                 while (true)
                 {
-                    SymmetricSyncMessage msg = m_outQ.Dequeue();
+                    SyncMsg msg = m_outQ.Dequeue();
                     if (m_collectingStats) currentQueue.Event(-1);
                     Send(msg);
                 }
@@ -229,7 +229,7 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="id">UUID of the object/avatar</param>
         /// <param name="update">the update infomation in byte format</param>
-        public void EnqueueOutgoingUpdate(UUID id, SymmetricSyncMessage update)
+        public void EnqueueOutgoingUpdate(UUID id, SyncMsg update)
         {
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
             // Enqueue is thread safe
@@ -237,7 +237,7 @@ namespace DSG.RegionSync
                 currentQueue.Event(1);
         }
 
-        public void ImmediateOutgoingMsg(SymmetricSyncMessage msg)
+        public void ImmediateOutgoingMsg(SyncMsg msg)
         {
             // The old way was to just call Send and hope the networking worked out.
             // Send(msg);
@@ -251,15 +251,15 @@ namespace DSG.RegionSync
 
         //Send out a messge directly. This should only by called for short messages that are not sent frequently.
         //Don't call this function for sending out updates. Call EnqueueOutgoingUpdate instead
-        private void Send(SymmetricSyncMessage msg)
+        private void Send(SyncMsg msg)
         {
             // m_log.DebugFormat("{0} Send msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
-            byte[] data = msg.ToBytes();
+            byte[] data = msg.GetWireBytes();
             if (m_tcpConnection.Connected)
             {
                 try
                 {
-                    CollectSendStat(msg.Type.ToString(), msg.Data.Length);
+                    CollectSendStat(msg.MType.ToString(), msg.DataLength);
                     m_tcpConnection.GetStream().BeginWrite(data, 0, data.Length, ar =>
                     {
                         if (m_tcpConnection.Connected)
@@ -288,11 +288,11 @@ namespace DSG.RegionSync
             m_log.WarnFormat("{0} Thread running: {1}", LogHeader, m_rcvLoop.Name);
             while (true && m_tcpConnection.Connected)
             {
-                SymmetricSyncMessage msg;
+                SyncMsg msg;
                 // Try to get the message from the network stream
                 try
                 {
-                    msg = new SymmetricSyncMessage(m_tcpConnection.GetStream());
+                    msg = SyncMsg.SyncMsgFactory(m_tcpConnection.GetStream(), this);
                     // m_log.WarnFormat("{0} Recv msg: {1}", LogHeader, msg.ToString());
                 }
                 // If there is a problem reading from the client, shut 'er down. 
@@ -315,15 +315,39 @@ namespace DSG.RegionSync
             }
         }
 
-        private void HandleMessage(SymmetricSyncMessage msg)
+        private void HandleMessage(SyncMsg msg)
         {
 
             // m_log.DebugFormat("{0} Recv msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
-            CollectReceiveStat(msg.Type.ToString(), msg.Data.Length);
+            CollectReceiveStat(msg.MType.ToString(), msg.DataLength);
 
-            switch (msg.Type)
+            // TODO: Consider doing the data unpacking on a different thread than the input reader thread
+            msg.ConvertIn(m_regionSyncModule);
+
+            // TODO: Consider doing the message processing on a different thread than the input reader thread
+            msg.HandleIn(m_regionSyncModule);
+
+            // If this is an initialization message, print out info and start stats gathering if initialized enough
+            if (msg.MType == SyncMsg.MsgType.RegionName || msg.MType == SyncMsg.MsgType.ActorID)
             {
-                case SymmetricSyncMessage.MsgType.RegionName:
+                switch (msg.MType)
+                {
+                    case SyncMsg.MsgType.RegionName:
+                        m_log.DebugFormat("Syncing to region \"{0}\"", otherSideRegionName);
+                        break;
+                    case SyncMsg.MsgType.ActorID:
+                        m_log.DebugFormat("Syncing to actor \"{0}\"", otherSideActorID);
+                        break;
+                }
+                if (otherSideRegionName != null && otherSideActorID != null)
+                    StartCollectingStats();
+            }
+
+
+            /*
+            switch (msg.MType)
+            {
+                case SyncMsg.MsgType.RegionName:
                     {
                         otherSideRegionName = Encoding.ASCII.GetString(msg.Data, 0, msg.Length);
                         m_regionSyncModule.DetailedUpdateWrite("RcvRegnNam", m_zeroUUID, 0, otherSideRegionName, otherSideActorID, msg.Length);
@@ -360,6 +384,7 @@ namespace DSG.RegionSync
             //For any other messages, we simply deliver the message to RegionSyncModule for now.
             //Later on, we may deliver messages to different modules, say sync message to RegionSyncModule and event message to ActorSyncModule.
             m_regionSyncModule.HandleIncomingMessage(msg, otherSideActorID, this);
+             */
         }
 
         private bool m_collectingStats = false;
@@ -369,7 +394,8 @@ namespace DSG.RegionSync
 
         private void StartCollectingStats()
         {
-            if (!m_regionSyncModule.StatCollector.Enabled)
+            // If stats not enabled or stats have already been initialized, just return.
+            if (!m_regionSyncModule.StatCollector.Enabled || m_registeredStats.Count > 0)
                 return;
 
             msgsIn = new SyncConnectorStat(
