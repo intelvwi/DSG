@@ -197,7 +197,7 @@ public abstract class SyncMsg
             case MsgType.Attach:            ret = new SyncMsgAttach(mType, length, data);               break;
 
             // TODO: could there be a common SyncMsgCollision() ?
-            case MsgType.PhysicsCollision:      ret = new SyncMsgPhysicsCollision(mType, length, data);     break;
+            // case MsgType.PhysicsCollision:      ret = new SyncMsgPhysicsCollision(mType, length, data);     break;
             case MsgType.ScriptCollidingStart:  ret = new SyncMsgScriptCollidingStart(mType, length, data); break;
             case MsgType.ScriptColliding:       ret = new SyncMsgScriptColliding(mType, length, data);      break;
             case MsgType.ScriptCollidingEnd:    ret = new SyncMsgScriptCollidingEnd(mType, length, data);   break;
@@ -339,7 +339,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                 {
                     exceptions.Add(e.Message);  // remember we've seen this type of error
                     // print out the unparsable message
-                    m_log.Error(LogHeader + " " + Encoding.ASCII.GetString(msg.Data, 0, msg.Length));
+                    m_log.Error(LogHeader + " " + Encoding.ASCII.GetString(m_data, 0, DataLength));
                     // after all of that, print out the actual error
                     m_log.ErrorFormat("{0}: {1}", LogHeader, e);
                 }
@@ -1367,11 +1367,12 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
 // ====================================================================================================
 public class SyncMsgRegionName : SyncMsgOSDMapData
 {
-    private string m_regionName;
+    public string RegName;
+
     public SyncMsgRegionName(string pRegionName)
         : base()
     {
-        m_regionName = pRegionName;
+        RegName = pRegionName;
     }
     public SyncMsgRegionName(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1379,25 +1380,48 @@ public class SyncMsgRegionName : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        return base.ConvertIn(regionContext);
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            RegName = DataMap["regionName"];
+            ret = true;
+        }
+        else
+        {
+            RegName = "UNKNOWN";
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        return false;
+        ConnectorContext.otherSideRegionName = RegName;
+        regionContext.DetailedUpdateWrite("RcvRegnNam", ZeroUUID, 0, ConnectorContext.otherSideRegionName, ConnectorContext.otherSideActorID, DataLength);
+        if (regionContext.IsSyncRelay)
+        {
+            SyncMsgRegionName msg = new SyncMsgRegionName(regionContext.Scene.RegionInfo.RegionName);
+            msg.ConvertOut(regionContext);
+            ConnectorContext.ImmediateOutgoingMsg(msg);
+            regionContext.DetailedUpdateWrite("SndRegnNam", ZeroUUID, 0, regionContext.Scene.RegionInfo.RegionName, ConnectorContext.otherSideActorID, msg.DataLength);
+        }
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        return false;
+        OSDMap data = new OSDMap();
+        data["regionName"] = RegName;
+        DataMap = data;
+        return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgActorID : SyncMsgOSDMapData
 {
-    private string m_actorID;
+    private string ActorID;
+
     public SyncMsgActorID(string pActorID)
         : base()
     {
-        m_actorID = pActorID;
+        ActorID = pActorID;
     }
     public SyncMsgActorID(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1405,15 +1429,37 @@ public class SyncMsgActorID : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        return base.ConvertIn(regionContext);
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            ActorID = DataMap["actorID"];
+            ret = true;
+        }
+        else
+        {
+            ActorID = "UNKNOWN";
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        return false;
+        ConnectorContext.otherSideActorID = ActorID;
+        regionContext.DetailedUpdateWrite("RcvActorID", ZeroUUID, 0, ConnectorContext.otherSideActorID, ConnectorContext.otherSideActorID, DataLength);
+        if (regionContext.IsSyncRelay)
+        {
+            SyncMsgActorID msg = new SyncMsgActorID(regionContext.ActorID);
+            msg.ConvertOut(regionContext);
+            ConnectorContext.ImmediateOutgoingMsg(msg);
+            regionContext.DetailedUpdateWrite("SndActorID", ZeroUUID, 0, regionContext.ActorID, ConnectorContext.otherSideActorID, msg.DataLength);
+        }
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        return false;
+        OSDMap data = new OSDMap();
+        data["actorID"] = ActorID;
+        DataMap = data;
+        return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
@@ -1442,6 +1488,12 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     public string SyncID { get; set; }
     public ulong SequenceNum { get; set; }
 
+    public SyncMsgEvent()
+        : base()
+    {
+        SyncID = "UNKNOWN";
+        SequenceNum = 1;
+    }
     public SyncMsgEvent(string pSyncID, ulong pSeqNum)
         : base()
     {
@@ -1538,8 +1590,8 @@ public class SyncMsgNewScript : SyncMsgEvent
     public UUID AgentID { get; set; }
     public UUID ItemID { get; set; }
 
-    public SyncMsgNewScript(string pSyncID, ulong pSeqNum, UUID pUuid, UUID pAgentID, UUID pItemID)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgNewScript(UUID pUuid, UUID pAgentID, UUID pItemID)
+        : base()
     {
         Uuid = pUuid;
         AgentID = pAgentID;
@@ -1600,8 +1652,8 @@ public class SyncMsgUpdateScript : SyncMsgEvent
     public bool IsRunning { get; set; }
     public UUID AssetID { get; set; }
 
-    public SyncMsgUpdateScript(string pSyncID, ulong pSeqNum, UUID pAgentID, UUID pItemID, UUID pPrimID, bool pIsRunning, UUID pAssetID)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgUpdateScript(UUID pAgentID, UUID pItemID, UUID pPrimID, bool pIsRunning, UUID pAssetID)
+        : base()
     {
         AgentID = pAgentID;
         ItemID = pItemID;
@@ -1652,14 +1704,12 @@ public class SyncMsgUpdateScript : SyncMsgEvent
 // ====================================================================================================
 public class SyncMsgScriptReset : SyncMsgEvent
 {
-    public UUID AgentID { get; set; }
     public UUID ItemID { get; set; }
     public UUID PrimID { get; set; }
 
-    public SyncMsgScriptReset(string pSyncID, ulong pSeqNum, UUID pAgentID, UUID pItemID, UUID pPrimID)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgScriptReset(UUID pItemID, UUID pPrimID)
+        : base()
     {
-        AgentID = pAgentID;
         ItemID = pItemID;
         PrimID = pPrimID;
     }
@@ -1670,7 +1720,6 @@ public class SyncMsgScriptReset : SyncMsgEvent
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
         base.ConvertIn(regionContext);
-        AgentID = DataMap["agentID"].AsUUID();
         ItemID = DataMap["itemID"].AsUUID();
         PrimID = DataMap["primID"].AsUUID();
         return true;
@@ -1693,7 +1742,6 @@ public class SyncMsgScriptReset : SyncMsgEvent
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
         OSDMap data = new OSDMap(3+2);
-        data["agentID"] = OSD.FromUUID(AgentID);
         data["itemID"] = OSD.FromUUID(ItemID);
         data["primID"] = OSD.FromUUID(PrimID);
         DataMap = data;
@@ -1703,12 +1751,12 @@ public class SyncMsgScriptReset : SyncMsgEvent
 // ====================================================================================================
 public class SyncMsgChatFromClient : SyncMsgEvent
 {
-    public OSChatMessage ChatMessageArgs { get; set; }
+    public OSChatMessage ChatMessage { get; set; }
 
-    public SyncMsgChatFromClient(string pSyncID, ulong pSeqNum, OSChatMessage pChatMessageArgs)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgChatFromClient(OSChatMessage pChatMessage)
+        : base()
     {
-        ChatMessageArgs = pChatMessageArgs;
+        ChatMessage = pChatMessage;
     }
     public SyncMsgChatFromClient(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1719,7 +1767,7 @@ public class SyncMsgChatFromClient : SyncMsgEvent
         bool ret = false;
         if (base.ConvertIn(regionContext))
         {
-            ChatMessageArgs = PrepareOnChatArgs(DataMap, regionContext);
+            ChatMessage = PrepareOnChatArgs(DataMap, regionContext);
             ret = true;
         }
         return ret;
@@ -1730,27 +1778,27 @@ public class SyncMsgChatFromClient : SyncMsgEvent
         if (base.HandleIn(regionContext))
         {
             //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromClient {0}:{1}", args.From, args.Message);
-            if (ChatMessageArgs.Sender is RegionSyncAvatar)
-                ((RegionSyncAvatar)ChatMessageArgs.Sender).SyncChatFromClient(ChatMessageArgs);
+            if (ChatMessage.Sender is RegionSyncAvatar)
+                ((RegionSyncAvatar)ChatMessage.Sender).SyncChatFromClient(ChatMessage);
             ret = true;
         }
         return ret;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = PrepareChatArgs(ChatMessageArgs);
+        DataMap = PrepareChatArgs(ChatMessage);
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgChatFromWorld : SyncMsgEvent
 {
-    public OSChatMessage ChatMessageArgs { get; set; }
+    public OSChatMessage ChatMessage { get; set; }
 
-    public SyncMsgChatFromWorld(string pSyncID, ulong pSeqNum, OSChatMessage pChatMessageArgs)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgChatFromWorld(OSChatMessage pChatMessage)
+        : base()
     {
-        ChatMessageArgs = pChatMessageArgs;
+        ChatMessage = pChatMessage;
     }
     public SyncMsgChatFromWorld(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1759,34 +1807,34 @@ public class SyncMsgChatFromWorld : SyncMsgEvent
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
         base.ConvertIn(regionContext);
-        ChatMessageArgs = PrepareOnChatArgs(DataMap, regionContext);
+        ChatMessage = PrepareOnChatArgs(DataMap, regionContext);
         return true;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
         base.HandleIn(regionContext);
         //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromWorld {0}:{1}", args.From, args.Message);
-        regionContext.RememberLocallyGeneratedEvent(MsgType.ChatFromWorld, ChatMessageArgs);   
+        regionContext.RememberLocallyGeneratedEvent(MsgType.ChatFromWorld, ChatMessage);   
         // Let ChatModule get the event and deliver it to avatars
-        regionContext.Scene.EventManager.TriggerOnChatFromWorld(ChatMessageArgs.SenderObject, ChatMessageArgs);
+        regionContext.Scene.EventManager.TriggerOnChatFromWorld(ChatMessage.SenderObject, ChatMessage);
         regionContext.ForgetLocallyGeneratedEvent();
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = PrepareChatArgs(ChatMessageArgs);
+        DataMap = PrepareChatArgs(ChatMessage);
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgChatBroadcast : SyncMsgEvent
 {
-    public OSChatMessage ChatMessageArgs { get; set; }
+    public OSChatMessage ChatMessage { get; set; }
 
-    public SyncMsgChatBroadcast(string pSyncID, ulong pSeqNum, OSChatMessage pChatMessageArgs)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgChatBroadcast(OSChatMessage pChatMessage)
+        : base()
     {
-        ChatMessageArgs = pChatMessageArgs;
+        ChatMessage = pChatMessage;
     }
     public SyncMsgChatBroadcast(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1795,21 +1843,21 @@ public class SyncMsgChatBroadcast : SyncMsgEvent
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
         base.ConvertIn(regionContext);
-        ChatMessageArgs = PrepareOnChatArgs(DataMap, regionContext);
+        ChatMessage = PrepareOnChatArgs(DataMap, regionContext);
         return true;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
         base.HandleIn(regionContext);
         //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatBroadcast {0}:{1}", args.From, args.Message);
-        regionContext.RememberLocallyGeneratedEvent(MsgType.ChatBroadcast, ChatMessageArgs);   
-        regionContext.Scene.EventManager.TriggerOnChatBroadcast(ChatMessageArgs.SenderObject, ChatMessageArgs);
+        regionContext.RememberLocallyGeneratedEvent(MsgType.ChatBroadcast, ChatMessage);   
+        regionContext.Scene.EventManager.TriggerOnChatBroadcast(ChatMessage.SenderObject, ChatMessage);
         regionContext.ForgetLocallyGeneratedEvent();
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = PrepareChatArgs(ChatMessageArgs);
+        DataMap = PrepareChatArgs(ChatMessage);
         return base.ConvertOut(regionContext);
     }
 }
@@ -1826,8 +1874,8 @@ public abstract class SyncMsgEventGrabber : SyncMsgEvent
     public uint OriginalID { get; set; }
     public ScenePresence SP;
     
-    public SyncMsgEventGrabber(string pSyncID, ulong pSeqNum, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgEventGrabber(UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
+        : base()
     {
         AgentID = pAgentID;
         PrimID = pPrimID;
@@ -1900,8 +1948,8 @@ public abstract class SyncMsgEventGrabber : SyncMsgEvent
 // ====================================================================================================
 public class SyncMsgObjectGrab : SyncMsgEventGrabber
 {
-    public SyncMsgObjectGrab(string pSyncID, ulong pSeqNum, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pSyncID, pSeqNum, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
+    public SyncMsgObjectGrab(UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
+        : base(pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
     public SyncMsgObjectGrab(MsgType pMsgType, int pLength, byte[] pData)
@@ -1931,8 +1979,8 @@ public class SyncMsgObjectGrab : SyncMsgEventGrabber
 // ====================================================================================================
 public class SyncMsgObjectGrabbing : SyncMsgEventGrabber
 {
-    public SyncMsgObjectGrabbing(string pSyncID, ulong pSeqNum, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pSyncID, pSeqNum, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
+    public SyncMsgObjectGrabbing(UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
+        : base(pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
     public SyncMsgObjectGrabbing(MsgType pMsgType, int pLength, byte[] pData)
@@ -1962,8 +2010,8 @@ public class SyncMsgObjectGrabbing : SyncMsgEventGrabber
 // ====================================================================================================
 public class SyncMsgObjectDeGrab : SyncMsgEventGrabber
 {
-    public SyncMsgObjectDeGrab(string pSyncID, ulong pSeqNum, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pSyncID, pSeqNum, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
+    public SyncMsgObjectDeGrab(UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
+        : base(pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
     public SyncMsgObjectDeGrab(MsgType pMsgType, int pLength, byte[] pData)
@@ -1997,8 +2045,8 @@ public class SyncMsgAttach : SyncMsgEvent
     public UUID ItemID { get; set; }
     public UUID AvatarID { get; set; }
 
-    public SyncMsgAttach(string pSyncID, ulong pSeqNum, UUID pPrimID, UUID pItemID, UUID pAvatarID)
-        : base(pSyncID, pSeqNum)
+    public SyncMsgAttach(UUID pPrimID, UUID pItemID, UUID pAvatarID)
+        : base()
     {
         PrimID = pPrimID;
         ItemID = pItemID;
@@ -2044,20 +2092,372 @@ public class SyncMsgAttach : SyncMsgEvent
         return base.ConvertOut(regionContext);
     }
 }
+// ====================================================================================================
+public abstract class SyncMsgEventCollision : SyncMsgEvent
+{
+    public UUID CollideeUUID;
+    public uint CollideeID;
+    public List<DetectedObject> Colliders;
+    protected List<UUID> CollidersNotFound;
 
-    /*
-            case MsgType.PhysicsCollision:
-                HandleRemoteEvent_PhysicsCollision(init_syncID, evSeqNum, data);
-                break;
-            case MsgType.ScriptCollidingStart:
-            case MsgType.ScriptColliding:
-            case MsgType.ScriptCollidingEnd:
-            case MsgType.ScriptLandCollidingStart:
-            case MsgType.ScriptLandColliding:
-            case MsgType.ScriptLandCollidingEnd:
-                //HandleRemoteEvent_ScriptCollidingStart(init_actorID, evSeqNum, data, DateTime.UtcNow.Ticks);
-                HandleRemoteEvent_ScriptCollidingEvents(msg.Type, init_syncID, evSeqNum, data, DateTime.UtcNow.Ticks);
-                break;
-    */
+    public SyncMsgEventCollision(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base()
+    {
+        CollideeUUID = pCollidee;
+        CollideeID = pCollideeID;
+        Colliders = pColliders;
+    }
+    public SyncMsgEventCollision(MsgType pMsgType, int pLength, byte[] pData)
+        : base(pMsgType, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule regionContext)
+    {
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            CollideeUUID = DataMap["uuid"].AsUUID();
+            SceneObjectPart collisionPart = regionContext.Scene.GetSceneObjectPart(CollideeUUID);
+            if (collisionPart == null)
+            {
+                m_log.ErrorFormat("{0}: HandleRemoteEvent_{1}: no part with UUID {2} found, event initiator {3}", 
+                                LogHeader, MType.ToString(), CollideeUUID, regionContext.SyncID);
+                return false;
+            }
+            CollideeID = collisionPart.LocalId;
 
+            // Loop through all the passed UUIDs and build DetectedObject's for the collided with objects
+            OSDArray collisionUUIDs = (OSDArray)DataMap["collisionUUIDs"];
+            if (collisionUUIDs != null)
+            {
+                Colliders = new List<DetectedObject>();
+                CollidersNotFound = new List<UUID>();
+
+                switch (MType)
+                {
+                    case MsgType.ScriptColliding:
+                    case MsgType.ScriptCollidingStart:
+                    case MsgType.ScriptCollidingEnd:
+                        BuildColliders(collisionUUIDs, regionContext);
+                        break;
+                    case MsgType.ScriptLandColliding:
+                    case MsgType.ScriptLandCollidingStart:
+                    case MsgType.ScriptLandCollidingEnd:
+                        BuildLandColliders(collisionPart, collisionUUIDs, regionContext);
+                        break;
+                }
+                if (CollidersNotFound.Count > 0)
+                {
+                    // If collision events are received for objects that are not found, that usually
+                    //     means the events beat the object creation. This re-queues the collision event to
+                    //     replay when, hopefully, the object has been created.
+                    RequeueCollisionsForNotFoundObjects(regionContext, collisionPart, CollidersNotFound);
+                }
+            }
+            ret = true;
+        }
+        return ret;
+    }
+    public override bool HandleIn(RegionSyncModule regionContext)
+    {
+        return base.HandleIn(regionContext);
+    }
+    public override bool ConvertOut(RegionSyncModule regionContext)
+    {
+        OSDMap data = new OSDMap();
+        OSDArray collisionUUIDs = new OSDArray();
+        foreach (DetectedObject detObj in Colliders)
+        {
+            collisionUUIDs.Add(OSD.FromUUID(detObj.keyUUID));
+        }
+
+        data["uuid"] = OSD.FromUUID(CollideeUUID);
+        data["collisionUUIDs"] = collisionUUIDs;
+
+        DataMap = data;
+        return base.ConvertOut(regionContext);
+    }
+
+    #region UUID To DetectedObject converters
+    private void BuildColliders(OSDArray collisionUUIDs, RegionSyncModule regionContext)
+    {
+        for (int i = 0; i < collisionUUIDs.Count; i++)
+        {
+            OSD arg = collisionUUIDs[i];
+            UUID collidingUUID = arg.AsUUID();
+
+            SceneObjectPart obj = regionContext.Scene.GetSceneObjectPart(collidingUUID);
+            if (obj != null)
+            {
+                DetectedObject detobj = new DetectedObject();
+                detobj.keyUUID = obj.UUID;
+                detobj.nameStr = obj.Name;
+                detobj.ownerUUID = obj.OwnerID;
+                detobj.posVector = obj.AbsolutePosition;
+                detobj.rotQuat = obj.GetWorldRotation();
+                detobj.velVector = obj.Velocity;
+                detobj.colliderType = 0;
+                detobj.groupUUID = obj.GroupID;
+                Colliders.Add(detobj);
+            }
+            else
+            {
+                //collision object is not a prim, check if it's an avatar
+                ScenePresence av = regionContext.Scene.GetScenePresence(collidingUUID);
+                if (av != null)
+                {
+                    DetectedObject detobj = new DetectedObject();
+                    detobj.keyUUID = av.UUID;
+                    detobj.nameStr = av.ControllingClient.Name;
+                    detobj.ownerUUID = av.UUID;
+                    detobj.posVector = av.AbsolutePosition;
+                    detobj.rotQuat = av.Rotation;
+                    detobj.velVector = av.Velocity;
+                    detobj.colliderType = 0;
+                    detobj.groupUUID = av.ControllingClient.ActiveGroupId;
+                    Colliders.Add(detobj);
+                }
+                else
+                {
+                    // m_log.WarnFormat("HandleRemoteEvent_ScriptCollidingStart for SOP {0},{1} with SOP/SP {2}, but the latter is not found in local Scene. Saved for later processing",
+                    //             collisionPart.Name, collisionPart.UUID, collidingUUID);
+                    CollidersNotFound.Add(collidingUUID);
+                }
+            }
+        }
+    }
+    private void BuildLandColliders(SceneObjectPart collisionPart, OSDArray collisionUUIDs, RegionSyncModule regionContext)
+    {
+        for (int i = 0; i < collisionUUIDs.Count; i++)
+        {
+            OSD arg = collisionUUIDs[i];
+            UUID collidingUUID = arg.AsUUID();
+            if (collidingUUID.Equals(UUID.Zero))
+            {
+                //Hope that all is left is ground!
+                DetectedObject detobj = new DetectedObject();
+                detobj.keyUUID = UUID.Zero;
+                detobj.nameStr = "";
+                detobj.ownerUUID = UUID.Zero;
+                detobj.posVector = collisionPart.ParentGroup.RootPart.AbsolutePosition;
+                detobj.rotQuat = Quaternion.Identity;
+                detobj.velVector = Vector3.Zero;
+                detobj.colliderType = 0;
+                detobj.groupUUID = UUID.Zero;
+                Colliders.Add(detobj);
+            }
+        }
+    }
+    // If collision events are received for objects that are not found, that usually means the events beat the
+    //     object creation. This re-queues the collision event to replay when, hopefully, the object has been created.
+    // TODO:
+    private void RequeueCollisionsForNotFoundObjects(RegionSyncModule regionContext, SceneObjectPart collisionPart, List<UUID> CollidersNotFound)
+    {
+    }
+    #endregion // UUID To DetectedObject converters
+}
+// ====================================================================================================
+public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
+{
+    public SyncMsgScriptCollidingStart(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base(pCollidee, pCollideeID, pColliders)
+    {
+    }
+    public SyncMsgScriptCollidingStart(MsgType pMsgType, int pLength, byte[] pData)
+        : base(pMsgType, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule regionContext)
+    {
+        return base.ConvertIn(regionContext);
+    }
+    public override bool HandleIn(RegionSyncModule regionContext)
+    {
+        base.HandleIn(regionContext);
+
+        ColliderArgs CollidingMessage = new ColliderArgs();
+        CollidingMessage.Colliders = Colliders;
+             
+        m_log.DebugFormat("ScriptCollidingStart received for {0}", CollideeID);
+        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+        regionContext.Scene.EventManager.TriggerScriptCollidingStart(CollideeID, CollidingMessage);
+        regionContext.ForgetLocallyGeneratedEvent();
+
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule regionContext)
+    {
+        return base.ConvertOut(regionContext);
+    }
+}
+// ====================================================================================================
+public class SyncMsgScriptColliding : SyncMsgEventCollision
+{
+    public SyncMsgScriptColliding(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base(pCollidee, pCollideeID, pColliders)
+    {
+    }
+    public SyncMsgScriptColliding(MsgType pMsgType, int pLength, byte[] pData)
+        : base(pMsgType, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule regionContext)
+    {
+        return base.ConvertIn(regionContext);
+    }
+    public override bool HandleIn(RegionSyncModule regionContext)
+    {
+        base.HandleIn(regionContext);
+
+        ColliderArgs CollidingMessage = new ColliderArgs();
+        CollidingMessage.Colliders = Colliders;
+             
+        m_log.DebugFormat("ScriptColliding received for {0}", CollideeID);
+        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+        regionContext.Scene.EventManager.TriggerScriptColliding(CollideeID, CollidingMessage);
+        regionContext.ForgetLocallyGeneratedEvent();
+
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule regionContext)
+    {
+        return base.ConvertOut(regionContext);
+    }
+}
+// ====================================================================================================
+public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
+{
+    public SyncMsgScriptCollidingEnd(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base(pCollidee, pCollideeID, pColliders)
+    {
+    }
+    public SyncMsgScriptCollidingEnd(MsgType pMsgType, int pLength, byte[] pData)
+        : base(pMsgType, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule regionContext)
+    {
+        return base.ConvertIn(regionContext);
+    }
+    public override bool HandleIn(RegionSyncModule regionContext)
+    {
+        base.HandleIn(regionContext);
+
+        ColliderArgs CollidingMessage = new ColliderArgs();
+        CollidingMessage.Colliders = Colliders;
+             
+        m_log.DebugFormat("ScriptCollidingEnd received for {0}", CollideeID);
+        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+        regionContext.Scene.EventManager.TriggerScriptCollidingEnd(CollideeID, CollidingMessage);
+        regionContext.ForgetLocallyGeneratedEvent();
+
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule regionContext)
+    {
+        return base.ConvertOut(regionContext);
+    }
+}
+// ====================================================================================================
+public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
+{
+    public SyncMsgScriptLandCollidingStart(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base(pCollidee, pCollideeID, pColliders)
+    {
+    }
+    public SyncMsgScriptLandCollidingStart(MsgType pMsgType, int pLength, byte[] pData)
+        : base(pMsgType, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule regionContext)
+    {
+        return base.ConvertIn(regionContext);
+    }
+    public override bool HandleIn(RegionSyncModule regionContext)
+    {
+        base.HandleIn(regionContext);
+
+        ColliderArgs CollidingMessage = new ColliderArgs();
+        CollidingMessage.Colliders = Colliders;
+             
+        m_log.DebugFormat("ScriptLandCollidingStart received for {0}", CollideeID);
+        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+        regionContext.Scene.EventManager.TriggerScriptLandCollidingStart(CollideeID, CollidingMessage);
+        regionContext.ForgetLocallyGeneratedEvent();
+
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule regionContext)
+    {
+        return base.ConvertOut(regionContext);
+    }
+}
+// ====================================================================================================
+public class SyncMsgScriptLandColliding : SyncMsgEventCollision
+{
+    public SyncMsgScriptLandColliding(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base(pCollidee, pCollideeID, pColliders)
+    {
+    }
+    public SyncMsgScriptLandColliding(MsgType pMsgType, int pLength, byte[] pData)
+        : base(pMsgType, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule regionContext)
+    {
+        return base.ConvertIn(regionContext);
+    }
+    public override bool HandleIn(RegionSyncModule regionContext)
+    {
+        base.HandleIn(regionContext);
+
+        ColliderArgs CollidingMessage = new ColliderArgs();
+        CollidingMessage.Colliders = Colliders;
+             
+        m_log.DebugFormat("ScriptLandColliding received for {0}", CollideeID);
+        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+        regionContext.Scene.EventManager.TriggerScriptLandColliding(CollideeID, CollidingMessage);
+        regionContext.ForgetLocallyGeneratedEvent();
+
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule regionContext)
+    {
+        return base.ConvertOut(regionContext);
+    }
+}
+// ====================================================================================================
+public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
+{
+    public SyncMsgScriptLandCollidingEnd(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base(pCollidee, pCollideeID, pColliders)
+    {
+    }
+    public SyncMsgScriptLandCollidingEnd(MsgType pMsgType, int pLength, byte[] pData)
+        : base(pMsgType, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule regionContext)
+    {
+        return base.ConvertIn(regionContext);
+    }
+    public override bool HandleIn(RegionSyncModule regionContext)
+    {
+        base.HandleIn(regionContext);
+
+        ColliderArgs CollidingMessage = new ColliderArgs();
+        CollidingMessage.Colliders = Colliders;
+             
+        m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", CollideeID);
+        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+        regionContext.Scene.EventManager.TriggerScriptLandCollidingEnd(CollideeID, CollidingMessage);
+        regionContext.ForgetLocallyGeneratedEvent();
+
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule regionContext)
+    {
+        return base.ConvertOut(regionContext);
+    }
+}
 }
