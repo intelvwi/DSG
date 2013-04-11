@@ -22,5 +22,8 @@ The calls to base.ConvertIn and base.HandleIn return true/false. These
 The generation of all the data for RegionSyncModule.SyncDelinkObject is messed up.
 	Refer to the original code to figure out where 'groupSyncInfo' comes from.
 RegionSyncModule.SyncStateDetailReport needs fixing.
+RegionSyncModule.OnLocalNewScript generates an updated property list which causes
+	the inventory to be updated. This is not being handled properly by
+	SyncMsgnewScript.
 
 

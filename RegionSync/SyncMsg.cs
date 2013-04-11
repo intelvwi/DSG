@@ -545,9 +545,17 @@ public abstract class SyncMsgOSDMapData : SyncMsg
 // ====================================================================================================
 public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
 {
-    public HashSet<SyncedProperty> SyncedProperties { get; set; }
+    public HashSet<SyncableProperties.Type> SyncableProperties { get; set; }
     public UUID Uuid { get; set; }
 
+    HashSet<SyncedProperty> SyncedProperties;
+
+    public SyncMsgUpdatedProperties(UUID pUuid, HashSet<SyncableProperties.Type> pSyncableProperties)
+        : base()
+    {
+        Uuid = pUuid;
+        SyncableProperties = pSyncableProperties;
+    }
     public SyncMsgUpdatedProperties(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
     {
@@ -573,7 +581,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        if (SyncedProperties.Count > 0)
+        if (SyncableProperties.Count > 0)
         {
             // Update local sync info and scene object/presence
             regionContext.RememberLocallyGeneratedEvent(MType);
@@ -590,7 +598,9 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        return false;
+        OSDMap syncData = regionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+        DataMap = syncData;
+        return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
@@ -793,8 +803,7 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
         {
             SyncMsgNewObject msg = new SyncMsgNewObject(sog);
             msg.ConvertOut(regionContext);
-            ConnectorContext.EnqueueOutgoingUpdate(msg);
-            //ConnectorContext.ImmediateOutgoingMsg(syncMsg);
+            ConnectorContext.ImmediateOutgoingMsg(msg);
             regionContext.DetailedUpdateWrite("SndGetORsp", sog.UUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
         });
         return true;
@@ -1003,6 +1012,7 @@ public class SyncMsgRemovedObject : SyncMsgOSDMapData
                 regionContext.Scene.UnlinkSceneObject(sog, true);
             }
         }
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
@@ -1093,6 +1103,7 @@ public class SyncMsgLinkObject : SyncMsgOSDMapData
                 regionContext.InfoManager.UpdateSyncInfoBySync(part.UUID, updatedPrimSyncInfo);
             }
         }
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
@@ -1129,14 +1140,12 @@ public class SyncMsgDelinkObject : SyncMsgOSDMapData
     public List<SceneObjectGroup> AfterDelinkGroups;
     public List<Dictionary<UUID, SyncInfoBase>> PrimSyncInfo;
 
-    public SyncMsgDelinkObject(List<UUID> pDelinkPrimIDs, List<UUID> pBeforeDlinkGroupIDs, 
-                        List<SceneObjectGroup> pAfterDelinkGroups, List<Dictionary<UUID,SyncInfoBase>> pPrimSyncInfo)
+    public SyncMsgDelinkObject(List<UUID> pDelinkPrimIDs, List<UUID> pBeforeDlinkGroupIDs, List<SceneObjectGroup> pAfterDelinkGroups)
         : base()
     {
         DelinkPrimIDs = pDelinkPrimIDs;
         BeforeDelinkGroupIDs = pBeforeDlinkGroupIDs;
         AfterDelinkGroups = pAfterDelinkGroups;
-        PrimSyncInfo = pPrimSyncInfo;
     }
     public SyncMsgDelinkObject(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1226,6 +1235,7 @@ public class SyncMsgDelinkObject : SyncMsgOSDMapData
                 }
             }
         }
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
@@ -1313,6 +1323,8 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
         IClientAPI client = new RegionSyncAvatar(acd.circuitcode, regionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
         syncInfo.SceneThing = regionContext.Scene.AddNewClient(client, pt);
         // Might need to trigger something here to send new client messages to connected clients
+
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
@@ -1356,6 +1368,8 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
         
         // This limits synced avatars to real clients (no npcs) until we sync PresenceType field
         regionContext.Scene.RemoveClient(Uuid, false);
+
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
@@ -1465,6 +1479,10 @@ public class SyncMsgActorID : SyncMsgOSDMapData
 // ====================================================================================================
 public class SyncMsgRegionStatus : SyncMsgOSDMapData
 {
+    public SyncMsgRegionStatus()
+        : base()
+    {
+    }
     public SyncMsgRegionStatus(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
     {
@@ -1589,13 +1607,17 @@ public class SyncMsgNewScript : SyncMsgEvent
     public UUID Uuid { get; set; }
     public UUID AgentID { get; set; }
     public UUID ItemID { get; set; }
+    public HashSet<SyncableProperties.Type> SyncableProperties;
 
-    public SyncMsgNewScript(UUID pUuid, UUID pAgentID, UUID pItemID)
+    public HashSet<SyncedProperty> UpdatedProperties;
+
+    public SyncMsgNewScript(UUID pUuid, UUID pAgentID, UUID pItemID, HashSet<SyncableProperties.Type> pSyncableProperties)
         : base()
     {
         Uuid = pUuid;
         AgentID = pAgentID;
         ItemID = pItemID;
+        SyncableProperties = pSyncableProperties;
     }
     public SyncMsgNewScript(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1607,6 +1629,7 @@ public class SyncMsgNewScript : SyncMsgEvent
         AgentID = DataMap["agentID"].AsUUID();
         Uuid = DataMap["uuid"].AsUUID();
         ItemID = DataMap["itemID"].AsUUID();
+        UpdatedProperties = SyncedProperty.DecodeProperties(DataMap);
         return true;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
@@ -1621,10 +1644,9 @@ public class SyncMsgNewScript : SyncMsgEvent
             return false;
         }
 
-        HashSet<SyncedProperty> syncedProperties = SyncedProperty.DecodeProperties(DataMap);
-        if (syncedProperties.Count > 0)
+        if (UpdatedProperties.Count > 0)
         {
-            HashSet<SyncableProperties.Type> propertiesUpdated = regionContext.InfoManager.UpdateSyncInfoBySync(Uuid, syncedProperties);
+            HashSet<SyncableProperties.Type> propertiesUpdated = regionContext.InfoManager.UpdateSyncInfoBySync(Uuid, UpdatedProperties);
         }
 
         //The TaskInventory value might have already been sync'ed by UpdatedPrimProperties, 
@@ -1636,9 +1658,9 @@ public class SyncMsgNewScript : SyncMsgEvent
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(5);
+        OSDMap data = regionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+        //syncData already includes uuid, add agentID and itemID next
         data["agentID"] = OSD.FromUUID(AgentID);
-        data["uuid"] = OSD.FromUUID(Uuid);
         data["itemID"] = OSD.FromUUID(ItemID);
         return base.ConvertOut(regionContext);
     }
