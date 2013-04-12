@@ -219,7 +219,7 @@ namespace DSG.RegionSync
             }
             catch (Exception e)
             {
-                m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e.Message);
+                m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e);
             }
             Shutdown();
         }
@@ -233,14 +233,15 @@ namespace DSG.RegionSync
         {
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
             // Enqueue is thread safe
+            update.LogTransmission(this);
             if (m_outQ.Enqueue(id, update) && m_collectingStats)
                 currentQueue.Event(1);
         }
 
+        // Queue the outgoing message so it it sent "now" and before update messages.
         public void ImmediateOutgoingMsg(SyncMsg msg)
         {
-            // The old way was to just call Send and hope the networking worked out.
-            // Send(msg);
+            msg.LogTransmission(this);
 
             // The new way is to add a first queue and to place this message at the front.
             m_outQ.QueueMessageFirst(msg);
@@ -342,49 +343,6 @@ namespace DSG.RegionSync
                 if (otherSideRegionName != null && otherSideActorID != null)
                     StartCollectingStats();
             }
-
-
-            /*
-            switch (msg.MType)
-            {
-                case SyncMsg.MsgType.RegionName:
-                    {
-                        otherSideRegionName = Encoding.ASCII.GetString(msg.Data, 0, msg.Length);
-                        m_regionSyncModule.DetailedUpdateWrite("RcvRegnNam", m_zeroUUID, 0, otherSideRegionName, otherSideActorID, msg.Length);
-                        if (m_regionSyncModule.IsSyncRelay)
-                        {
-                            SymmetricSyncMessage outMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RegionName, m_regionSyncModule.Scene.RegionInfo.RegionName);
-                            m_regionSyncModule.DetailedUpdateWrite("SndRegnNam", m_zeroUUID, 0, m_regionSyncModule.Scene.RegionInfo.RegionName, this.otherSideActorID, outMsg.Length);
-                            Send(outMsg);
-                        }
-                        m_log.DebugFormat("Syncing to region \"{0}\"", otherSideRegionName);
-                        if (otherSideRegionName != null && otherSideActorID != null)
-                            StartCollectingStats();
-                        return;
-                    }
-                case SymmetricSyncMessage.MsgType.ActorID:
-                    {
-                        otherSideActorID = Encoding.ASCII.GetString(msg.Data, 0, msg.Length);
-                        m_regionSyncModule.DetailedUpdateWrite("RcvActorID", m_zeroUUID, 0, otherSideActorID, otherSideActorID, msg.Length);
-                        if (m_regionSyncModule.IsSyncRelay)
-                        {
-                            SymmetricSyncMessage outMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ActorID, m_regionSyncModule.ActorID);
-                            m_regionSyncModule.DetailedUpdateWrite("SndActorID", m_zeroUUID, 0, m_regionSyncModule.ActorID, otherSideActorID, outMsg.Length);
-                            Send(outMsg);
-                        }
-                        m_log.DebugFormat("Syncing to actor \"{0}\"", otherSideActorID);
-                        if (otherSideRegionName != null && otherSideActorID != null)
-                            StartCollectingStats();
-                        return;
-                    }
-                default:
-                    break;
-            }
-
-            //For any other messages, we simply deliver the message to RegionSyncModule for now.
-            //Later on, we may deliver messages to different modules, say sync message to RegionSyncModule and event message to ActorSyncModule.
-            m_regionSyncModule.HandleIncomingMessage(msg, otherSideActorID, this);
-             */
         }
 
         private bool m_collectingStats = false;
