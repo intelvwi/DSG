@@ -48,33 +48,43 @@ using System.IO;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
-using OpenMetaverse.StructuredData;
-using log4net;
 
 using OpenSim.Framework;
+using OpenSim.Region.Framework.Interfaces;
+using OpenSim.Region.Framework.Scenes;
+
 using OpenMetaverse;
+using OpenMetaverse.StructuredData;
+
+using log4net;
 
 namespace DSG.RegionSync
 {
-    class RegionSyncUtil
-    {
-        // The logfile
-        private static ILog m_log;
+class RegionSyncUtil
+{
+    // The logfile
+    private static ILog m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+    private static readonly string LogHeader = "[REGION SYNC UTIL]";
 
-        //HashSet<string> exceptions = new HashSet<string>();
-        public static OSDMap DeserializeMessage(SymmetricSyncMessage msg, string logHeader)
+    public static bool DeserializeMessage(SymmetricSyncMessage msg, string logHeader, out OSDMap outData)
+    {
+        OSDMap data = null;
+        bool ret = false;
+        try
         {
-            OSDMap data = null;
-            try
-            {
-                data = OSDParser.DeserializeJson(Encoding.ASCII.GetString(msg.Data, 0, msg.Length)) as OSDMap;
-            }
-            catch (Exception e)
-            {
-                m_log.Error(logHeader + " " + Encoding.ASCII.GetString(msg.Data, 0, msg.Length));
-                data = null;
-            }
-            return data;
+            data = OSDParser.DeserializeJson(Encoding.ASCII.GetString(msg.Data, 0, msg.Length)) as OSDMap;
+            ret = true;
         }
+        catch (Exception e)
+        {
+            data = new OSDMap();
+            data["error"] = e.Message;
+            data["message"] = Encoding.ASCII.GetString(msg.Data, 0, msg.Length);
+            data["stack"] = e.StackTrace.ToString();
+            ret = false;
+        }
+        outData = data;
+        return ret;
     }
+}
 }

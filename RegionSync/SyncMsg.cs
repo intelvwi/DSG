@@ -135,14 +135,46 @@ public abstract class SyncMsg
     ///       The binary data to send is fetched via:
     ///              byte[] outBytes = msg.GetWireBytes();
     ///       This last byte buffer contains the type and length header required for parsing at the other end.
+    /// 
+    /// A message has a 'direction' state: In or Out. This controls the processing of the buffers. The meaning:
+    ///     SyncMsg.Direction.In: message received off the stream as a binary block.
+    ///             The message has a "ConnectorContext".
+    ///     SyncMsg.Direction.Out: the message created as a message to send.
+    ///             The message has a "RegionContext"
+    /// The operation of the base class methods for each mode are:
+    /// 
+    /// new(type, buff, buffLen)
+    ///             set direction to In.
+    /// new(typeSpecificParameters)
+    ///             set direction to Out
+    /// ConvertIn
+    ///             In: convert m_data to local varaibles
+    ///             Out: no operation
+    /// HandleIn
+    ///             In: operate on the local variables
+    ///             Out: operate on the local variables
+    /// ConvertOut
+    ///             In: presumed sending binary buffer back out. No conversion done.
+    ///                 To cause local variables to be converted, set direction to "Out".
+    ///             Out: if not already converted, convert local variables to binary format.
+    ///                 For SyncMsgOSDMap, if DataMap does not exist, create it from local variables and
+    ///                 serialize to m_data.
+    /// GetWireBytes
+    ///             In: if binary buffer does not already exist create from m_data and DataLength to create wire format bytes.
+    ///             Out: if binary buffer does not already exist create from m_data and DataLength to create wire format bytes.
     ///       
     /// </summary>
     protected static ILog m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
     protected readonly string LogHeader = "[SYNCMSG]";
     protected readonly string ZeroUUID = "00000000-0000-0000-0000-000000000000";
 
-    // The connector this message was received on.
-    public SyncConnector ConnectorContext { get; set; }
+    public enum Direction
+    {
+        In,
+        Out
+    }
+
+    public Direction Dir { get; set; }
 
     // They type of this message
     public MsgType MType { get; protected set; }
@@ -153,6 +185,12 @@ public abstract class SyncMsg
 
     // The binary, wire encoding of the object. Includes the type and length header.
     private byte[] m_rawOutBytes;
+
+    // The connector this message was received on.
+    public SyncConnector ConnectorContext { get; set; }
+
+    // The region the message was created for.
+    public RegionSyncModule RegionContext { get; set; }
 
     // Given an incoming stream of bytes, create a SyncMsg from the next data on that stream.
     // The input stream should contain:
@@ -196,7 +234,6 @@ public abstract class SyncMsg
             case MsgType.ObjectDeGrab:      ret = new SyncMsgObjectDeGrab(mType, length, data);         break;
             case MsgType.Attach:            ret = new SyncMsgAttach(mType, length, data);               break;
 
-            // TODO: could there be a common SyncMsgCollision() ?
             // case MsgType.PhysicsCollision:      ret = new SyncMsgPhysicsCollision(mType, length, data);     break;
             case MsgType.ScriptCollidingStart:  ret = new SyncMsgScriptCollidingStart(mType, length, data); break;
             case MsgType.ScriptColliding:       ret = new SyncMsgScriptColliding(mType, length, data);      break;
@@ -224,13 +261,18 @@ public abstract class SyncMsg
     {
         DataLength = 0;
         m_rawOutBytes = null;
+        RegionContext = null;
+        ConnectorContext = null;
     }
     public SyncMsg(MsgType pType, int pLength, byte[] pData)
     {
+        Dir = Direction.In;
         MType = pType;
         DataLength = pLength;
         m_data = pData;
         m_rawOutBytes = null;
+        RegionContext = null;
+        ConnectorContext = null;
     }
     private static byte[] GetBytesFromStream(Stream stream, int count)
     {
@@ -264,12 +306,18 @@ public abstract class SyncMsg
     // Return 'true' if successful handling.
     public virtual bool ConvertIn(RegionSyncModule regionContext)
     {
+        RegionContext = regionContext;
         m_rawOutBytes = null;
         return true;
     }
     // Handle the received message. ConvertIn() has been called before this.
     public virtual bool HandleIn(RegionSyncModule regionContext)
     {
+        RegionContext = regionContext;
+        if (ConnectorContext != null)
+        {
+            LogReception(regionContext, ConnectorContext);
+        }
         return true;
     }
     // Called before message is sent to convert the internal representation into binary stream data.
@@ -277,8 +325,28 @@ public abstract class SyncMsg
     // Return 'true' if successful handling.
     public virtual bool ConvertOut(RegionSyncModule regionContext)
     {
+        RegionContext = regionContext;
         m_rawOutBytes = null;
         return true;
+    }
+
+    // Overwritten by each msg class so log messages will be uniquely tagged.
+    public virtual string DetailLogTagRcv { get { return "RcvSyncMsg"; } }
+    public virtual string DetailLogTagSnd { get { return "SndSyncMsg"; } }
+
+    // Called in HandleIn() to do any logging about the reception of the message.
+    // Invoked in HandleIn() because the message has been decoded and useful stuff is available to print.
+    public virtual void LogReception(RegionSyncModule regionContext, SyncConnector connectorContext)
+    {
+        if (regionContext != null && connectorContext != null)
+            regionContext.DetailedUpdateWrite(DetailLogTagRcv, ZeroUUID, 0, ZeroUUID, connectorContext.otherSideActorID, DataLength);
+    }
+    // Called before the message is written to the wire.
+    // Not done inside the message processing since a message can be sent repeatedly to multiple receptors.
+    public virtual void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null && connectorContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, ZeroUUID, 0, ZeroUUID, connectorContext.otherSideActorID, DataLength);
     }
 }
 
@@ -302,21 +370,45 @@ public abstract class SyncMsgOSDMapData : SyncMsg
     // Return 'true' if successfully converted.
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        DataMap = DeserializeMessage();
+        base.ConvertIn(regionContext);
+        switch (Dir)
+        {
+            case Direction.In:
+                // A received message so convert the buffer data to an OSDMap for use by children classes
+                DataMap = DeserializeMessage();
+                break;
+            case Direction.Out:
+                // A message being built for output.
+                // It is actually an error that this method is called as there should be no binary data.
+                DataMap = null;
+                break;
+        }
         return (DataMap != null);
     }
     // Convert the OSDMap of data into a binary array of bytes.
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        if (DataMap != null)
+        switch (Dir)
         {
-            string s = OSDParser.SerializeJsonString(DataMap, true);
-            m_data = System.Text.Encoding.ASCII.GetBytes(s);
-            DataLength = m_data.Length;
-        }
-        else
-        {
-            DataLength = 0;
+            case Direction.In:
+                // A message received being sent out again.
+                // Current architecture is to just output the existing binary buffer so
+                //     nothing is converted.
+                break;
+            case Direction.Out:
+                // Message being created for output. The children of this base class
+                //    should have created a DataMap from the local variables.
+                if (DataMap != null)
+                {
+                    string s = OSDParser.SerializeJsonString(DataMap, true);
+                    m_data = System.Text.Encoding.ASCII.GetBytes(s);
+                    DataLength = m_data.Length;
+                }
+                else
+                {
+                    DataLength = 0;
+                }
+                break;
         }
         return base.ConvertOut(regionContext);
     }
@@ -562,45 +654,63 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-
-        // Decode synced properties from the message
-        SyncedProperties = SyncedProperty.DecodeProperties(DataMap);
-        if (SyncedProperties == null)
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
         {
-            m_log.ErrorFormat("{0} HandleUpdatedProperties could not get syncedProperties", LogHeader);
-            return false;
+            ret = true;
+            // Decode synced properties from the message
+            SyncedProperties = SyncedProperty.DecodeProperties(DataMap);
+            if (SyncedProperties == null)
+            {
+                m_log.ErrorFormat("{0} HandleUpdatedProperties could not get syncedProperties", LogHeader);
+                ret = false;
+            }
+            Uuid = DataMap["uuid"].AsUUID();
+            if (Uuid == null)
+            {
+                m_log.ErrorFormat("{0} HandleUpdatedProperties could not get UUID!", LogHeader);
+                ret = false;
+            }
         }
-        Uuid = DataMap["uuid"].AsUUID();
-        if (Uuid == null)
-        {
-            m_log.ErrorFormat("{0} HandleUpdatedProperties could not get UUID!", LogHeader);
-            return false;
-        }
-        return true;
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        if (SyncableProperties.Count > 0)
+        if (base.HandleIn(regionContext))
         {
-            // Update local sync info and scene object/presence
-            regionContext.RememberLocallyGeneratedEvent(MType);
-            HashSet<SyncableProperties.Type> propertiesUpdated = regionContext.InfoManager.UpdateSyncInfoBySync(Uuid, SyncedProperties);
-            regionContext.ForgetLocallyGeneratedEvent();
+            if (SyncableProperties.Count > 0)
+            {
+                // Update local sync info and scene object/presence
+                regionContext.RememberLocallyGeneratedEvent(MType);
+                HashSet<SyncableProperties.Type> propertiesUpdated = regionContext.InfoManager.UpdateSyncInfoBySync(Uuid, SyncedProperties);
+                regionContext.ForgetLocallyGeneratedEvent();
 
-            regionContext.DetailedUpdateLogging(Uuid, propertiesUpdated, SyncedProperties, "RecUpdateN", ConnectorContext.otherSideActorID, DataLength);
+                regionContext.DetailedUpdateLogging(Uuid, propertiesUpdated, SyncedProperties, "RecUpdateN", ConnectorContext.otherSideActorID, DataLength);
 
-            // Relay the update properties
-            if (regionContext.IsSyncRelay)
-                regionContext.EnqueueUpdatedProperty(Uuid, propertiesUpdated);    
+                // Relay the update properties
+                if (regionContext.IsSyncRelay)
+                    regionContext.EnqueueUpdatedProperty(Uuid, propertiesUpdated);
+            }
         }
-        return false;
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap syncData = regionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
-        DataMap = syncData;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            DataMap = regionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+        }
         return base.ConvertOut(regionContext);
+    }
+    public override void LogReception(RegionSyncModule regionContext, SyncConnector connectorContext)
+    {
+        // This override is here so the reception will not be default logged and the actual logging can occur
+        //     after the properties have been processed.
+    }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateLogging(Uuid, SyncableProperties, null, "SendUpdate", connectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================
@@ -608,6 +718,9 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
 // If received, send our region info.
 public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvGetRegn"; } }
+    public override string DetailLogTagSnd { get { return "SndGetRegn"; } }
+
     public SyncMsgGetRegionInfo()
         : base()
     {
@@ -622,9 +735,12 @@ public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        SyncMsgRegionInfo msg = new SyncMsgRegionInfo(regionContext.Scene.RegionInfo);
-        ConnectorContext.ImmediateOutgoingMsg(msg);
-        return false;
+        if (base.HandleIn(regionContext))
+        {
+            SyncMsgRegionInfo msg = new SyncMsgRegionInfo(regionContext.Scene.RegionInfo);
+            ConnectorContext.ImmediateOutgoingMsg(msg);
+        }
+        return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
@@ -636,6 +752,9 @@ public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
 // When received, it is the other side's region info.
 public class SyncMsgRegionInfo : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvRgnInfo"; } }
+    public override string DetailLogTagSnd { get { return "SndRgnInfo"; } }
+
     public RegionInfo RegInfo { get; set; }
 
     public SyncMsgRegionInfo(RegionInfo pRegionInfo)
@@ -653,32 +772,41 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        RegInfo = regionContext.Scene.RegionInfo;
-        RegInfo.RegionSettings.TerrainTexture1 = DataMap["tex1"].AsUUID();
-        RegInfo.RegionSettings.TerrainTexture2 = DataMap["tex2"].AsUUID();
-        RegInfo.RegionSettings.TerrainTexture3 = DataMap["tex3"].AsUUID();
-        RegInfo.RegionSettings.TerrainTexture4 = DataMap["tex4"].AsUUID();
-        RegInfo.RegionSettings.WaterHeight = DataMap["waterheight"].AsReal();
-        IEstateModule estate = regionContext.Scene.RequestModuleInterface<IEstateModule>();
-        if (estate != null)
-            estate.sendRegionHandshakeToAll();
+        if (base.HandleIn(regionContext))
+        {
+            RegInfo = regionContext.Scene.RegionInfo;
+            RegInfo.RegionSettings.TerrainTexture1 = DataMap["tex1"].AsUUID();
+            RegInfo.RegionSettings.TerrainTexture2 = DataMap["tex2"].AsUUID();
+            RegInfo.RegionSettings.TerrainTexture3 = DataMap["tex3"].AsUUID();
+            RegInfo.RegionSettings.TerrainTexture4 = DataMap["tex4"].AsUUID();
+            RegInfo.RegionSettings.WaterHeight = DataMap["waterheight"].AsReal();
+            IEstateModule estate = regionContext.Scene.RequestModuleInterface<IEstateModule>();
+            if (estate != null)
+                estate.sendRegionHandshakeToAll();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(5);
-        data["tex1"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture1);
-        data["tex2"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture2);
-        data["tex3"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture3);
-        data["tex4"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture4);
-        data["waterheight"] = OSD.FromReal(RegInfo.RegionSettings.WaterHeight);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap(5);
+            data["tex1"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture1);
+            data["tex2"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture2);
+            data["tex3"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture3);
+            data["tex4"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture4);
+            data["waterheight"] = OSD.FromReal(RegInfo.RegionSettings.WaterHeight);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgTimeStamp : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvTimStmp"; } }
+    public override string DetailLogTagSnd { get { return "SndTimStmp"; } }
+
     public long TickTime { get; set; }
 
     public SyncMsgTimeStamp(long pTickTime)
@@ -697,13 +825,16 @@ public class SyncMsgTimeStamp : SyncMsgOSDMapData
     public override bool HandleIn(RegionSyncModule regionContext)
     {
         // Do something interesting with the time code from the other side
-        return true;
+        return base.HandleIn(regionContext);
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(1);
-        data["timeStamp"] = OSD.FromLong(TickTime);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap(1);
+            data["timeStamp"] = OSD.FromLong(TickTime);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
@@ -712,6 +843,9 @@ public class SyncMsgTimeStamp : SyncMsgOSDMapData
 // When received, send back information about the terrain.
 public class SyncMsgGetTerrain : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvGetTerr"; } }
+    public override string DetailLogTagSnd { get { return "SndGetTerr"; } }
+
     public SyncMsgGetTerrain()
         : base()
     {
@@ -726,23 +860,34 @@ public class SyncMsgGetTerrain : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        regionContext.DetailedUpdateWrite("RcvTerrReq", ZeroUUID, regionContext.TerrainSyncInfo.LastUpdateTimeStamp, ZeroUUID, ConnectorContext.otherSideActorID, 0);
-
-        SyncMsgTerrain msg = new SyncMsgTerrain(regionContext.TerrainSyncInfo);
-        msg.ConvertOut(regionContext);
-        msg.ConnectorContext.ImmediateOutgoingMsg(msg);
-        regionContext.DetailedUpdateWrite("SndTerrRsp", ZeroUUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
-
+        if (base.HandleIn(regionContext))
+        {
+            SyncMsgTerrain msg = new SyncMsgTerrain(regionContext.TerrainSyncInfo);
+            msg.ConvertOut(regionContext);
+            msg.ConnectorContext.ImmediateOutgoingMsg(msg);
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
         return base.ConvertOut(regionContext);
     }
+    public override void LogReception(RegionSyncModule regionContext, SyncConnector connectorContext)
+    {
+        regionContext.DetailedUpdateWrite(DetailLogTagRcv, ZeroUUID, regionContext.TerrainSyncInfo.LastUpdateTimeStamp, ZeroUUID, ConnectorContext.otherSideActorID, 0);
+    }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, ZeroUUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
+    }
 }
 // ====================================================================================================
 public class SyncMsgTerrain : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvTerrain"; } }
+    public override string DetailLogTagSnd { get { return "SndTerrain"; } }
+
     public string TerrainData { get; set; }
     public long LastUpdateTimeStamp { get; set; }
     public string LastUpdateActorID { get; set; }
@@ -757,33 +902,44 @@ public class SyncMsgTerrain : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        TerrainData  = DataMap["terrain"].AsString();
-        LastUpdateTimeStamp = DataMap["timeStamp"].AsLong();
-        LastUpdateActorID = DataMap["actorID"].AsString();
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            TerrainData = DataMap["terrain"].AsString();
+            LastUpdateTimeStamp = DataMap["timeStamp"].AsLong();
+            LastUpdateActorID = DataMap["actorID"].AsString();
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        regionContext.DetailedUpdateWrite("RcvTerrain", ZeroUUID, LastUpdateTimeStamp, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
-
-        //update the terrain if the incoming terrain data has a more recent timestamp
-        regionContext.TerrainSyncInfo.UpdateTerrianBySync(LastUpdateTimeStamp, LastUpdateActorID, TerrainData);
+        if (base.HandleIn(regionContext))
+        {
+            //update the terrain if the incoming terrain data has a more recent timestamp
+            regionContext.TerrainSyncInfo.UpdateTerrianBySync(LastUpdateTimeStamp, LastUpdateActorID, TerrainData);
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(3);
-        data["terrain"] = OSD.FromString((string)regionContext.TerrainSyncInfo.LastUpdateValue);
-        data["actorID"] = OSD.FromString(regionContext.TerrainSyncInfo.LastUpdateActorID);
-        data["timeStamp"] = OSD.FromLong(regionContext.TerrainSyncInfo.LastUpdateTimeStamp);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap(3);
+            data["terrain"] = OSD.FromString((string)regionContext.TerrainSyncInfo.LastUpdateValue);
+            data["actorID"] = OSD.FromString(regionContext.TerrainSyncInfo.LastUpdateActorID);
+            data["timeStamp"] = OSD.FromLong(regionContext.TerrainSyncInfo.LastUpdateTimeStamp);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgGetObjects : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvGetObjj"; } }
+    public override string DetailLogTagSnd { get { return "SndGetObjj"; } }
+
     public SyncMsgGetObjects()
         : base()
     {
@@ -798,14 +954,15 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        regionContext.DetailedUpdateWrite("RcvGetObjj", ZeroUUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, 0);
-        regionContext.Scene.ForEachSOG(delegate(SceneObjectGroup sog)
+        if (base.HandleIn(regionContext))
         {
-            SyncMsgNewObject msg = new SyncMsgNewObject(sog);
-            msg.ConvertOut(regionContext);
-            ConnectorContext.ImmediateOutgoingMsg(msg);
-            regionContext.DetailedUpdateWrite("SndGetORsp", sog.UUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
-        });
+            regionContext.Scene.ForEachSOG(delegate(SceneObjectGroup sog)
+            {
+                SyncMsgNewObject msg = new SyncMsgNewObject(sog);
+                msg.ConvertOut(regionContext);
+                ConnectorContext.ImmediateOutgoingMsg(msg);
+            });
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
@@ -816,6 +973,9 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
 // ====================================================================================================
 public class SyncMsgGetPresences : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvGetPres"; } }
+    public override string DetailLogTagSnd { get { return "SndGetPres"; } }
+
     public SyncMsgGetPresences()
         : base()
     {
@@ -830,21 +990,22 @@ public class SyncMsgGetPresences : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        regionContext.DetailedUpdateWrite("RcvGetPres", ZeroUUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, 0);
-        EntityBase[] entities = regionContext.Scene.GetEntities();
-        foreach (EntityBase e in entities)
+        if (base.HandleIn(regionContext))
         {
-            ScenePresence sp = e as ScenePresence;
-            if (sp != null)
+            EntityBase[] entities = regionContext.Scene.GetEntities();
+            foreach (EntityBase e in entities)
             {
-                // This will sync the appearance that's currently in the agent circuit data.
-                // If the avatar has updated their appearance since they connected, the original data will still be in ACD.
-                // The ACD normally only gets updated when an avatar is moving between regions.
-                SyncMsgNewPresence msg = new SyncMsgNewPresence(sp);
-                msg.ConvertOut(regionContext);
-                m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
-                ConnectorContext.ImmediateOutgoingMsg(msg);
-                regionContext.DetailedUpdateWrite("SndGetPReq", sp.UUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
+                ScenePresence sp = e as ScenePresence;
+                if (sp != null)
+                {
+                    // This will sync the appearance that's currently in the agent circuit data.
+                    // If the avatar has updated their appearance since they connected, the original data will still be in ACD.
+                    // The ACD normally only gets updated when an avatar is moving between regions.
+                    SyncMsgNewPresence msg = new SyncMsgNewPresence(sp);
+                    msg.ConvertOut(regionContext);
+                    m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
+                    ConnectorContext.ImmediateOutgoingMsg(msg);
+                }
             }
         }
         return true;
@@ -857,6 +1018,9 @@ public class SyncMsgGetPresences : SyncMsgOSDMapData
 // ====================================================================================================
 public class SyncMsgNewObject : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvNewObjj"; } }
+    public override string DetailLogTagSnd { get { return "SndNewObjj"; } }
+
     public SceneObjectGroup SOG;
     public Dictionary<UUID, SyncInfoBase> SyncInfos;
 
@@ -871,93 +1035,107 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-
-        if (!DecodeSceneObject(DataMap, out SOG, out SyncInfos, regionContext.Scene))
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
         {
-            m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncNewObject", LogHeader);
-            return false;
-        }
+            if (!DecodeSceneObject(DataMap, out SOG, out SyncInfos, regionContext.Scene))
+            {
+                m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncNewObject", LogHeader);
+                return false;
+            }
 
-        if (SOG.RootPart.Shape == null)
-        {
-            m_log.WarnFormat("{0}: group.RootPart.Shape is null", LogHeader);
-            return false;
+            if (SOG.RootPart.Shape == null)
+            {
+                m_log.WarnFormat("{0}: group.RootPart.Shape is null", LogHeader);
+                return false;
+            }
+            ret = true;
         }
-        regionContext.DetailedUpdateWrite("RecNewObjj", SOG.UUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
-
-        return true;
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        // If this is a relay node, forward the message
-        if (regionContext.IsSyncRelay)
-            regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, "SndNewObjR", SOG.UUID, this);
-
-        //Add the list of PrimSyncInfo to SyncInfoManager
-        foreach (SyncInfoBase syncInfo in SyncInfos.Values)
-            regionContext.InfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
-
-        // Add the decoded object to Scene
-        // This will invoke OnObjectAddedToScene but the syncinfo has already been created so that's a NOP
-        regionContext.Scene.AddNewSceneObject(SOG, true);
-
-        // If it's an attachment, connect this to the presence
-        if (SOG.IsAttachmentCheckFull())
+        if (base.HandleIn(regionContext))
         {
-            //m_log.WarnFormat("{0}: HandleSyncNewObject: Adding attachement to presence", LogHeader);
-            ScenePresence sp = regionContext.Scene.GetScenePresence(SOG.AttachedAvatar);
-            if (sp != null)
-            {
-                sp.AddAttachment(SOG);
-                SOG.RootPart.SetParentLocalId(sp.LocalId);
+            // If this is a relay node, forward the message
+            if (regionContext.IsSyncRelay)
+                regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
 
-                // In case it is later dropped, don't let it get cleaned up
-                SOG.RootPart.RemFlag(PrimFlags.TemporaryOnRez);
-
-                SOG.HasGroupChanged = true;
-            }
-            
-        }
-
-        /* Uncomment when quarks exist
-        //If we just keep a copy of the object in our local Scene,
-        //and is not supposed to operation on it (e.g. object in 
-        //passive quarks), then ignore the event.
-        if (!ToOperateOnObject(group))
-            return;
-         */
-
-        // Now that (if) the PhysActor of each part in sog has been created, set the PhysActor properties.
-        if (SOG.RootPart.PhysActor != null)
-        {
+            //Add the list of PrimSyncInfo to SyncInfoManager
             foreach (SyncInfoBase syncInfo in SyncInfos.Values)
+                regionContext.InfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
+
+            // Add the decoded object to Scene
+            // This will invoke OnObjectAddedToScene but the syncinfo has already been created so that's a NOP
+            regionContext.Scene.AddNewSceneObject(SOG, true);
+
+            // If it's an attachment, connect this to the presence
+            if (SOG.IsAttachmentCheckFull())
             {
-                // m_log.DebugFormat("{0}: HandleSyncNewObject: setting physical properties", LogHeader);
-                syncInfo.SetPropertyValues(SyncableProperties.PhysActorProperties);
+                //m_log.WarnFormat("{0}: HandleSyncNewObject: Adding attachement to presence", LogHeader);
+                ScenePresence sp = regionContext.Scene.GetScenePresence(SOG.AttachedAvatar);
+                if (sp != null)
+                {
+                    sp.AddAttachment(SOG);
+                    SOG.RootPart.SetParentLocalId(sp.LocalId);
+
+                    // In case it is later dropped, don't let it get cleaned up
+                    SOG.RootPart.RemFlag(PrimFlags.TemporaryOnRez);
+
+                    SOG.HasGroupChanged = true;
+                }
             }
+
+            /* Uncomment when quarks exist
+            //If we just keep a copy of the object in our local Scene,
+            //and is not supposed to operation on it (e.g. object in 
+            //passive quarks), then ignore the event.
+            if (!ToOperateOnObject(group))
+                return;
+             */
+
+            // Now that (if) the PhysActor of each part in sog has been created, set the PhysActor properties.
+            if (SOG.RootPart.PhysActor != null)
+            {
+                foreach (SyncInfoBase syncInfo in SyncInfos.Values)
+                {
+                    // m_log.DebugFormat("{0}: HandleSyncNewObject: setting physical properties", LogHeader);
+                    syncInfo.SetPropertyValues(SyncableProperties.PhysActorProperties);
+                }
+            }
+
+            SOG.CreateScriptInstances(0, false, regionContext.Scene.DefaultScriptEngine, 0);
+            SOG.ResumeScripts();
+
+            // Trigger aggregateScriptEventSubscriptions since it may access PhysActor to link collision events
+            foreach (SceneObjectPart part in SOG.Parts)
+                part.aggregateScriptEvents();
+
+            SOG.ScheduleGroupForFullUpdate();
         }
-
-        SOG.CreateScriptInstances(0, false, regionContext.Scene.DefaultScriptEngine, 0);
-        SOG.ResumeScripts();
-
-        // Trigger aggregateScriptEventSubscriptions since it may access PhysActor to link collision events
-        foreach (SceneObjectPart part in SOG.Parts)
-            part.aggregateScriptEvents();
-
-        SOG.ScheduleGroupForFullUpdate();
-
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = EncodeSceneObject(SOG, regionContext);
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            DataMap = EncodeSceneObject(SOG, regionContext);
+        }
         return base.ConvertOut(regionContext);
     }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, SOG == null ? UUID.Zero : SOG.UUID, 0, ZeroUUID, connectorContext.otherSideActorID, DataLength);
+    }
+
 }
 // ====================================================================================================
 public class SyncMsgRemovedObject : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvRemObjj"; } }
+    public override string DetailLogTagSnd { get { return "SndRemObjj"; } }
+
     public UUID Uuid { get; set; }
     public bool SoftDelete { get; set; }
     public string ActorID { get; set; }
@@ -975,58 +1153,73 @@ public class SyncMsgRemovedObject : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
 
-        Uuid = DataMap["uuid"].AsUUID();
-        SoftDelete = DataMap["softDelete"].AsBoolean();
-        ActorID = DataMap["actorID"].AsString();
-        regionContext.DetailedUpdateWrite("RecRemObjj", Uuid, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
+            Uuid = DataMap["uuid"].AsUUID();
+            SoftDelete = DataMap["softDelete"].AsBoolean();
+            ActorID = DataMap["actorID"].AsString();
 
-        if (!regionContext.InfoManager.SyncInfoExists(Uuid))
-            return false;
-
-        return true;
+            if (regionContext.InfoManager.SyncInfoExists(Uuid))
+                ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        // If this is a relay node, forward the message
-        if (regionContext.IsSyncRelay)
-            regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, "SndRemObjR", Uuid, this);
-
-        SceneObjectGroup sog = regionContext.Scene.GetGroupByPrim(Uuid);
-
-        if (sog != null)
+        if (base.HandleIn(regionContext))
         {
-            if (!SoftDelete)
+            // If this is a relay node, forward the message
+            if (regionContext.IsSyncRelay)
+                regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
+
+            SceneObjectGroup sog = regionContext.Scene.GetGroupByPrim(Uuid);
+
+            if (sog != null)
             {
-                //m_log.DebugFormat("{0}: hard delete object {1}", LogHeader, sog.UUID);
-                foreach (SceneObjectPart part in sog.Parts)
+                if (!SoftDelete)
                 {
-                    regionContext.InfoManager.RemoveSyncInfo(part.UUID);
+                    //m_log.DebugFormat("{0}: hard delete object {1}", LogHeader, sog.UUID);
+                    foreach (SceneObjectPart part in sog.Parts)
+                    {
+                        regionContext.InfoManager.RemoveSyncInfo(part.UUID);
+                    }
+                    regionContext.Scene.DeleteSceneObject(sog, false);
                 }
-                regionContext.Scene.DeleteSceneObject(sog, false);
-            }
-            else
-            {
-                //m_log.DebugFormat("{0}: soft delete object {1}", LogHeader, sog.UUID);
-                regionContext.Scene.UnlinkSceneObject(sog, true);
+                else
+                {
+                    //m_log.DebugFormat("{0}: soft delete object {1}", LogHeader, sog.UUID);
+                    regionContext.Scene.UnlinkSceneObject(sog, true);
+                }
             }
         }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(2);
-        data["uuid"] = OSD.FromUUID(Uuid);
-        data["softDelete"] = OSD.FromBoolean(SoftDelete);
-        data["actorID"] = OSD.FromString(ActorID);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap(2);
+            data["uuid"] = OSD.FromUUID(Uuid);
+            data["softDelete"] = OSD.FromBoolean(SoftDelete);
+            data["actorID"] = OSD.FromString(ActorID);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
+    }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, Uuid, 0, ZeroUUID, connectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================
 public class SyncMsgLinkObject : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvLinkObj"; } }
+    public override string DetailLogTagSnd { get { return "SndLinkObj"; } }
+
     public SceneObjectGroup LinkedGroup;
     public UUID RootUUID;
     public List<UUID> ChildrenIDs;
@@ -1050,90 +1243,101 @@ public class SyncMsgLinkObject : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        EncodedSOG = (OSDMap)DataMap["linkedGroup"];
-        if (!DecodeSceneObject(EncodedSOG, out LinkedGroup, out GroupSyncInfos, regionContext.Scene))
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
         {
-            m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncLinkObject", LogHeader);
-            return false; ;
-        }
-        regionContext.DetailedUpdateWrite("RecLnkObjj", LinkedGroup.UUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
+            EncodedSOG = (OSDMap)DataMap["linkedGroup"];
+            if (!DecodeSceneObject(EncodedSOG, out LinkedGroup, out GroupSyncInfos, regionContext.Scene))
+            {
+                m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncLinkObject", LogHeader);
+                return false; ;
+            }
 
-        if (LinkedGroup == null)
-        {
-            m_log.ErrorFormat("{0}: HandleSyncLinkObject, no valid Linked-Group has been deserialized", LogHeader);
-            return false;
-        }
+            if (LinkedGroup == null)
+            {
+                m_log.ErrorFormat("{0}: HandleSyncLinkObject, no valid Linked-Group has been deserialized", LogHeader);
+                return false;
+            }
 
-        RootUUID = DataMap["rootID"].AsUUID();
-        PartCount = DataMap["partCount"].AsInteger();
-        ChildrenIDs = new List<UUID>();
+            RootUUID = DataMap["rootID"].AsUUID();
+            PartCount = DataMap["partCount"].AsInteger();
+            ChildrenIDs = new List<UUID>();
 
-        for (int i = 0; i < PartCount; i++)
-        {
-            string partTempID = "part" + i;
-            ChildrenIDs.Add(DataMap[partTempID].AsUUID());
+            for (int i = 0; i < PartCount; i++)
+            {
+                string partTempID = "part" + i;
+                ChildrenIDs.Add(DataMap[partTempID].AsUUID());
+            }
+            ret = true;
         }
-        return true;
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        // if this is a relay node, forward the message
-        if (regionContext.IsSyncRelay)
+        if (base.HandleIn(regionContext))
         {
-            //SendSceneEventToRelevantSyncConnectors(senderActorID, msg, linkedGroup);
-            regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, "SndLnkObjR", RootUUID, this);
-        }
-
-        //m_log.DebugFormat("{0}: received LinkObject from {1}", LogHeader, senderActorID);
-
-        //Update properties, if any has changed
-        foreach (KeyValuePair<UUID, SyncInfoBase> partSyncInfo in GroupSyncInfos)
-        {
-            UUID uuid = partSyncInfo.Key;
-            SyncInfoBase updatedPrimSyncInfo = partSyncInfo.Value;
-
-            SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(uuid);
-            if (part == null)
+            // if this is a relay node, forward the message
+            if (regionContext.IsSyncRelay)
             {
-                m_log.ErrorFormat("{0}: HandleSyncLinkObject, prim {1} not in local Scene Graph after LinkObjectBySync is called", LogHeader, uuid);
+                //SendSceneEventToRelevantSyncConnectors(senderActorID, msg, linkedGroup);
+                regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
             }
-            else
+
+            //m_log.DebugFormat("{0}: received LinkObject from {1}", LogHeader, senderActorID);
+
+            //Update properties, if any has changed
+            foreach (KeyValuePair<UUID, SyncInfoBase> partSyncInfo in GroupSyncInfos)
             {
-                regionContext.InfoManager.UpdateSyncInfoBySync(part.UUID, updatedPrimSyncInfo);
+                UUID uuid = partSyncInfo.Key;
+                SyncInfoBase updatedPrimSyncInfo = partSyncInfo.Value;
+
+                SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(uuid);
+                if (part == null)
+                {
+                    m_log.ErrorFormat("{0}: HandleSyncLinkObject, prim {1} not in local Scene Graph after LinkObjectBySync is called", LogHeader, uuid);
+                }
+                else
+                {
+                    regionContext.InfoManager.UpdateSyncInfoBySync(part.UUID, updatedPrimSyncInfo);
+                }
             }
         }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        //Now encode the linkedGroup for sync
-        OSDMap data = new OSDMap();
-        OSDMap encodedSOG = EncodeSceneObject(LinkedGroup, regionContext);
-        data["linkedGroup"] = encodedSOG;
-        data["rootID"] = OSD.FromUUID(RootUUID);
-        data["partCount"] = OSD.FromInteger(ChildrenIDs.Count);
-        data["actorID"] = OSD.FromString(ActorID);
-        int partNum = 0;
-
-        string debugString = "";
-        foreach (UUID partUUID in ChildrenIDs)
+        if (Dir == Direction.Out && DataMap == null)
         {
-            string partTempID = "part" + partNum;
-            data[partTempID] = OSD.FromUUID(partUUID);
-            partNum++;
+            //Now encode the linkedGroup for sync
+            OSDMap data = new OSDMap();
+            OSDMap encodedSOG = EncodeSceneObject(LinkedGroup, regionContext);
+            data["linkedGroup"] = encodedSOG;
+            data["rootID"] = OSD.FromUUID(RootUUID);
+            data["partCount"] = OSD.FromInteger(ChildrenIDs.Count);
+            data["actorID"] = OSD.FromString(ActorID);
+            int partNum = 0;
 
-            //m_log.DebugFormat("{0}: SendLinkObject to link {1},{2} with {3}, {4}", part.Name, part.UUID, root.Name, root.UUID);
-            debugString += partUUID + ", ";
+            string debugString = "";
+            foreach (UUID partUUID in ChildrenIDs)
+            {
+                string partTempID = "part" + partNum;
+                data[partTempID] = OSD.FromUUID(partUUID);
+                partNum++;
+
+                //m_log.DebugFormat("{0}: SendLinkObject to link {1},{2} with {3}, {4}", part.Name, part.UUID, root.Name, root.UUID);
+                debugString += partUUID + ", ";
+            }
+            // m_log.DebugFormat("SyncLinkObject: SendLinkObject to link parts {0} with {1}, {2}", debugString, root.Name, root.UUID);
         }
-        // m_log.DebugFormat("SyncLinkObject: SendLinkObject to link parts {0} with {1}, {2}", debugString, root.Name, root.UUID);
-
-        return true;
+        return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgDelinkObject : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvDLnkObj"; } }
+    public override string DetailLogTagSnd { get { return "SndDLnkObj"; } }
+
     //public List<SceneObjectPart> LocalPrims = new List<SceneObjectPart>();
     public List<UUID> DelinkPrimIDs;
     public List<UUID> BeforeDelinkGroupIDs;
@@ -1153,85 +1357,91 @@ public class SyncMsgDelinkObject : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-
-        //LocalPrims = new List<SceneObjectPart>();
-        DelinkPrimIDs = new List<UUID>();
-        BeforeDelinkGroupIDs = new List<UUID>();
-        AfterDelinkGroups = new List<SceneObjectGroup>();
-        PrimSyncInfo = new List<Dictionary<UUID, SyncInfoBase>>();
-
-        int partCount = DataMap["partCount"].AsInteger();
-        for (int i = 0; i < partCount; i++)
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
         {
-            string partTempID = "part" + i;
-            UUID primID = DataMap[partTempID].AsUUID();
-            //SceneObjectPart localPart = Scene.GetSceneObjectPart(primID);
-            //localPrims.Add(localPart);
-            DelinkPrimIDs.Add(primID);
-        }
 
-        int beforeGroupCount = DataMap["beforeGroupsCount"].AsInteger();
-        for (int i = 0; i < beforeGroupCount; i++)
-        {
-            string groupTempID = "beforeGroup" + i;
-            UUID beforeGroupID = DataMap[groupTempID].AsUUID();
-            BeforeDelinkGroupIDs.Add(beforeGroupID);
-        }
+            //LocalPrims = new List<SceneObjectPart>();
+            DelinkPrimIDs = new List<UUID>();
+            BeforeDelinkGroupIDs = new List<UUID>();
+            AfterDelinkGroups = new List<SceneObjectGroup>();
+            PrimSyncInfo = new List<Dictionary<UUID, SyncInfoBase>>();
 
-        int afterGroupsCount = DataMap["afterGroupsCount"].AsInteger();
-        for (int i = 0; i < afterGroupsCount; i++)
-        {
-            string groupTempID = "afterGroup" + i;
-            //string sogxml = data[groupTempID].AsString();
-            SceneObjectGroup afterGroup;
-            OSDMap encodedSOG = (OSDMap)DataMap[groupTempID];
-            Dictionary<UUID, SyncInfoBase> groupSyncInfo;
-            if(!DecodeSceneObject(encodedSOG, out afterGroup, out groupSyncInfo, regionContext.Scene))
+            int partCount = DataMap["partCount"].AsInteger();
+            for (int i = 0; i < partCount; i++)
             {
-                m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncDelinkObject", LogHeader);
-                return false;
+                string partTempID = "part" + i;
+                UUID primID = DataMap[partTempID].AsUUID();
+                //SceneObjectPart localPart = Scene.GetSceneObjectPart(primID);
+                //localPrims.Add(localPart);
+                DelinkPrimIDs.Add(primID);
             }
 
-            AfterDelinkGroups.Add(afterGroup);
-            PrimSyncInfo.Add(groupSyncInfo);
-        }
+            int beforeGroupCount = DataMap["beforeGroupsCount"].AsInteger();
+            for (int i = 0; i < beforeGroupCount; i++)
+            {
+                string groupTempID = "beforeGroup" + i;
+                UUID beforeGroupID = DataMap[groupTempID].AsUUID();
+                BeforeDelinkGroupIDs.Add(beforeGroupID);
+            }
 
-        return true;
+            int afterGroupsCount = DataMap["afterGroupsCount"].AsInteger();
+            for (int i = 0; i < afterGroupsCount; i++)
+            {
+                string groupTempID = "afterGroup" + i;
+                //string sogxml = data[groupTempID].AsString();
+                SceneObjectGroup afterGroup;
+                OSDMap encodedSOG = (OSDMap)DataMap[groupTempID];
+                Dictionary<UUID, SyncInfoBase> groupSyncInfo;
+                if (!DecodeSceneObject(encodedSOG, out afterGroup, out groupSyncInfo, regionContext.Scene))
+                {
+                    m_log.WarnFormat("{0}: Failed to decode scene object in HandleSyncDelinkObject", LogHeader);
+                    return false;
+                }
+
+                AfterDelinkGroups.Add(afterGroup);
+                PrimSyncInfo.Add(groupSyncInfo);
+            }
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        // if this is a relay node, forward the message
-        if (regionContext.IsSyncRelay)
+        if (base.HandleIn(regionContext))
         {
-            List<SceneObjectGroup> tempBeforeDelinkGroups = new List<SceneObjectGroup>();
-            foreach (UUID sogID in BeforeDelinkGroupIDs)
+            // if this is a relay node, forward the message
+            if (regionContext.IsSyncRelay)
             {
-                SceneObjectGroup sog = regionContext.Scene.GetGroupByPrim(sogID);
-                tempBeforeDelinkGroups.Add(sog);
-            }
-            regionContext.SendDelinkObjectToRelevantSyncConnectors(ConnectorContext.otherSideActorID, tempBeforeDelinkGroups, this);
-        }
-
-        //DSL Scene.DelinkObjectsBySync(delinkPrimIDs, beforeDelinkGroupIDs, incomingAfterDelinkGroups);
-
-        //Sync properties 
-        //Update properties, for each prim in each deLinked-Object
-        foreach (Dictionary<UUID, SyncInfoBase> primsSyncInfo in PrimSyncInfo)
-        {
-            foreach (KeyValuePair<UUID, SyncInfoBase> inPrimSyncInfo in primsSyncInfo)
-            {
-                UUID uuid = inPrimSyncInfo.Key;
-                SyncInfoBase updatedPrimSyncInfo = inPrimSyncInfo.Value;
-
-                SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(uuid);
-                if (part == null)
+                List<SceneObjectGroup> tempBeforeDelinkGroups = new List<SceneObjectGroup>();
+                foreach (UUID sogID in BeforeDelinkGroupIDs)
                 {
-                    m_log.ErrorFormat("{0}: HandleSyncDelinkObject, prim {1} not in local Scene Graph after DelinkObjectsBySync is called", LogHeader, uuid);
+                    SceneObjectGroup sog = regionContext.Scene.GetGroupByPrim(sogID);
+                    tempBeforeDelinkGroups.Add(sog);
                 }
-                else
+                regionContext.SendDelinkObjectToRelevantSyncConnectors(ConnectorContext.otherSideActorID, tempBeforeDelinkGroups, this);
+            }
+
+            //DSL Scene.DelinkObjectsBySync(delinkPrimIDs, beforeDelinkGroupIDs, incomingAfterDelinkGroups);
+
+            //Sync properties 
+            //Update properties, for each prim in each deLinked-Object
+            foreach (Dictionary<UUID, SyncInfoBase> primsSyncInfo in PrimSyncInfo)
+            {
+                foreach (KeyValuePair<UUID, SyncInfoBase> inPrimSyncInfo in primsSyncInfo)
                 {
-                    regionContext.InfoManager.UpdateSyncInfoBySync(part.UUID, updatedPrimSyncInfo);
+                    UUID uuid = inPrimSyncInfo.Key;
+                    SyncInfoBase updatedPrimSyncInfo = inPrimSyncInfo.Value;
+
+                    SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(uuid);
+                    if (part == null)
+                    {
+                        m_log.ErrorFormat("{0}: HandleSyncDelinkObject, prim {1} not in local Scene Graph after DelinkObjectsBySync is called", LogHeader, uuid);
+                    }
+                    else
+                    {
+                        regionContext.InfoManager.UpdateSyncInfoBySync(part.UUID, updatedPrimSyncInfo);
+                    }
                 }
             }
         }
@@ -1239,52 +1449,59 @@ public class SyncMsgDelinkObject : SyncMsgOSDMapData
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap();
-        data["partCount"] = OSD.FromInteger(DelinkPrimIDs.Count);
-        int partNum = 0;
-        foreach (UUID partUUID in DelinkPrimIDs)
+        if (Dir == Direction.Out && DataMap == null)
         {
-            string partTempID = "part" + partNum;
-            data[partTempID] = OSD.FromUUID(partUUID);
-            partNum++;
-        }
-        //We also include the IDs of beforeDelinkGroups, for now it is more for sanity checking at the receiving end, so that the receiver 
-        //could make sure its delink starts with the same linking state of the groups/prims.
-        data["beforeGroupsCount"] = OSD.FromInteger(BeforeDelinkGroupIDs.Count);
-        int groupNum = 0;
-        foreach (UUID affectedGroupUUID in BeforeDelinkGroupIDs)
-        {
-            string groupTempID = "beforeGroup" + groupNum;
-            data[groupTempID] = OSD.FromUUID(affectedGroupUUID);
-            groupNum++;
-        }
+            OSDMap data = new OSDMap();
+            data["partCount"] = OSD.FromInteger(DelinkPrimIDs.Count);
+            int partNum = 0;
+            foreach (UUID partUUID in DelinkPrimIDs)
+            {
+                string partTempID = "part" + partNum;
+                data[partTempID] = OSD.FromUUID(partUUID);
+                partNum++;
+            }
+            //We also include the IDs of beforeDelinkGroups, for now it is more for sanity checking at the receiving end, so that the receiver 
+            //could make sure its delink starts with the same linking state of the groups/prims.
+            data["beforeGroupsCount"] = OSD.FromInteger(BeforeDelinkGroupIDs.Count);
+            int groupNum = 0;
+            foreach (UUID affectedGroupUUID in BeforeDelinkGroupIDs)
+            {
+                string groupTempID = "beforeGroup" + groupNum;
+                data[groupTempID] = OSD.FromUUID(affectedGroupUUID);
+                groupNum++;
+            }
 
-        //include the property values of each object after delinking, for synchronizing the values
-        data["afterGroupsCount"] = OSD.FromInteger(AfterDelinkGroups.Count);
-        groupNum = 0;
-        foreach (SceneObjectGroup afterGroup in AfterDelinkGroups)
-        {
-            string groupTempID = "afterGroup" + groupNum;
-            //string sogxml = SceneObjectSerializer.ToXml2Format(afterGroup);
-            //data[groupTempID] = OSD.FromString(sogxml);
-            OSDMap encodedSOG = EncodeSceneObject(afterGroup, regionContext);
-            data[groupTempID] = encodedSOG;
-            groupNum++;
+            //include the property values of each object after delinking, for synchronizing the values
+            data["afterGroupsCount"] = OSD.FromInteger(AfterDelinkGroups.Count);
+            groupNum = 0;
+            foreach (SceneObjectGroup afterGroup in AfterDelinkGroups)
+            {
+                string groupTempID = "afterGroup" + groupNum;
+                //string sogxml = SceneObjectSerializer.ToXml2Format(afterGroup);
+                //data[groupTempID] = OSD.FromString(sogxml);
+                OSDMap encodedSOG = EncodeSceneObject(afterGroup, regionContext);
+                data[groupTempID] = encodedSOG;
+                groupNum++;
+            }
+            DataMap = data;
         }
-        DataMap = data;
         return base.ConvertOut(regionContext);
-
     }
 }
 // ====================================================================================================
 public class SyncMsgNewPresence : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvNewPres"; } }
+    public override string DetailLogTagSnd { get { return "SndNewPres"; } }
+
+    public UUID Uuid = UUID.Zero;
     public ScenePresence SP { get; set; }
 
     public SyncMsgNewPresence(ScenePresence pSP)
         : base()
     {
         SP = pSP;
+        Uuid = SP.UUID;
     }
     public SyncMsgNewPresence(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
@@ -1296,46 +1513,59 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        // Decode presence and syncInfo from message data
-        SyncInfoBase syncInfo;
-        DecodeScenePresence(DataMap, out syncInfo, regionContext.Scene);
-        regionContext.DetailedUpdateWrite("RecNewPres", syncInfo.UUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
+        if (base.HandleIn(regionContext))
+        {
+            // Decode presence and syncInfo from message data
+            SyncInfoBase syncInfo;
+            DecodeScenePresence(DataMap, out syncInfo, regionContext.Scene);
+            Uuid = syncInfo.UUID;
 
-        // if this is a relay node, forward the message
-        if (regionContext.IsSyncRelay)
-            regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, "SndNewPreR", syncInfo.UUID, this);
+            // if this is a relay node, forward the message
+            if (regionContext.IsSyncRelay)
+                regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
 
-        //Add the SyncInfo to SyncInfoManager
-        regionContext.InfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
+            //Add the SyncInfo to SyncInfoManager
+            regionContext.InfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
 
-        // Get ACD and PresenceType from decoded SyncInfoPresence
-        // NASTY CASTS AHEAD!
-        AgentCircuitData acd = new AgentCircuitData();
-        acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
-        // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
-        acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
-        PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
+            // Get ACD and PresenceType from decoded SyncInfoPresence
+            // NASTY CASTS AHEAD!
+            AgentCircuitData acd = new AgentCircuitData();
+            acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
+            // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
+            acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
+            PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)syncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
 
-        // Add the decoded circuit to local scene
-        regionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
+            // Add the decoded circuit to local scene
+            regionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
 
-        // Create a client and add it to the local scene
-        IClientAPI client = new RegionSyncAvatar(acd.circuitcode, regionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
-        syncInfo.SceneThing = regionContext.Scene.AddNewClient(client, pt);
-        // Might need to trigger something here to send new client messages to connected clients
-
+            // Create a client and add it to the local scene
+            IClientAPI client = new RegionSyncAvatar(acd.circuitcode, regionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
+            syncInfo.SceneThing = regionContext.Scene.AddNewClient(client, pt);
+            // Might need to trigger something here to send new client messages to connected clients
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = EncodeScenePresence(SP, regionContext);
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            DataMap = EncodeScenePresence(SP, regionContext);
+        }
         return base.ConvertOut(regionContext);
+    }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, Uuid, 0, ZeroUUID, connectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================
 public class SyncMsgRemovedPresence : SyncMsgOSDMapData
 {
-    public UUID Uuid { get; set; }
+    public override string DetailLogTagRcv { get { return "RcvRemPres"; } }
+    public override string DetailLogTagSnd { get { return "SndRemPres"; } }
+
+    public UUID Uuid = UUID.Zero;
 
     public SyncMsgRemovedPresence(UUID pUuid)
         : base()
@@ -1349,38 +1579,54 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        Uuid = DataMap["uuid"].AsUUID();
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            Uuid = DataMap["uuid"].AsUUID();
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        regionContext.DetailedUpdateWrite("RecRemPres", Uuid.ToString(), 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
-
-        if (!regionContext.InfoManager.SyncInfoExists(Uuid))
-            return false;
-
-        // if this is a relay node, forward the message
-        if (regionContext.IsSyncRelay)
+        if (base.HandleIn(regionContext))
         {
-            regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, "SndRemPreR", Uuid, this);
-        }
-        
-        // This limits synced avatars to real clients (no npcs) until we sync PresenceType field
-        regionContext.Scene.RemoveClient(Uuid, false);
+            if (!regionContext.InfoManager.SyncInfoExists(Uuid))
+                return false;
 
+            // if this is a relay node, forward the message
+            if (regionContext.IsSyncRelay)
+            {
+                regionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
+            }
+
+            // This limits synced avatars to real clients (no npcs) until we sync PresenceType field
+            regionContext.Scene.RemoveClient(Uuid, false);
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap();
-        data["uuid"] = OSD.FromUUID(Uuid);
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap();
+            data["uuid"] = OSD.FromUUID(Uuid);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
+    }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, Uuid, 0, ZeroUUID, connectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================
 public class SyncMsgRegionName : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvRegName"; } }
+    public override string DetailLogTagSnd { get { return "SndRegName"; } }
+
     public string RegName;
 
     public SyncMsgRegionName(string pRegionName)
@@ -1408,28 +1654,41 @@ public class SyncMsgRegionName : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        ConnectorContext.otherSideRegionName = RegName;
-        regionContext.DetailedUpdateWrite("RcvRegnNam", ZeroUUID, 0, ConnectorContext.otherSideRegionName, ConnectorContext.otherSideActorID, DataLength);
-        if (regionContext.IsSyncRelay)
+        if (base.HandleIn(regionContext))
         {
-            SyncMsgRegionName msg = new SyncMsgRegionName(regionContext.Scene.RegionInfo.RegionName);
-            msg.ConvertOut(regionContext);
-            ConnectorContext.ImmediateOutgoingMsg(msg);
-            regionContext.DetailedUpdateWrite("SndRegnNam", ZeroUUID, 0, regionContext.Scene.RegionInfo.RegionName, ConnectorContext.otherSideActorID, msg.DataLength);
+            ConnectorContext.otherSideRegionName = RegName;
+            if (regionContext.IsSyncRelay)
+            {
+                SyncMsgRegionName msg = new SyncMsgRegionName(regionContext.Scene.RegionInfo.RegionName);
+                msg.ConvertOut(regionContext);
+                ConnectorContext.ImmediateOutgoingMsg(msg);
+            }
         }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap();
-        data["regionName"] = RegName;
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap();
+            data["regionName"] = RegName;
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
+    }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, ZeroUUID, 0, RegionContext.Scene.RegionInfo.RegionName,
+                                    connectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================
 public class SyncMsgActorID : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvActorID"; } }
+    public override string DetailLogTagSnd { get { return "SndActorID"; } }
+
     private string ActorID;
 
     public SyncMsgActorID(string pActorID)
@@ -1457,28 +1716,40 @@ public class SyncMsgActorID : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        ConnectorContext.otherSideActorID = ActorID;
-        regionContext.DetailedUpdateWrite("RcvActorID", ZeroUUID, 0, ConnectorContext.otherSideActorID, ConnectorContext.otherSideActorID, DataLength);
-        if (regionContext.IsSyncRelay)
+        if (base.HandleIn(regionContext))
         {
-            SyncMsgActorID msg = new SyncMsgActorID(regionContext.ActorID);
-            msg.ConvertOut(regionContext);
-            ConnectorContext.ImmediateOutgoingMsg(msg);
-            regionContext.DetailedUpdateWrite("SndActorID", ZeroUUID, 0, regionContext.ActorID, ConnectorContext.otherSideActorID, msg.DataLength);
+            ConnectorContext.otherSideActorID = ActorID;
+            if (regionContext.IsSyncRelay)
+            {
+                SyncMsgActorID msg = new SyncMsgActorID(regionContext.ActorID);
+                msg.ConvertOut(regionContext);
+                ConnectorContext.ImmediateOutgoingMsg(msg);
+            }
         }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap();
-        data["actorID"] = ActorID;
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap();
+            data["actorID"] = ActorID;
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
+    }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        if (RegionContext != null)
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, ZeroUUID, 0, ActorID, ConnectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================
 public class SyncMsgRegionStatus : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvRgnStat"; } }
+    public override string DetailLogTagSnd { get { return "SndRgnStat"; } }
+
     public SyncMsgRegionStatus()
         : base()
     {
@@ -1493,16 +1764,19 @@ public class SyncMsgRegionStatus : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        return false;
+        return base.HandleIn(regionContext);
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        return false;
+        return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public abstract class SyncMsgEvent : SyncMsgOSDMapData
 {
+    public override string DetailLogTagRcv { get { return "RcvEventtt"; } }
+    public override string DetailLogTagSnd { get { return "SndEventtt"; } }
+
     public string SyncID { get; set; }
     public ulong SequenceNum { get; set; }
 
@@ -1524,20 +1798,20 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        //string init_actorID = data["actorID"].AsString();
-        SyncID = DataMap["syncID"].AsString();
-        SequenceNum = DataMap["seqNum"].AsULong();
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            SyncID = DataMap["syncID"].AsString();
+            SequenceNum = DataMap["seqNum"].AsULong();
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
         bool ret = false;
         if (base.HandleIn(regionContext))
         {
-
-            regionContext.DetailedUpdateWrite("RecEventtt", MType.ToString(), 0, SyncID, ConnectorContext.otherSideActorID, DataLength);
-
             //check if this is a duplicate event message that we have received before
             if (regionContext.EventRecord.IsSEQReceived(SyncID, SequenceNum))
             {
@@ -1560,7 +1834,7 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        if (DataMap != null)
+        if (Dir == Direction.Out && DataMap != null)
         {
             DataMap["syncID"] = OSD.FromString(SyncID);
             DataMap["seqNum"] = OSD.FromULong(SequenceNum);
@@ -1600,10 +1874,17 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
         data["type"] = OSD.FromInteger((int)chat.Type);
         return data;
     }
+    public override void LogTransmission(SyncConnector connectorContext)
+    {
+        // Suppress automatic logging as message logging is done in RegionSyncModule when more info is known.
+    }
 }
 // ====================================================================================================
 public class SyncMsgNewScript : SyncMsgEvent
 {
+    public override string DetailLogTagRcv { get { return "RcvNewScpt"; } }
+    public override string DetailLogTagSnd { get { return "SndNewScpt"; } }
+
     public UUID Uuid { get; set; }
     public UUID AgentID { get; set; }
     public UUID ItemID { get; set; }
@@ -1625,49 +1906,61 @@ public class SyncMsgNewScript : SyncMsgEvent
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        AgentID = DataMap["agentID"].AsUUID();
-        Uuid = DataMap["uuid"].AsUUID();
-        ItemID = DataMap["itemID"].AsUUID();
-        UpdatedProperties = SyncedProperty.DecodeProperties(DataMap);
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            AgentID = DataMap["agentID"].AsUUID();
+            Uuid = DataMap["uuid"].AsUUID();
+            ItemID = DataMap["itemID"].AsUUID();
+            UpdatedProperties = SyncedProperty.DecodeProperties(DataMap);
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
-
-        SceneObjectPart localPart = regionContext.Scene.GetSceneObjectPart(Uuid);
-
-        if (localPart == null || localPart.ParentGroup.IsDeleted)
+        if (base.HandleIn(regionContext))
         {
-            m_log.ErrorFormat("{0}: HandleRemoteEvent_OnNewScript: prim {1} no longer in local SceneGraph", LogHeader, Uuid);
-            return false;
-        }
+            SceneObjectPart localPart = regionContext.Scene.GetSceneObjectPart(Uuid);
 
-        if (UpdatedProperties.Count > 0)
-        {
-            HashSet<SyncableProperties.Type> propertiesUpdated = regionContext.InfoManager.UpdateSyncInfoBySync(Uuid, UpdatedProperties);
-        }
+            if (localPart == null || localPart.ParentGroup.IsDeleted)
+            {
+                m_log.ErrorFormat("{0}: HandleRemoteEvent_OnNewScript: prim {1} no longer in local SceneGraph", LogHeader, Uuid);
+                return false;
+            }
 
-        //The TaskInventory value might have already been sync'ed by UpdatedPrimProperties, 
-        //but we still need to create the script instance by reading out the inventory.
-        regionContext.RememberLocallyGeneratedEvent(MsgType.NewScript, AgentID, localPart, ItemID);
-        regionContext.Scene.EventManager.TriggerNewScript(AgentID, localPart, ItemID);
-        regionContext.ForgetLocallyGeneratedEvent();
+            if (UpdatedProperties.Count > 0)
+            {
+                HashSet<SyncableProperties.Type> propertiesUpdated = regionContext.InfoManager.UpdateSyncInfoBySync(Uuid, UpdatedProperties);
+            }
+
+            //The TaskInventory value might have already been sync'ed by UpdatedPrimProperties, 
+            //but we still need to create the script instance by reading out the inventory.
+            regionContext.RememberLocallyGeneratedEvent(MsgType.NewScript, AgentID, localPart, ItemID);
+            regionContext.Scene.EventManager.TriggerNewScript(AgentID, localPart, ItemID);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = regionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
-        //syncData already includes uuid, add agentID and itemID next
-        data["agentID"] = OSD.FromUUID(AgentID);
-        data["itemID"] = OSD.FromUUID(ItemID);
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = regionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+            //syncData already includes uuid, add agentID and itemID next
+            data["agentID"] = OSD.FromUUID(AgentID);
+            data["itemID"] = OSD.FromUUID(ItemID);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgUpdateScript : SyncMsgEvent
 {
+    public override string DetailLogTagRcv { get { return "RcvUpDScpt"; } }
+    public override string DetailLogTagSnd { get { return "SndUpDScpt"; } }
+
     public UUID AgentID { get; set; }
     public UUID ItemID { get; set; }
     public UUID PrimID { get; set; }
@@ -1693,39 +1986,50 @@ public class SyncMsgUpdateScript : SyncMsgEvent
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        AgentID = DataMap["agentID"].AsUUID();
-        ItemID = DataMap["itemID"].AsUUID();
-        PrimID = DataMap["primID"].AsUUID();
-        IsRunning = DataMap["running"].AsBoolean();
-        AssetID = DataMap["assetID"].AsUUID();
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            AgentID = DataMap["agentID"].AsUUID();
+            ItemID = DataMap["itemID"].AsUUID();
+            PrimID = DataMap["primID"].AsUUID();
+            IsRunning = DataMap["running"].AsBoolean();
+            AssetID = DataMap["assetID"].AsUUID();
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
-
-        //trigger the event in the local scene
-        regionContext.RememberLocallyGeneratedEvent(MsgType.UpdateScript, AgentID, ItemID, PrimID, IsRunning, AssetID);   
-        regionContext.Scene.EventManager.TriggerUpdateScript(AgentID, ItemID, PrimID, IsRunning, AssetID);   
-        regionContext.ForgetLocallyGeneratedEvent();
+        if (base.HandleIn(regionContext))
+        {
+            //trigger the event in the local scene
+            regionContext.RememberLocallyGeneratedEvent(MsgType.UpdateScript, AgentID, ItemID, PrimID, IsRunning, AssetID);
+            regionContext.Scene.EventManager.TriggerUpdateScript(AgentID, ItemID, PrimID, IsRunning, AssetID);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(5+2);
-        data["agentID"] = OSD.FromUUID(AgentID);
-        data["itemID"] = OSD.FromUUID(ItemID);
-        data["primID"] = OSD.FromUUID(PrimID);
-        data["running"] = OSD.FromBoolean(IsRunning);
-        data["assetID"] = OSD.FromUUID(AssetID);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap(5 + 2);
+            data["agentID"] = OSD.FromUUID(AgentID);
+            data["itemID"] = OSD.FromUUID(ItemID);
+            data["primID"] = OSD.FromUUID(PrimID);
+            data["running"] = OSD.FromBoolean(IsRunning);
+            data["assetID"] = OSD.FromUUID(AssetID);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgScriptReset : SyncMsgEvent
 {
+    public override string DetailLogTagRcv { get { return "RcvRstScpt"; } }
+    public override string DetailLogTagSnd { get { return "SndRstScpt"; } }
+
     public UUID ItemID { get; set; }
     public UUID PrimID { get; set; }
 
@@ -1741,38 +2045,49 @@ public class SyncMsgScriptReset : SyncMsgEvent
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        ItemID = DataMap["itemID"].AsUUID();
-        PrimID = DataMap["primID"].AsUUID();
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            ItemID = DataMap["itemID"].AsUUID();
+            PrimID = DataMap["primID"].AsUUID();
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
-
-        SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(PrimID);
-        if (part == null || part.ParentGroup.IsDeleted)
+        if (base.HandleIn(regionContext))
         {
-            m_log.ErrorFormat("{0}: part {1} does not exist, or is deleted", LogHeader, PrimID);
-            return false;
+            SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(PrimID);
+            if (part == null || part.ParentGroup.IsDeleted)
+            {
+                m_log.ErrorFormat("{0}: part {1} does not exist, or is deleted", LogHeader, PrimID);
+                return false;
+            }
+            regionContext.RememberLocallyGeneratedEvent(MsgType.ScriptReset, part.LocalId, ItemID);
+            regionContext.Scene.EventManager.TriggerScriptReset(part.LocalId, ItemID);
+            regionContext.ForgetLocallyGeneratedEvent();
         }
-        regionContext.RememberLocallyGeneratedEvent(MsgType.ScriptReset, part.LocalId, ItemID);
-        regionContext.Scene.EventManager.TriggerScriptReset(part.LocalId, ItemID);
-        regionContext.ForgetLocallyGeneratedEvent();
         return false;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(3+2);
-        data["itemID"] = OSD.FromUUID(ItemID);
-        data["primID"] = OSD.FromUUID(PrimID);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap(3 + 2);
+            data["itemID"] = OSD.FromUUID(ItemID);
+            data["primID"] = OSD.FromUUID(PrimID);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgChatFromClient : SyncMsgEvent
 {
+    public override string DetailLogTagRcv { get { return "RcvChatClt"; } }
+    public override string DetailLogTagSnd { get { return "SndChatClt"; } }
+
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatFromClient(OSChatMessage pChatMessage)
@@ -1808,13 +2123,19 @@ public class SyncMsgChatFromClient : SyncMsgEvent
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = PrepareChatArgs(ChatMessage);
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            DataMap = PrepareChatArgs(ChatMessage);
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgChatFromWorld : SyncMsgEvent
 {
+    public override string DetailLogTagRcv { get { return "RcvChatWld"; } }
+    public override string DetailLogTagSnd { get { return "SndChatWld"; } }
+
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatFromWorld(OSChatMessage pChatMessage)
@@ -1828,29 +2149,41 @@ public class SyncMsgChatFromWorld : SyncMsgEvent
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        ChatMessage = PrepareOnChatArgs(DataMap, regionContext);
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            ChatMessage = PrepareOnChatArgs(DataMap, regionContext);
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
-        //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromWorld {0}:{1}", args.From, args.Message);
-        regionContext.RememberLocallyGeneratedEvent(MsgType.ChatFromWorld, ChatMessage);   
-        // Let ChatModule get the event and deliver it to avatars
-        regionContext.Scene.EventManager.TriggerOnChatFromWorld(ChatMessage.SenderObject, ChatMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
+        if (base.HandleIn(regionContext))
+        {
+            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromWorld {0}:{1}", args.From, args.Message);
+            regionContext.RememberLocallyGeneratedEvent(MsgType.ChatFromWorld, ChatMessage);
+            // Let ChatModule get the event and deliver it to avatars
+            regionContext.Scene.EventManager.TriggerOnChatFromWorld(ChatMessage.SenderObject, ChatMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = PrepareChatArgs(ChatMessage);
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            DataMap = PrepareChatArgs(ChatMessage);
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgChatBroadcast : SyncMsgEvent
 {
+    public override string DetailLogTagRcv { get { return "RcvChatBct"; } }
+    public override string DetailLogTagSnd { get { return "SndChatBct"; } }
+
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatBroadcast(OSChatMessage pChatMessage)
@@ -1864,22 +2197,31 @@ public class SyncMsgChatBroadcast : SyncMsgEvent
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        ChatMessage = PrepareOnChatArgs(DataMap, regionContext);
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            ChatMessage = PrepareOnChatArgs(DataMap, regionContext);
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
-        //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatBroadcast {0}:{1}", args.From, args.Message);
-        regionContext.RememberLocallyGeneratedEvent(MsgType.ChatBroadcast, ChatMessage);   
-        regionContext.Scene.EventManager.TriggerOnChatBroadcast(ChatMessage.SenderObject, ChatMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
+        if (base.HandleIn(regionContext))
+        {
+            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatBroadcast {0}:{1}", args.From, args.Message);
+            regionContext.RememberLocallyGeneratedEvent(MsgType.ChatBroadcast, ChatMessage);
+            regionContext.Scene.EventManager.TriggerOnChatBroadcast(ChatMessage.SenderObject, ChatMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        DataMap = PrepareChatArgs(ChatMessage);
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            DataMap = PrepareChatArgs(ChatMessage);
+        }
         return base.ConvertOut(regionContext);
     }
 }
@@ -1911,65 +2253,75 @@ public abstract class SyncMsgEventGrabber : SyncMsgEvent
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        AgentID = DataMap["agentID"].AsUUID();
-        PrimID = DataMap["primID"].AsUUID();
-        OriginalPrimID = DataMap["originalPrimID"].AsUUID();
-        OffsetPos = DataMap["offsetPos"].AsVector3();
-        SurfaceArgs = new SurfaceTouchEventArgs();
-        SurfaceArgs.Binormal = DataMap["binormal"].AsVector3();
-        SurfaceArgs.FaceIndex = DataMap["faceIndex"].AsInteger();
-        SurfaceArgs.Normal = DataMap["normal"].AsVector3();
-        SurfaceArgs.Position = DataMap["position"].AsVector3();
-        SurfaceArgs.STCoord = DataMap["stCoord"].AsVector3();
-        SurfaceArgs.UVCoord = DataMap["uvCoord"].AsVector3();
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            AgentID = DataMap["agentID"].AsUUID();
+            PrimID = DataMap["primID"].AsUUID();
+            OriginalPrimID = DataMap["originalPrimID"].AsUUID();
+            OffsetPos = DataMap["offsetPos"].AsVector3();
+            SurfaceArgs = new SurfaceTouchEventArgs();
+            SurfaceArgs.Binormal = DataMap["binormal"].AsVector3();
+            SurfaceArgs.FaceIndex = DataMap["faceIndex"].AsInteger();
+            SurfaceArgs.Normal = DataMap["normal"].AsVector3();
+            SurfaceArgs.Position = DataMap["position"].AsVector3();
+            SurfaceArgs.STCoord = DataMap["stCoord"].AsVector3();
+            SurfaceArgs.UVCoord = DataMap["uvCoord"].AsVector3();
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
+        if (base.HandleIn(regionContext))
+        {
+            SOP = regionContext.Scene.GetSceneObjectPart(PrimID);
+            if (SOP == null)
+            {
+                m_log.ErrorFormat("{0}: HandleRemoteEvent_OnObjectGrab: no prim with ID {1}", LogHeader, PrimID);
+                return false;
+            }
+            if (OriginalPrimID != UUID.Zero)
+            {
+                SceneObjectPart originalPart = regionContext.Scene.GetSceneObjectPart(OriginalPrimID);
+                OriginalID = originalPart.LocalId;
+            }
 
-        SOP = regionContext.Scene.GetSceneObjectPart(PrimID);
-        if (SOP == null)
-        {
-            m_log.ErrorFormat("{0}: HandleRemoteEvent_OnObjectGrab: no prim with ID {1}", LogHeader, PrimID);
-            return false;
+            // Get the scene presence in local scene that triggered the event
+            if (!regionContext.Scene.TryGetScenePresence(AgentID, out SP))
+            {
+                m_log.ErrorFormat("{0} HandleRemoteEvent_OnObjectGrab: could not get ScenePresence for uuid {1}", LogHeader, AgentID);
+                return false;
+            }
         }
-        if (OriginalPrimID != UUID.Zero)
-        {
-            SceneObjectPart originalPart = regionContext.Scene.GetSceneObjectPart(OriginalPrimID);
-            OriginalID = originalPart.LocalId;
-        }
-            
-        // Get the scene presence in local scene that triggered the event
-        if (!regionContext.Scene.TryGetScenePresence(AgentID, out SP))
-        {
-            m_log.ErrorFormat("{0} HandleRemoteEvent_OnObjectGrab: could not get ScenePresence for uuid {1}", LogHeader, AgentID);
-            return false;
-        }
-
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap();
-        data["agentID"] = OSD.FromUUID(AgentID);
-        data["primID"] = OSD.FromUUID(PrimID);
-        data["originalPrimID"] = OSD.FromUUID(OriginalPrimID);
-        data["offsetPos"] = OSD.FromVector3(OffsetPos);
-        data["binormal"] = OSD.FromVector3(SurfaceArgs.Binormal);
-        data["faceIndex"] = OSD.FromInteger(SurfaceArgs.FaceIndex);
-        data["normal"] = OSD.FromVector3(SurfaceArgs.Normal);
-        data["position"] = OSD.FromVector3(SurfaceArgs.Position);
-        data["stCoord"] = OSD.FromVector3(SurfaceArgs.STCoord);
-        data["uvCoord"] = OSD.FromVector3(SurfaceArgs.UVCoord);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap();
+            data["agentID"] = OSD.FromUUID(AgentID);
+            data["primID"] = OSD.FromUUID(PrimID);
+            data["originalPrimID"] = OSD.FromUUID(OriginalPrimID);
+            data["offsetPos"] = OSD.FromVector3(OffsetPos);
+            data["binormal"] = OSD.FromVector3(SurfaceArgs.Binormal);
+            data["faceIndex"] = OSD.FromInteger(SurfaceArgs.FaceIndex);
+            data["normal"] = OSD.FromVector3(SurfaceArgs.Normal);
+            data["position"] = OSD.FromVector3(SurfaceArgs.Position);
+            data["stCoord"] = OSD.FromVector3(SurfaceArgs.STCoord);
+            data["uvCoord"] = OSD.FromVector3(SurfaceArgs.UVCoord);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
 // ====================================================================================================
 public class SyncMsgObjectGrab : SyncMsgEventGrabber
 {
+    public override string DetailLogTagRcv { get { return "RcvGrabbbb"; } }
+    public override string DetailLogTagSnd { get { return "SndGrabbbb"; } }
+
     public SyncMsgObjectGrab(UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
         : base(pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
@@ -2001,6 +2353,9 @@ public class SyncMsgObjectGrab : SyncMsgEventGrabber
 // ====================================================================================================
 public class SyncMsgObjectGrabbing : SyncMsgEventGrabber
 {
+    public override string DetailLogTagRcv { get { return "RcvGrabing"; } }
+    public override string DetailLogTagSnd { get { return "SndGrabing"; } }
+
     public SyncMsgObjectGrabbing(UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
         : base(pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
@@ -2032,6 +2387,9 @@ public class SyncMsgObjectGrabbing : SyncMsgEventGrabber
 // ====================================================================================================
 public class SyncMsgObjectDeGrab : SyncMsgEventGrabber
 {
+    public override string DetailLogTagRcv { get { return "RcvDeGrabb"; } }
+    public override string DetailLogTagSnd { get { return "SndDeGrabb"; } }
+
     public SyncMsgObjectDeGrab(UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
         : base(pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
@@ -2063,6 +2421,9 @@ public class SyncMsgObjectDeGrab : SyncMsgEventGrabber
 // ====================================================================================================
 public class SyncMsgAttach : SyncMsgEvent
 {
+    public override string DetailLogTagRcv { get { return "RcvAttachh";  } }
+    public override string DetailLogTagSnd { get { return "SndAttachh"; } }
+
     public UUID PrimID { get; set; }
     public UUID ItemID { get; set; }
     public UUID AvatarID { get; set; }
@@ -2080,37 +2441,44 @@ public class SyncMsgAttach : SyncMsgEvent
     }
     public override bool ConvertIn(RegionSyncModule regionContext)
     {
-        base.ConvertIn(regionContext);
-        PrimID = DataMap["primID"].AsUUID();
-        ItemID = DataMap["itemID"].AsUUID();
-        AvatarID = DataMap["avatarID"].AsUUID();
-        return true;
+        bool ret = false;
+        if (base.ConvertIn(regionContext))
+        {
+            PrimID = DataMap["primID"].AsUUID();
+            ItemID = DataMap["itemID"].AsUUID();
+            AvatarID = DataMap["avatarID"].AsUUID();
+            ret = true;
+        }
+        return ret;
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
-
-        SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(PrimID);
-        if (part == null)
+        if (base.HandleIn(regionContext))
         {
-            m_log.WarnFormat("{0} HandleRemoteEvent_OnAttach: no part with UUID {1} found", LogHeader, PrimID);
-            return false;
+            SceneObjectPart part = regionContext.Scene.GetSceneObjectPart(PrimID);
+            if (part == null)
+            {
+                m_log.WarnFormat("{0} HandleRemoteEvent_OnAttach: no part with UUID {1} found", LogHeader, PrimID);
+                return false;
+            }
+
+            uint localID = part.LocalId;
+            regionContext.RememberLocallyGeneratedEvent(MsgType.Attach, localID, ItemID, AvatarID);
+            regionContext.Scene.EventManager.TriggerOnAttach(localID, ItemID, AvatarID);
+            regionContext.ForgetLocallyGeneratedEvent();
         }
-
-        uint localID = part.LocalId;
-        regionContext.RememberLocallyGeneratedEvent(MsgType.Attach, localID, ItemID, AvatarID);
-        regionContext.Scene.EventManager.TriggerOnAttach(localID, ItemID, AvatarID);
-        regionContext.ForgetLocallyGeneratedEvent();
-
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap(3+2);
-        data["primID"] = OSD.FromUUID(PrimID);
-        data["itemID"] = OSD.FromUUID(ItemID);
-        data["avatarID"] = OSD.FromUUID(AvatarID);
-        DataMap = data;
+        if (Dir == Direction.Out && DataMap == null)
+        {
+            OSDMap data = new OSDMap(3 + 2);
+            data["primID"] = OSD.FromUUID(PrimID);
+            data["itemID"] = OSD.FromUUID(ItemID);
+            data["avatarID"] = OSD.FromUUID(AvatarID);
+            DataMap = data;
+        }
         return base.ConvertOut(regionContext);
     }
 }
@@ -2186,17 +2554,20 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
-        OSDMap data = new OSDMap();
-        OSDArray collisionUUIDs = new OSDArray();
-        foreach (DetectedObject detObj in Colliders)
+        if (Dir == Direction.Out && DataMap == null)
         {
-            collisionUUIDs.Add(OSD.FromUUID(detObj.keyUUID));
+            OSDMap data = new OSDMap();
+            OSDArray collisionUUIDs = new OSDArray();
+            foreach (DetectedObject detObj in Colliders)
+            {
+                collisionUUIDs.Add(OSD.FromUUID(detObj.keyUUID));
+            }
+
+            data["uuid"] = OSD.FromUUID(CollideeUUID);
+            data["collisionUUIDs"] = collisionUUIDs;
+
+            DataMap = data;
         }
-
-        data["uuid"] = OSD.FromUUID(CollideeUUID);
-        data["collisionUUIDs"] = collisionUUIDs;
-
-        DataMap = data;
         return base.ConvertOut(regionContext);
     }
 
@@ -2281,6 +2652,9 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
 // ====================================================================================================
 public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
 {
+    public override string DetailLogTagRcv { get { return "RcvColStrt"; } }
+    public override string DetailLogTagSnd { get { return "SndColStrt"; } }
+
     public SyncMsgScriptCollidingStart(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
         : base(pCollidee, pCollideeID, pColliders)
     {
@@ -2295,17 +2669,20 @@ public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
+        bool ret = false;
+        if (base.HandleIn(regionContext))
+        {
+            ColliderArgs CollidingMessage = new ColliderArgs();
+            CollidingMessage.Colliders = Colliders;
 
-        ColliderArgs CollidingMessage = new ColliderArgs();
-        CollidingMessage.Colliders = Colliders;
-             
-        m_log.DebugFormat("ScriptCollidingStart received for {0}", CollideeID);
-        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
-        regionContext.Scene.EventManager.TriggerScriptCollidingStart(CollideeID, CollidingMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
+            m_log.DebugFormat("ScriptCollidingStart received for {0}", CollideeID);
+            regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+            regionContext.Scene.EventManager.TriggerScriptCollidingStart(CollideeID, CollidingMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
 
-        return true;
+            ret = true;
+        }
+        return ret;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
     {
@@ -2315,6 +2692,9 @@ public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
 // ====================================================================================================
 public class SyncMsgScriptColliding : SyncMsgEventCollision
 {
+    public override string DetailLogTagRcv { get { return "RcvColidng"; } }
+    public override string DetailLogTagSnd { get { return "SndColidng"; } }
+
     public SyncMsgScriptColliding(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
         : base(pCollidee, pCollideeID, pColliders)
     {
@@ -2329,16 +2709,16 @@ public class SyncMsgScriptColliding : SyncMsgEventCollision
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
+        if (base.HandleIn(regionContext))
+        {
+            ColliderArgs CollidingMessage = new ColliderArgs();
+            CollidingMessage.Colliders = Colliders;
 
-        ColliderArgs CollidingMessage = new ColliderArgs();
-        CollidingMessage.Colliders = Colliders;
-             
-        m_log.DebugFormat("ScriptColliding received for {0}", CollideeID);
-        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
-        regionContext.Scene.EventManager.TriggerScriptColliding(CollideeID, CollidingMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
-
+            m_log.DebugFormat("ScriptColliding received for {0}", CollideeID);
+            regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+            regionContext.Scene.EventManager.TriggerScriptColliding(CollideeID, CollidingMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
@@ -2349,6 +2729,9 @@ public class SyncMsgScriptColliding : SyncMsgEventCollision
 // ====================================================================================================
 public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
 {
+    public override string DetailLogTagRcv { get { return "RcvCollEnd"; } }
+    public override string DetailLogTagSnd { get { return "SndCollEnd"; } }
+
     public SyncMsgScriptCollidingEnd(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
         : base(pCollidee, pCollideeID, pColliders)
     {
@@ -2363,16 +2746,16 @@ public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
+        if (base.HandleIn(regionContext))
+        {
+            ColliderArgs CollidingMessage = new ColliderArgs();
+            CollidingMessage.Colliders = Colliders;
 
-        ColliderArgs CollidingMessage = new ColliderArgs();
-        CollidingMessage.Colliders = Colliders;
-             
-        m_log.DebugFormat("ScriptCollidingEnd received for {0}", CollideeID);
-        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
-        regionContext.Scene.EventManager.TriggerScriptCollidingEnd(CollideeID, CollidingMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
-
+            m_log.DebugFormat("ScriptCollidingEnd received for {0}", CollideeID);
+            regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+            regionContext.Scene.EventManager.TriggerScriptCollidingEnd(CollideeID, CollidingMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
@@ -2383,6 +2766,9 @@ public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
 // ====================================================================================================
 public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
 {
+    public override string DetailLogTagRcv { get { return "RcvLColSrt"; } }
+    public override string DetailLogTagSnd { get { return "SndLColSrt"; } }
+
     public SyncMsgScriptLandCollidingStart(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
         : base(pCollidee, pCollideeID, pColliders)
     {
@@ -2397,16 +2783,16 @@ public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
+        if (base.HandleIn(regionContext))
+        {
+            ColliderArgs CollidingMessage = new ColliderArgs();
+            CollidingMessage.Colliders = Colliders;
 
-        ColliderArgs CollidingMessage = new ColliderArgs();
-        CollidingMessage.Colliders = Colliders;
-             
-        m_log.DebugFormat("ScriptLandCollidingStart received for {0}", CollideeID);
-        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
-        regionContext.Scene.EventManager.TriggerScriptLandCollidingStart(CollideeID, CollidingMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
-
+            m_log.DebugFormat("ScriptLandCollidingStart received for {0}", CollideeID);
+            regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+            regionContext.Scene.EventManager.TriggerScriptLandCollidingStart(CollideeID, CollidingMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
@@ -2417,6 +2803,9 @@ public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
 // ====================================================================================================
 public class SyncMsgScriptLandColliding : SyncMsgEventCollision
 {
+    public override string DetailLogTagRcv { get { return "RcvLColing"; } }
+    public override string DetailLogTagSnd { get { return "SndLColing"; } }
+
     public SyncMsgScriptLandColliding(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
         : base(pCollidee, pCollideeID, pColliders)
     {
@@ -2431,16 +2820,16 @@ public class SyncMsgScriptLandColliding : SyncMsgEventCollision
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
+        if (base.HandleIn(regionContext))
+        {
+            ColliderArgs CollidingMessage = new ColliderArgs();
+            CollidingMessage.Colliders = Colliders;
 
-        ColliderArgs CollidingMessage = new ColliderArgs();
-        CollidingMessage.Colliders = Colliders;
-             
-        m_log.DebugFormat("ScriptLandColliding received for {0}", CollideeID);
-        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
-        regionContext.Scene.EventManager.TriggerScriptLandColliding(CollideeID, CollidingMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
-
+            m_log.DebugFormat("ScriptLandColliding received for {0}", CollideeID);
+            regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+            regionContext.Scene.EventManager.TriggerScriptLandColliding(CollideeID, CollidingMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)
@@ -2451,6 +2840,9 @@ public class SyncMsgScriptLandColliding : SyncMsgEventCollision
 // ====================================================================================================
 public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
 {
+    public override string DetailLogTagRcv { get { return "RcvLColEnd"; } }
+    public override string DetailLogTagSnd { get { return "SndLColEnd"; } }
+
     public SyncMsgScriptLandCollidingEnd(UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
         : base(pCollidee, pCollideeID, pColliders)
     {
@@ -2465,16 +2857,16 @@ public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
     }
     public override bool HandleIn(RegionSyncModule regionContext)
     {
-        base.HandleIn(regionContext);
+        if (base.HandleIn(regionContext))
+        {
+            ColliderArgs CollidingMessage = new ColliderArgs();
+            CollidingMessage.Colliders = Colliders;
 
-        ColliderArgs CollidingMessage = new ColliderArgs();
-        CollidingMessage.Colliders = Colliders;
-             
-        m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", CollideeID);
-        regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
-        regionContext.Scene.EventManager.TriggerScriptLandCollidingEnd(CollideeID, CollidingMessage);
-        regionContext.ForgetLocallyGeneratedEvent();
-
+            m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", CollideeID);
+            regionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
+            regionContext.Scene.EventManager.TriggerScriptLandCollidingEnd(CollideeID, CollidingMessage);
+            regionContext.ForgetLocallyGeneratedEvent();
+        }
         return true;
     }
     public override bool ConvertOut(RegionSyncModule regionContext)

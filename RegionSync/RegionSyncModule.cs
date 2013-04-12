@@ -507,7 +507,7 @@ namespace DSG.RegionSync
                 SyncMsgNewPresence msg = new SyncMsgNewPresence(sp);
                 msg.ConvertOut(this);
                 m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndNewPres", uuid, msg);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
             }
         }
 
@@ -519,7 +519,7 @@ namespace DSG.RegionSync
 
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(uuid);
             msg.ConvertOut(this);
-            SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndRemPres", uuid, msg);
+            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
         }
 
         /// <summary>
@@ -557,7 +557,7 @@ namespace DSG.RegionSync
                 SyncMsgNewObject msg = new SyncMsgNewObject(sog);
                 msg.ConvertOut(this);
                 // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndNewObjj", uuid, msg);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
             }
         }
 
@@ -578,7 +578,7 @@ namespace DSG.RegionSync
             SyncMsgRemovedObject msg = new SyncMsgRemovedObject(sog.UUID, ActorID, false /*softDelete*/);
             msg.ConvertOut(this);
             //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-            SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndRemObjj", sog.UUID, msg);
+            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
         }
 
         private void SyncLinkObject(SceneObjectGroup linkedGroup, SceneObjectPart root, List<SceneObjectPart> children)
@@ -601,7 +601,7 @@ namespace DSG.RegionSync
                     childrenIDs.Add(sop.UUID);
                 }
                 SyncMsgLinkObject msg = new SyncMsgLinkObject(linkedGroup, root.UUID, childrenIDs, ActorID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndLnkObjj", root.UUID, msg);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
             }
         }
 
@@ -797,13 +797,12 @@ namespace DSG.RegionSync
             foreach (SyncConnector connector in syncConnectors)
             {
                 //m_log.WarnFormat("{0}: Send terrain update to {1}", LogHeader, connector.otherSideActorID);
-                DetailedUpdateWrite("SndTerrUpd", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
                 connector.ImmediateOutgoingMsg(syncMsg);
             }
         }
 
+        /* UNUSED?
         //ScenePresence updates are sent by enqueuing into each connector's outQueue.
-        // UNUSED??
         private void SendAvatarUpdateToRelevantSyncConnectors(ScenePresence sp, SyncMsg syncMsg)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
@@ -811,6 +810,7 @@ namespace DSG.RegionSync
             foreach (SyncConnector connector in syncConnectors)
                 connector.EnqueueOutgoingUpdate(sp.UUID, syncMsg);
         }
+         */
 
 
         public void SendDelinkObjectToRelevantSyncConnectors(string senderActorID, List<SceneObjectGroup> beforeDelinkGroups, SyncMsg syncMsg)
@@ -825,7 +825,6 @@ namespace DSG.RegionSync
                     if (!syncConnectorsSent.Contains(connector.ConnectorNum) && !connector.otherSideActorID.Equals(senderActorID))
                     {
                         m_log.DebugFormat("{0}: send DeLinkObject to {1}", LogHeader, connector.description);
-                        DetailedUpdateWrite("DelinkObjj", sog.UUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
                         // connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
                         connector.ImmediateOutgoingMsg(syncMsg);
                         syncConnectorsSent.Add(connector.ConnectorNum);
@@ -841,7 +840,7 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sog"></param>
         /// <param name="syncMsg"></param>
-        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, string logReason, UUID sendingUUID, SyncMsg syncMsg)
+        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
 
@@ -849,7 +848,7 @@ namespace DSG.RegionSync
             {
                 if (!connector.otherSideActorID.Equals(init_actorID))
                 {
-                    DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
+                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
                     connector.ImmediateOutgoingMsg(syncMsg);
                 }
             }
@@ -1539,7 +1538,6 @@ namespace DSG.RegionSync
             msg.ConvertOut(this);
             ForEachSyncConnector(delegate(SyncConnector syncConnector)
             {
-                DetailedUpdateWrite("SndSyncMsg", msg.MType.ToString(), 0, m_zeroUUID, syncConnector.otherSideActorID, msg.DataLength);
                 syncConnector.ImmediateOutgoingMsg(msg);
             });
         }
@@ -1599,7 +1597,6 @@ namespace DSG.RegionSync
             msg.ConvertOut(this);
             foreach (SyncConnector connector in GetSyncConnectorsForUpdates())
             {
-                DetailedUpdateWrite("SndRgnInfo", m_zeroUUID, 0, m_zeroUUID, connector.otherSideActorID, msg.DataLength);
                 connector.ImmediateOutgoingMsg(msg);
             }
         }
@@ -2541,7 +2538,6 @@ namespace DSG.RegionSync
                                         m_log.DebugFormat("Updates from {0}", logstr);
                                          * */
                                     }
-                                    DetailedUpdateLogging(uuid, updatedProperties, null, "SendUpdate", connector.otherSideActorID, msg.DataLength);
                                     connector.EnqueueOutgoingUpdate(uuid, msg);
                                 }
 
