@@ -482,7 +482,7 @@ namespace DSG.RegionSync
             TerrainSyncInfo.LastUpdateActorID = GetSyncID();
             TerrainSyncInfo.LastUpdateTimeStamp = DateTime.UtcNow.Ticks;
 
-            SyncMsgTerrain msg = new SyncMsgTerrain(TerrainSyncInfo);
+            SyncMsgTerrain msg = new SyncMsgTerrain(this, TerrainSyncInfo);
 
             SendTerrainUpdateToRelevantSyncConnectors(msg, TerrainSyncInfo.LastUpdateActorID);
         }
@@ -504,7 +504,7 @@ namespace DSG.RegionSync
 
             if (IsSyncingWithOtherSyncNodes())
             {
-                SyncMsgNewPresence msg = new SyncMsgNewPresence(sp);
+                SyncMsgNewPresence msg = new SyncMsgNewPresence(this, sp);
                 msg.ConvertOut(this);
                 m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
                 SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
@@ -517,7 +517,7 @@ namespace DSG.RegionSync
             // First, remove from SyncInfoManager's record.
             m_SyncInfoManager.RemoveSyncInfo(uuid);
 
-            SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(uuid);
+            SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
             msg.ConvertOut(this);
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
         }
@@ -554,7 +554,7 @@ namespace DSG.RegionSync
             if (IsSyncingWithOtherSyncNodes())
             {
                 // if we're syncing with other nodes, send out the message
-                SyncMsgNewObject msg = new SyncMsgNewObject(sog);
+                SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
                 msg.ConvertOut(this);
                 // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
                 SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
@@ -575,7 +575,7 @@ namespace DSG.RegionSync
                 return;
             }
 
-            SyncMsgRemovedObject msg = new SyncMsgRemovedObject(sog.UUID, ActorID, false /*softDelete*/);
+            SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
             msg.ConvertOut(this);
             //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
@@ -600,7 +600,7 @@ namespace DSG.RegionSync
                 {
                     childrenIDs.Add(sop.UUID);
                 }
-                SyncMsgLinkObject msg = new SyncMsgLinkObject(linkedGroup, root.UUID, childrenIDs, ActorID);
+                SyncMsgLinkObject msg = new SyncMsgLinkObject(this, linkedGroup, root.UUID, childrenIDs, ActorID);
                 SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
             }
         }
@@ -627,7 +627,7 @@ namespace DSG.RegionSync
                     beforeDelinkGroupIDs.Add(sog.UUID);
 
                 // TODO: where does 'groupSyncInfo' come from?
-                SyncMsgDelinkObject msg = new SyncMsgDelinkObject(delinkPrimIDs, beforeDelinkGroupIDs, afterDelinkGroups);
+                SyncMsgDelinkObject msg = new SyncMsgDelinkObject(this, delinkPrimIDs, beforeDelinkGroupIDs, afterDelinkGroups);
 
                 SendDelinkObjectToRelevantSyncConnectors(ActorID, beforeDelinkGroups, msg);
             }
@@ -1214,7 +1214,7 @@ namespace DSG.RegionSync
 
             if (IsSyncRelay)
             {
-                SyncMsg msg = new SyncMsgRegionStatus();
+                SyncMsg msg = new SyncMsgRegionStatus(this);
                 ForEachSyncConnector(delegate(SyncConnector connector)
                 {
                     connector.ImmediateOutgoingMsg(msg);
@@ -1504,20 +1504,20 @@ namespace DSG.RegionSync
         {
             Scene.DeleteAllSceneObjects();
             
-            SendSyncMessage(new SyncMsgActorID(ActorID));
+            SendSyncMessage(new SyncMsgActorID(this, ActorID));
             // SendSyncMessage(new SyncMsgActorType(ActorType.ToString());
             // SendSyncMessage(new SyncMsgSyncID(m_syncID));
 
             // message sent to help calculating the difference in the clocks
-            SendSyncMessage(new SyncMsgTimeStamp(DateTime.UtcNow.Ticks));
+            SendSyncMessage(new SyncMsgTimeStamp(this, DateTime.UtcNow.Ticks));
 
-            SendSyncMessage(new SyncMsgRegionName(Scene.RegionInfo.RegionName));
+            SendSyncMessage(new SyncMsgRegionName(this, Scene.RegionInfo.RegionName));
             m_log.WarnFormat("Sending region name: \"{0}\"", Scene.RegionInfo.RegionName);
 
-            SendSyncMessage(new SyncMsgGetRegionInfo());
-            SendSyncMessage(new SyncMsgGetTerrain());
-            SendSyncMessage(new SyncMsgGetPresences());
-            SendSyncMessage(new SyncMsgGetObjects());
+            SendSyncMessage(new SyncMsgGetRegionInfo(this));
+            SendSyncMessage(new SyncMsgGetTerrain(this));
+            SendSyncMessage(new SyncMsgGetPresences(this));
+            SendSyncMessage(new SyncMsgGetObjects(this));
 
             //We'll deal with Event a bit later
 
@@ -1593,7 +1593,7 @@ namespace DSG.RegionSync
                 return;
             if(IsLocallyGeneratedEvent(SyncMsg.MsgType.RegionInfo, null))
                 return;
-            SyncMsgRegionInfo msg = new SyncMsgRegionInfo(Scene.RegionInfo);
+            SyncMsgRegionInfo msg = new SyncMsgRegionInfo(this, Scene.RegionInfo);
             msg.ConvertOut(this);
             foreach (SyncConnector connector in GetSyncConnectorsForUpdates())
             {
@@ -2056,7 +2056,7 @@ namespace DSG.RegionSync
             //ealier than this, we are sync'ing the new TaskInventory.
             updatedProperties.Add(SyncableProperties.Type.TaskInventory);
 
-            SyncMsgNewScript msg = new SyncMsgNewScript(part.UUID, clientID, itemID, updatedProperties);
+            SyncMsgNewScript msg = new SyncMsgNewScript(this, part.UUID, clientID, itemID, updatedProperties);
 
             SendSceneEvent(msg);
         }
@@ -2075,7 +2075,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.UpdateScript, agentID, itemId, isScriptRunning, newAssetID))
                 return;
 
-            SyncMsgUpdateScript msg = new SyncMsgUpdateScript(agentID, itemId, primId, isScriptRunning, newAssetID);
+            SyncMsgUpdateScript msg = new SyncMsgUpdateScript(this, agentID, itemId, primId, isScriptRunning, newAssetID);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2093,7 +2093,7 @@ namespace DSG.RegionSync
                 m_log.Warn(LogHeader + ": part with localID " + localID + " not exist");
                 return;
             }
-            SyncMsgScriptReset msg = new SyncMsgScriptReset(part.UUID, itemID);
+            SyncMsgScriptReset msg = new SyncMsgScriptReset(this, part.UUID, itemID);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2104,7 +2104,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ChatBroadcast, sender, chat))
                 return;
 
-            SyncMsgChatBroadcast msg = new SyncMsgChatBroadcast(chat);
+            SyncMsgChatBroadcast msg = new SyncMsgChatBroadcast(this, chat);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2116,7 +2116,7 @@ namespace DSG.RegionSync
             //if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromClient, sender, chat))
             //    return;
 
-            SyncMsgChatFromClient msg = new SyncMsgChatFromClient(chat);
+            SyncMsgChatFromClient msg = new SyncMsgChatFromClient(this, chat);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2127,7 +2127,7 @@ namespace DSG.RegionSync
                 return;
 
             //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromWorld {0}:{1}", chat.From, chat.Message);
-            SyncMsgChatFromWorld msg = new SyncMsgChatFromWorld(chat);
+            SyncMsgChatFromWorld msg = new SyncMsgChatFromWorld(this, chat);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2144,7 +2144,7 @@ namespace DSG.RegionSync
                 m_log.Warn(LogHeader + ", OnLocalAttach: no part with localID: " + localID);
                 return;
             }
-            SyncMsgAttach msg = new SyncMsgAttach(part.UUID, itemID, avatarID);
+            SyncMsgAttach msg = new SyncMsgAttach(this, part.UUID, itemID, avatarID);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2193,7 +2193,7 @@ namespace DSG.RegionSync
 
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
-            SyncMsgObjectGrab msg = new SyncMsgObjectGrab(remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
+            SyncMsgObjectGrab msg = new SyncMsgObjectGrab(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
             SendSceneEvent(msg);
         }
 
@@ -2204,7 +2204,7 @@ namespace DSG.RegionSync
 
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
-            SyncMsgObjectGrabbing msg = new SyncMsgObjectGrabbing(remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
+            SyncMsgObjectGrabbing msg = new SyncMsgObjectGrabbing(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2217,7 +2217,7 @@ namespace DSG.RegionSync
             Vector3 offsetPos = Vector3.Zero;
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
-            SyncMsgObjectDeGrab msg = new SyncMsgObjectDeGrab(remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
+            SyncMsgObjectDeGrab msg = new SyncMsgObjectDeGrab(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2256,7 +2256,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptCollidingStart, localID, colliders))
                 return;
 
-            SyncMsgScriptCollidingStart msg = new SyncMsgScriptCollidingStart(GetSOPUUID(localID), localID, colliders.Colliders);
+            SyncMsgScriptCollidingStart msg = new SyncMsgScriptCollidingStart(this, GetSOPUUID(localID), localID, colliders.Colliders);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2266,7 +2266,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptColliding, localID, colliders))
                 return;
 
-            SyncMsgScriptColliding msg = new SyncMsgScriptColliding(GetSOPUUID(localID), localID, colliders.Colliders);
+            SyncMsgScriptColliding msg = new SyncMsgScriptColliding(this, GetSOPUUID(localID), localID, colliders.Colliders);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2277,7 +2277,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptCollidingEnd, localID, colliders))
                 return;
 
-            SyncMsgScriptCollidingEnd msg = new SyncMsgScriptCollidingEnd(GetSOPUUID(localID), localID, colliders.Colliders);
+            SyncMsgScriptCollidingEnd msg = new SyncMsgScriptCollidingEnd(this, GetSOPUUID(localID), localID, colliders.Colliders);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2287,7 +2287,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptLandCollidingStart, localID, colliders))
                 return;
 
-            SyncMsgScriptLandCollidingStart msg = new SyncMsgScriptLandCollidingStart(GetSOPUUID(localID), localID, colliders.Colliders);
+            SyncMsgScriptLandCollidingStart msg = new SyncMsgScriptLandCollidingStart(this, GetSOPUUID(localID), localID, colliders.Colliders);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2297,7 +2297,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptLandColliding, localID, colliders))
                 return;
 
-            SyncMsgScriptLandColliding msg = new SyncMsgScriptLandColliding(GetSOPUUID(localID), localID, colliders.Colliders);
+            SyncMsgScriptLandColliding msg = new SyncMsgScriptLandColliding(this, GetSOPUUID(localID), localID, colliders.Colliders);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2307,7 +2307,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptLandCollidingEnd, localID, colliders))
                 return;
 
-            SyncMsgScriptLandCollidingEnd msg = new SyncMsgScriptLandCollidingEnd(GetSOPUUID(localID), localID, colliders.Colliders);
+            SyncMsgScriptLandCollidingEnd msg = new SyncMsgScriptLandCollidingEnd(this, GetSOPUUID(localID), localID, colliders.Colliders);
             msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
@@ -2500,7 +2500,7 @@ namespace DSG.RegionSync
                                 }
                                  * */
 
-                                SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(uuid, updatedProperties);
+                                SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(this, uuid, updatedProperties);
 
                                 /*
                                 //Log encoding delays
