@@ -540,7 +540,11 @@ namespace DSG.RegionSync
             }
         }
 
-        public void SendGenericMessage(string method, List<string> message)
+        public void SendGenericMessage(string method, UUID invoice, List<string> message) 
+        { 
+        }
+
+        public void SendGenericMessage(string method, UUID invoice, List<byte[]> message)
         {
         }
 
@@ -1303,11 +1307,6 @@ namespace DSG.RegionSync
         public void SendGroupVoteHistory(UUID groupID, UUID transactionID, GroupVoteHistory[] Votes)
         {
             throw new System.NotImplementedException();
-        }
-
-        public void SendGenericMessage(string method, List<byte[]> message)
-        {
-            m_log.Warn("RegionSyncAvatar: SendGenericMessage(string method, List<byte[]> message)");
         }
 
         public void SendGroupActiveProposals(UUID groupID, UUID transactionID, GroupActiveProposals[] Proposals)
