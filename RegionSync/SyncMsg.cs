@@ -165,8 +165,8 @@ public abstract class SyncMsg
     ///       
     /// </summary>
     protected static ILog m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
-    protected readonly string LogHeader = "[SYNCMSG]";
-    protected readonly string ZeroUUID = "00000000-0000-0000-0000-000000000000";
+    protected static readonly string LogHeader = "[SYNCMSG]";
+    protected static readonly string ZeroUUID = "00000000-0000-0000-0000-000000000000";
 
     public enum Direction
     {
@@ -200,6 +200,7 @@ public abstract class SyncMsg
     public static SyncMsg SyncMsgFactory(Stream pStream, SyncConnector pConnectorContext)
     {
         SyncMsg ret = null;
+
         MsgType mType = (MsgType)Utils.BytesToInt(GetBytesFromStream(pStream, 4));
         int length = Utils.BytesToInt(GetBytesFromStream(pStream, 4));
         byte[] data = GetBytesFromStream(pStream, length);
@@ -264,13 +265,17 @@ public abstract class SyncMsg
         RegionContext = null;
         ConnectorContext = null;
     }
-    public SyncMsg(RegionSyncModule pRegionContext)
+    // Constructor called when building a packet to send.
+    public SyncMsg(MsgType pMType, RegionSyncModule pRegionContext)
     {
+        MType = pMType;
+        Dir = Direction.Out;
         DataLength = 0;
         m_rawOutBytes = null;
         RegionContext = pRegionContext;
         ConnectorContext = null;
     }
+    // Constructor called when a packet of this type has been received.
     public SyncMsg(MsgType pType, int pLength, byte[] pData)
     {
         Dir = Direction.In;
@@ -300,10 +305,11 @@ public abstract class SyncMsg
     {
         if (m_rawOutBytes == null)
         {
-            m_rawOutBytes = new byte[m_data.Length + 8];
+            m_rawOutBytes = new byte[DataLength + 8];
             Utils.IntToBytes((int)MType, m_rawOutBytes, 0);
-            Utils.IntToBytes(m_data.Length, m_rawOutBytes, 4);
-            Array.Copy(m_data, 0, m_rawOutBytes, 8, m_data.Length);
+            Utils.IntToBytes(DataLength, m_rawOutBytes, 4);
+            if (DataLength != 0)
+                Array.Copy(m_data, 0, m_rawOutBytes, 8, DataLength);
         }
         return m_rawOutBytes;
     }
@@ -323,7 +329,7 @@ public abstract class SyncMsg
         RegionContext = pRegionContext;
         if (ConnectorContext != null)
         {
-            LogReception(pRegionContext, ConnectorContext);
+            LogReception(RegionContext, ConnectorContext);
         }
         return true;
     }
@@ -363,8 +369,8 @@ public abstract class SyncMsgOSDMapData : SyncMsg
 {
     protected OSDMap DataMap { get; set; }
 
-    public SyncMsgOSDMapData(RegionSyncModule pRegionSyncModule)
-        : base(pRegionSyncModule)
+    public SyncMsgOSDMapData(MsgType pMType, RegionSyncModule pRegionSyncModule)
+        : base(pMType, pRegionSyncModule)
     {
         DataMap = null;
     }
@@ -647,10 +653,10 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     public HashSet<SyncableProperties.Type> SyncableProperties { get; set; }
     public UUID Uuid { get; set; }
 
-    HashSet<SyncedProperty> SyncedProperties;
+    private HashSet<SyncedProperty> SyncedProperties;
 
     public SyncMsgUpdatedProperties(RegionSyncModule pRegionContext, UUID pUuid, HashSet<SyncableProperties.Type> pSyncableProperties)
-        : base(pRegionContext)
+        : base(MsgType.UpdatedProperties, pRegionContext)
     {
         Uuid = pUuid;
         SyncableProperties = pSyncableProperties;
@@ -729,7 +735,7 @@ public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
     public override string DetailLogTagSnd { get { return "SndGetRegn"; } }
 
     public SyncMsgGetRegionInfo(RegionSyncModule pRegionContext)
-        : base(pRegionContext)
+        : base(MsgType.GetRegionInfo, pRegionContext)
     {
     }
     public SyncMsgGetRegionInfo(MsgType pMsgType, int pLength, byte[] pData)
@@ -765,7 +771,7 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
     public RegionInfo RegInfo { get; set; }
 
     public SyncMsgRegionInfo(RegionSyncModule pRegionContext, RegionInfo pRegionInfo)
-        : base(pRegionContext)
+        : base(MsgType.RegionInfo, pRegionContext)
     {
         RegInfo = pRegionInfo;
     }
@@ -817,7 +823,7 @@ public class SyncMsgTimeStamp : SyncMsgOSDMapData
     public long TickTime { get; set; }
 
     public SyncMsgTimeStamp(RegionSyncModule pRegionContext, long pTickTime)
-        : base(pRegionContext)
+        : base(MsgType.TimeStamp, pRegionContext)
     {
         TickTime = pTickTime;
     }
@@ -854,7 +860,7 @@ public class SyncMsgGetTerrain : SyncMsgOSDMapData
     public override string DetailLogTagSnd { get { return "SndGetTerr"; } }
 
     public SyncMsgGetTerrain(RegionSyncModule pRegionContext)
-        : base(pRegionContext)
+        : base(MsgType.GetTerrain, pRegionContext)
     {
     }
     public SyncMsgGetTerrain(MsgType pMsgType, int pLength, byte[] pData)
@@ -881,12 +887,12 @@ public class SyncMsgGetTerrain : SyncMsgOSDMapData
     }
     public override void LogReception(RegionSyncModule pRegionContext, SyncConnector pConnectorContext)
     {
-        pRegionContext.DetailedUpdateWrite(DetailLogTagRcv, ZeroUUID, pRegionContext.TerrainSyncInfo.LastUpdateTimeStamp, ZeroUUID, ConnectorContext.otherSideActorID, 0);
+        pRegionContext.DetailedUpdateWrite(DetailLogTagRcv, ZeroUUID, pRegionContext.TerrainSyncInfo.LastUpdateTimeStamp, ZeroUUID, pConnectorContext.otherSideActorID, 0);
     }
     public override void LogTransmission(SyncConnector pConnectorContext)
     {
         if (RegionContext != null)
-            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, ZeroUUID, 0, ZeroUUID, ConnectorContext.otherSideActorID, DataLength);
+            RegionContext.DetailedUpdateWrite(DetailLogTagSnd, ZeroUUID, 0, ZeroUUID, pConnectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================
@@ -900,7 +906,7 @@ public class SyncMsgTerrain : SyncMsgOSDMapData
     public string LastUpdateActorID { get; set; }
 
     public SyncMsgTerrain(RegionSyncModule pRegionContext, TerrainSyncInfo pTerrainInfo)
-        : base(pRegionContext)
+        : base(MsgType.Terrain, pRegionContext)
     {
     }
     public SyncMsgTerrain(MsgType pMsgType, int pLength, byte[] pData)
@@ -948,7 +954,7 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
     public override string DetailLogTagSnd { get { return "SndGetObjj"; } }
 
     public SyncMsgGetObjects(RegionSyncModule pRegionContext)
-        : base(pRegionContext)
+        : base(MsgType.GetObjects, pRegionContext)
     {
     }
     public SyncMsgGetObjects(MsgType pMsgType, int pLength, byte[] pData)
@@ -984,7 +990,7 @@ public class SyncMsgGetPresences : SyncMsgOSDMapData
     public override string DetailLogTagSnd { get { return "SndGetPres"; } }
 
     public SyncMsgGetPresences(RegionSyncModule pRegionContext)
-        : base(pRegionContext)
+        : base(MsgType.GetPresences, pRegionContext)
     {
     }
     public SyncMsgGetPresences(MsgType pMsgType, int pLength, byte[] pData)
@@ -1032,7 +1038,7 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
     public Dictionary<UUID, SyncInfoBase> SyncInfos;
 
     public SyncMsgNewObject(RegionSyncModule pRegionContext, SceneObjectGroup pSog)
-        : base(pRegionContext)
+        : base(MsgType.NewObject, pRegionContext)
     {
         SOG = pSog;
     }
@@ -1148,7 +1154,7 @@ public class SyncMsgRemovedObject : SyncMsgOSDMapData
     public string ActorID { get; set; }
 
     public SyncMsgRemovedObject(RegionSyncModule pRegionContext, UUID pUuid, string pActorID, bool pSoftDelete)
-        : base(pRegionContext)
+        : base(MsgType.RemovedObject, pRegionContext)
     {
         Uuid = pUuid;
         SoftDelete = pSoftDelete;
@@ -1237,7 +1243,7 @@ public class SyncMsgLinkObject : SyncMsgOSDMapData
     public int PartCount;
 
     public SyncMsgLinkObject(RegionSyncModule pRegionContext, SceneObjectGroup pLinkedGroup, UUID pRootUUID, List<UUID> pChildrenUUIDs, string pActorID)
-        : base(pRegionContext)
+        : base(MsgType.LinkObject, pRegionContext)
     {
         LinkedGroup = pLinkedGroup;
         RootUUID = pRootUUID;
@@ -1352,7 +1358,7 @@ public class SyncMsgDelinkObject : SyncMsgOSDMapData
     public List<Dictionary<UUID, SyncInfoBase>> PrimSyncInfo;
 
     public SyncMsgDelinkObject(RegionSyncModule pRegionContext, List<UUID> pDelinkPrimIDs, List<UUID> pBeforeDlinkGroupIDs, List<SceneObjectGroup> pAfterDelinkGroups)
-        : base(pRegionContext)
+        : base(MsgType.DelinkObject, pRegionContext)
     {
         DelinkPrimIDs = pDelinkPrimIDs;
         BeforeDelinkGroupIDs = pBeforeDlinkGroupIDs;
@@ -1505,7 +1511,7 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
     public ScenePresence SP { get; set; }
 
     public SyncMsgNewPresence(RegionSyncModule pRegionContext, ScenePresence pSP)
-        : base(pRegionContext)
+        : base(MsgType.NewPresence, pRegionContext)
     {
         SP = pSP;
         Uuid = SP.UUID;
@@ -1575,7 +1581,7 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
     public UUID Uuid = UUID.Zero;
 
     public SyncMsgRemovedPresence(RegionSyncModule pRegionContext, UUID pUuid)
-        : base(pRegionContext)
+        : base(MsgType.RemovedPresence, pRegionContext)
     {
         Uuid = pUuid;
     }
@@ -1637,7 +1643,7 @@ public class SyncMsgRegionName : SyncMsgOSDMapData
     public string RegName;
 
     public SyncMsgRegionName(RegionSyncModule pRegionContext, string pRegionName)
-        : base(pRegionContext)
+        : base(MsgType.RegionName, pRegionContext)
     {
         RegName = pRegionName;
     }
@@ -1699,7 +1705,7 @@ public class SyncMsgActorID : SyncMsgOSDMapData
     private string ActorID;
 
     public SyncMsgActorID(RegionSyncModule pRegionContext, string pActorID)
-        : base(pRegionContext)
+        : base(MsgType.ActorID, pRegionContext)
     {
         ActorID = pActorID;
     }
@@ -1758,7 +1764,7 @@ public class SyncMsgRegionStatus : SyncMsgOSDMapData
     public override string DetailLogTagSnd { get { return "SndRgnStat"; } }
 
     public SyncMsgRegionStatus(RegionSyncModule pRegionContext)
-        : base(pRegionContext)
+        : base(MsgType.RegionStatus, pRegionContext)
     {
     }
     public SyncMsgRegionStatus(MsgType pMsgType, int pLength, byte[] pData)
@@ -1787,14 +1793,14 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     public string SyncID { get; set; }
     public ulong SequenceNum { get; set; }
 
-    public SyncMsgEvent(RegionSyncModule pRegionContext)
-        : base(pRegionContext)
+    public SyncMsgEvent(MsgType pMType, RegionSyncModule pRegionContext)
+        : base(pMType, pRegionContext)
     {
         SyncID = "UNKNOWN";
         SequenceNum = 1;
     }
-    public SyncMsgEvent(RegionSyncModule pRegionContext, string pSyncID, ulong pSeqNum)
-        : base(pRegionContext)
+    public SyncMsgEvent(MsgType pMType, RegionSyncModule pRegionContext, string pSyncID, ulong pSeqNum)
+        : base(pMType, pRegionContext)
     {
         SyncID = pSyncID;
         SequenceNum = pSeqNum;
@@ -1900,7 +1906,7 @@ public class SyncMsgNewScript : SyncMsgEvent
     public HashSet<SyncedProperty> UpdatedProperties;
 
     public SyncMsgNewScript(RegionSyncModule pRegionContext, UUID pUuid, UUID pAgentID, UUID pItemID, HashSet<SyncableProperties.Type> pSyncableProperties)
-        : base(pRegionContext)
+        : base(MsgType.NewScript, pRegionContext)
     {
         Uuid = pUuid;
         AgentID = pAgentID;
@@ -1975,7 +1981,7 @@ public class SyncMsgUpdateScript : SyncMsgEvent
     public UUID AssetID { get; set; }
 
     public SyncMsgUpdateScript(RegionSyncModule pRegionContext, UUID pAgentID, UUID pItemID, UUID pPrimID, bool pIsRunning, UUID pAssetID)
-        : base(pRegionContext)
+        : base(MsgType.UpdateScript, pRegionContext)
     {
         AgentID = pAgentID;
         ItemID = pItemID;
@@ -2037,7 +2043,7 @@ public class SyncMsgScriptReset : SyncMsgEvent
     public UUID PrimID { get; set; }
 
     public SyncMsgScriptReset(RegionSyncModule pRegionContext, UUID pItemID, UUID pPrimID)
-        : base(pRegionContext)
+        : base(MsgType.ScriptReset, pRegionContext)
     {
         ItemID = pItemID;
         PrimID = pPrimID;
@@ -2094,7 +2100,7 @@ public class SyncMsgChatFromClient : SyncMsgEvent
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatFromClient(RegionSyncModule pRegionContext, OSChatMessage pChatMessage)
-        : base(pRegionContext)
+        : base(MsgType.ChatFromClient, pRegionContext)
     {
         ChatMessage = pChatMessage;
     }
@@ -2142,7 +2148,7 @@ public class SyncMsgChatFromWorld : SyncMsgEvent
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatFromWorld(RegionSyncModule pRegionContext, OSChatMessage pChatMessage)
-        : base(pRegionContext)
+        : base(MsgType.ChatFromWorld, pRegionContext)
     {
         ChatMessage = pChatMessage;
     }
@@ -2190,7 +2196,7 @@ public class SyncMsgChatBroadcast : SyncMsgEvent
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatBroadcast(RegionSyncModule pRegionContext, OSChatMessage pChatMessage)
-        : base(pRegionContext)
+        : base(MsgType.ChatBroadcast, pRegionContext)
     {
         ChatMessage = pChatMessage;
     }
@@ -2241,8 +2247,8 @@ public abstract class SyncMsgEventGrabber : SyncMsgEvent
     public uint OriginalID { get; set; }
     public ScenePresence SP;
     
-    public SyncMsgEventGrabber(RegionSyncModule pRegionContext, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pRegionContext)
+    public SyncMsgEventGrabber(MsgType pMType, RegionSyncModule pRegionContext, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
+        : base(pMType, pRegionContext)
     {
         AgentID = pAgentID;
         PrimID = pPrimID;
@@ -2326,7 +2332,7 @@ public class SyncMsgObjectGrab : SyncMsgEventGrabber
     public override string DetailLogTagSnd { get { return "SndGrabbbb"; } }
 
     public SyncMsgObjectGrab(RegionSyncModule pRegionContext, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
+        : base(MsgType.ObjectGrab, pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
     public SyncMsgObjectGrab(MsgType pMsgType, int pLength, byte[] pData)
@@ -2360,7 +2366,7 @@ public class SyncMsgObjectGrabbing : SyncMsgEventGrabber
     public override string DetailLogTagSnd { get { return "SndGrabing"; } }
 
     public SyncMsgObjectGrabbing(RegionSyncModule pRegionContext, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
+        : base(MsgType.ObjectGrabbing, pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
     public SyncMsgObjectGrabbing(MsgType pMsgType, int pLength, byte[] pData)
@@ -2394,7 +2400,7 @@ public class SyncMsgObjectDeGrab : SyncMsgEventGrabber
     public override string DetailLogTagSnd { get { return "SndDeGrabb"; } }
 
     public SyncMsgObjectDeGrab(RegionSyncModule pRegionContext, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
+        : base(MsgType.ObjectDeGrab, pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
     public SyncMsgObjectDeGrab(MsgType pMsgType, int pLength, byte[] pData)
@@ -2432,7 +2438,7 @@ public class SyncMsgAttach : SyncMsgEvent
     public UUID AvatarID { get; set; }
 
     public SyncMsgAttach(RegionSyncModule pRegionContext, UUID pPrimID, UUID pItemID, UUID pAvatarID)
-        : base(pRegionContext)
+        : base(MsgType.Attach, pRegionContext)
     {
         PrimID = pPrimID;
         ItemID = pItemID;
@@ -2493,8 +2499,8 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
     public List<DetectedObject> Colliders;
     protected List<UUID> CollidersNotFound;
 
-    public SyncMsgEventCollision(RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pRegionContext)
+    public SyncMsgEventCollision(MsgType pMType, RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
+        : base(pMType, pRegionContext)
     {
         CollideeUUID = pCollidee;
         CollideeID = pCollideeID;
@@ -2659,7 +2665,7 @@ public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
     public override string DetailLogTagSnd { get { return "SndColStrt"; } }
 
     public SyncMsgScriptCollidingStart(RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pRegionContext, pCollidee, pCollideeID, pColliders)
+        : base(MsgType.ScriptCollidingStart, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
     public SyncMsgScriptCollidingStart(MsgType pMsgType, int pLength, byte[] pData)
@@ -2699,7 +2705,7 @@ public class SyncMsgScriptColliding : SyncMsgEventCollision
     public override string DetailLogTagSnd { get { return "SndColidng"; } }
 
     public SyncMsgScriptColliding(RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pRegionContext, pCollidee, pCollideeID, pColliders)
+        : base(MsgType.ScriptColliding, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
     public SyncMsgScriptColliding(MsgType pMsgType, int pLength, byte[] pData)
@@ -2736,7 +2742,7 @@ public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
     public override string DetailLogTagSnd { get { return "SndCollEnd"; } }
 
     public SyncMsgScriptCollidingEnd(RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pRegionContext, pCollidee, pCollideeID, pColliders)
+        : base(MsgType.ScriptCollidingEnd, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
     public SyncMsgScriptCollidingEnd(MsgType pMsgType, int pLength, byte[] pData)
@@ -2773,7 +2779,7 @@ public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
     public override string DetailLogTagSnd { get { return "SndLColSrt"; } }
 
     public SyncMsgScriptLandCollidingStart(RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pRegionContext, pCollidee, pCollideeID, pColliders)
+        : base(MsgType.ScriptLandCollidingStart, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
     public SyncMsgScriptLandCollidingStart(MsgType pMsgType, int pLength, byte[] pData)
@@ -2810,7 +2816,7 @@ public class SyncMsgScriptLandColliding : SyncMsgEventCollision
     public override string DetailLogTagSnd { get { return "SndLColing"; } }
 
     public SyncMsgScriptLandColliding(RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pRegionContext, pCollidee, pCollideeID, pColliders)
+        : base(MsgType.ScriptLandColliding, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
     public SyncMsgScriptLandColliding(MsgType pMsgType, int pLength, byte[] pData)
@@ -2847,7 +2853,7 @@ public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
     public override string DetailLogTagSnd { get { return "SndLColEnd"; } }
 
     public SyncMsgScriptLandCollidingEnd(RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pRegionContext, pCollidee, pCollideeID, pColliders)
+        : base(MsgType.ScriptLandCollidingEnd, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
     public SyncMsgScriptLandCollidingEnd(MsgType pMsgType, int pLength, byte[] pData)

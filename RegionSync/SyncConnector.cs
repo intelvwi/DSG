@@ -276,7 +276,7 @@ namespace DSG.RegionSync
                 }
                 catch (Exception e)
                 {
-                    m_log.WarnFormat("{0}:Error in Send() {1} has disconnected -- error message: {2}.", description, m_connectorNum, e.Message);
+                    m_log.ErrorFormat("{0}:Error in Send() {1} has disconnected: {2}.", LogHeader, m_connectorNum, e);
                 }
             }
         }
@@ -300,7 +300,7 @@ namespace DSG.RegionSync
                 catch (Exception e)
                 {
                     //ShutdownClient();
-                    m_log.ErrorFormat("{0}: ReceiveLoop error {1} has disconnected -- error message {2}.", description, m_connectorNum, e.Message);
+                    m_log.ErrorFormat("{0}: ReceiveLoop error. Connector {1} disconnected: {2}.", LogHeader, m_connectorNum, e);
                     Shutdown();
                     return;
                 }
@@ -311,7 +311,14 @@ namespace DSG.RegionSync
                 }
                 catch (Exception e)
                 {
-                    m_log.WarnFormat("{0} Encountered an exception: {1} {2} {3} (MSGTYPE = {4})", description, e.Message, e.TargetSite, e.ToString(), msg.ToString());
+                    if (msg == null)
+                    {
+                        m_log.ErrorFormat("{0} Exception handling msg: NULL MESSAGE: {1}", LogHeader, e);
+                    }
+                    else
+                    {
+                        m_log.ErrorFormat("{0} Exception handling msg: type={1},len={2}: {3}", LogHeader, msg.MType, msg.DataLength, e);
+                    }
                 }
             }
         }
