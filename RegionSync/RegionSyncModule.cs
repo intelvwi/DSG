@@ -505,7 +505,6 @@ namespace DSG.RegionSync
             if (IsSyncingWithOtherSyncNodes())
             {
                 SyncMsgNewPresence msg = new SyncMsgNewPresence(this, sp);
-                msg.ConvertOut(this);
                 m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
                 SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
             }
@@ -518,7 +517,6 @@ namespace DSG.RegionSync
             m_SyncInfoManager.RemoveSyncInfo(uuid);
 
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
-            msg.ConvertOut(this);
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
         }
 
@@ -555,7 +553,6 @@ namespace DSG.RegionSync
             {
                 // if we're syncing with other nodes, send out the message
                 SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
-                msg.ConvertOut(this);
                 // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
                 SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
             }
@@ -858,6 +855,9 @@ namespace DSG.RegionSync
         //May need a better method for managing the outgoing messages (i.e. prioritizing object updates and events)
         public void SendSceneEventToRelevantSyncConnectors(string init_actorID, SyncMsg rsm, SceneObjectGroup sog)
         {
+            // Convert the message from data fields to a block of data to send.
+            rsm.ConvertOut(this);
+
             //TODO: need to pick connectors based on sog position (quark it resides in)
             List<SyncConnector> syncConnectors = GetSyncConnectorsForSceneEvents(init_actorID, rsm, sog);
             // m_log.DebugFormat("{0}: SendSyncEventToRelevantSyncConnectors. numConnectors={1}", LogHeader, syncConnectors.Count);
@@ -1535,7 +1535,6 @@ namespace DSG.RegionSync
         /// <param name="msg"></param>
         private void SendSyncMessage(SyncMsg msg)
         {
-            msg.ConvertOut(this);
             ForEachSyncConnector(delegate(SyncConnector syncConnector)
             {
                 syncConnector.ImmediateOutgoingMsg(msg);
@@ -1594,7 +1593,6 @@ namespace DSG.RegionSync
             if(IsLocallyGeneratedEvent(SyncMsg.MsgType.RegionInfo, null))
                 return;
             SyncMsgRegionInfo msg = new SyncMsgRegionInfo(this, Scene.RegionInfo);
-            msg.ConvertOut(this);
             foreach (SyncConnector connector in GetSyncConnectorsForUpdates())
             {
                 connector.ImmediateOutgoingMsg(msg);
@@ -2076,7 +2074,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgUpdateScript msg = new SyncMsgUpdateScript(this, agentID, itemId, primId, isScriptRunning, newAssetID);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2094,7 +2091,6 @@ namespace DSG.RegionSync
                 return;
             }
             SyncMsgScriptReset msg = new SyncMsgScriptReset(this, part.UUID, itemID);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2105,7 +2101,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgChatBroadcast msg = new SyncMsgChatBroadcast(this, chat);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2117,7 +2112,6 @@ namespace DSG.RegionSync
             //    return;
 
             SyncMsgChatFromClient msg = new SyncMsgChatFromClient(this, chat);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2128,7 +2122,6 @@ namespace DSG.RegionSync
 
             //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromWorld {0}:{1}", chat.From, chat.Message);
             SyncMsgChatFromWorld msg = new SyncMsgChatFromWorld(this, chat);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2145,7 +2138,6 @@ namespace DSG.RegionSync
                 return;
             }
             SyncMsgAttach msg = new SyncMsgAttach(this, part.UUID, itemID, avatarID);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2205,7 +2197,6 @@ namespace DSG.RegionSync
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
             SyncMsgObjectGrabbing msg = new SyncMsgObjectGrabbing(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2218,7 +2209,6 @@ namespace DSG.RegionSync
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
             SyncMsgObjectDeGrab msg = new SyncMsgObjectDeGrab(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2257,7 +2247,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptCollidingStart msg = new SyncMsgScriptCollidingStart(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2267,7 +2256,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptColliding msg = new SyncMsgScriptColliding(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2278,7 +2266,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptCollidingEnd msg = new SyncMsgScriptCollidingEnd(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2288,7 +2275,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptLandCollidingStart msg = new SyncMsgScriptLandCollidingStart(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2298,7 +2284,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptLandColliding msg = new SyncMsgScriptLandColliding(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2308,7 +2293,6 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptLandCollidingEnd msg = new SyncMsgScriptLandCollidingEnd(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            msg.ConvertOut(this);
             SendSceneEvent(msg);
         }
 
@@ -2538,6 +2522,10 @@ namespace DSG.RegionSync
                                         m_log.DebugFormat("Updates from {0}", logstr);
                                          * */
                                     }
+                                    // Prepare the data for output. If more updated properties are added later,
+                                    //     the data is rebuilt. Calling this here means the conversion is usually done on this
+                                    //     worker thread and not the send thread and that log messages have the correct len.
+                                    msg.ConvertOut(this);
                                     connector.EnqueueOutgoingUpdate(uuid, msg);
                                 }
 

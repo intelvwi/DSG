@@ -90,6 +90,11 @@ namespace DSG.RegionSync
                     if (updatedPropMsg != null && existingUpdatedPropMsg != null)
                     {
                         existingUpdatedPropMsg.SyncableProperties.Union(updatedPropMsg.SyncableProperties);
+                        existingUpdatedPropMsg.ClearConvertedData();
+                    }
+                    else
+                    {
+                        // It is very odd that it is not one of ours. Don't know how another type got into the list.
                     }
                 }
                 m_updates[id] = update;

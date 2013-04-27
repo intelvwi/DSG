@@ -27,3 +27,8 @@ RegionSyncModule.OnLocalNewScript generates an updated property list which cause
 	SyncMsgnewScript.
 
 
+Add object UUID to log message:
+	RcvNewObjj, RcvRemObjj,
+	RcvNewPres, RcvRemPres, 
+	RcvAttachh,
+WHat is the ending UUID on detail log messages? It seems to be always zero UUID.

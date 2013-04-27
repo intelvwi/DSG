@@ -213,6 +213,10 @@ namespace DSG.RegionSync
                 while (true)
                 {
                     SyncMsg msg = m_outQ.Dequeue();
+
+                    // Do any conversion if it was not done earlier (on a friendlier thread)
+                    msg.ConvertOut(m_regionSyncModule);
+
                     if (m_collectingStats) currentQueue.Event(-1);
                     Send(msg);
                 }
@@ -232,8 +236,8 @@ namespace DSG.RegionSync
         public void EnqueueOutgoingUpdate(UUID id, SyncMsg update)
         {
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
-            // Enqueue is thread safe
             update.LogTransmission(this);
+            // Enqueue is thread safe
             if (m_outQ.Enqueue(id, update) && m_collectingStats)
                 currentQueue.Event(1);
         }
@@ -261,6 +265,10 @@ namespace DSG.RegionSync
                 try
                 {
                     CollectSendStat(msg.MType.ToString(), msg.DataLength);
+                    // Rather than async write, use the TCP flow control to stop this thread if the
+                    //    receiver cannot consume the data quick enough.
+                    m_tcpConnection.GetStream().Write(data, 0, data.Length);
+                    /*
                     m_tcpConnection.GetStream().BeginWrite(data, 0, data.Length, ar =>
                     {
                         if (m_tcpConnection.Connected)
@@ -273,6 +281,7 @@ namespace DSG.RegionSync
                             { }
                         }
                     }, null);
+                     */
                 }
                 catch (Exception e)
                 {

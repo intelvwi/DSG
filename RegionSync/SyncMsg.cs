@@ -179,6 +179,9 @@ public abstract class SyncMsg
     // They type of this message
     public MsgType MType { get; protected set; }
 
+    // Lock used to protect data creation since multiple threads can try to convert this from data to buffers on output.
+    protected object m_dataLock = new object();
+
     // The binary data this type of message is built from or converted into
     public int DataLength { get; protected set; }
     protected byte[] m_data;
@@ -271,6 +274,7 @@ public abstract class SyncMsg
         MType = pMType;
         Dir = Direction.Out;
         DataLength = 0;
+        m_data = null;
         m_rawOutBytes = null;
         RegionContext = pRegionContext;
         ConnectorContext = null;
@@ -303,14 +307,18 @@ public abstract class SyncMsg
     // If there was any internal data manipulated, someone must call ProcessOut() before this is called.
     public byte[] GetWireBytes()
     {
-        if (m_rawOutBytes == null)
+        lock (m_dataLock)
         {
-            m_rawOutBytes = new byte[DataLength + 8];
-            Utils.IntToBytes((int)MType, m_rawOutBytes, 0);
-            Utils.IntToBytes(DataLength, m_rawOutBytes, 4);
-            if (DataLength != 0)
-                Array.Copy(m_data, 0, m_rawOutBytes, 8, DataLength);
+            if (m_rawOutBytes == null)
+            {
+                m_rawOutBytes = new byte[DataLength + 8];
+                Utils.IntToBytes((int)MType, m_rawOutBytes, 0);
+                Utils.IntToBytes(DataLength, m_rawOutBytes, 4);
+                if (DataLength != 0)
+                    Array.Copy(m_data, 0, m_rawOutBytes, 8, DataLength);
+            }
         }
+        // m_log.DebugFormat("{0} GetWireByte: typ={1}, len={2}", LogHeader, MType, DataLength);
         return m_rawOutBytes;
     }
 
@@ -319,6 +327,7 @@ public abstract class SyncMsg
     // Return 'true' if successful handling.
     public virtual bool ConvertIn(RegionSyncModule pRegionContext)
     {
+        // m_log.DebugFormat("{0} ConvertIn: typ={1}", LogHeader, MType);
         RegionContext = pRegionContext;
         m_rawOutBytes = null;
         return true;
@@ -326,6 +335,7 @@ public abstract class SyncMsg
     // Handle the received message. ConvertIn() has been called before this.
     public virtual bool HandleIn(RegionSyncModule pRegionContext)
     {
+        // m_log.DebugFormat("{0} HandleIn: typ={1}", LogHeader, MType);
         RegionContext = pRegionContext;
         if (ConnectorContext != null)
         {
@@ -338,6 +348,7 @@ public abstract class SyncMsg
     // Return 'true' if successful handling.
     public virtual bool ConvertOut(RegionSyncModule pRegionContext)
     {
+        // m_log.DebugFormat("{0} ConvertOut: typ={1}", LogHeader, MType);
         RegionContext = pRegionContext;
         m_rawOutBytes = null;
         return true;
@@ -372,11 +383,13 @@ public abstract class SyncMsgOSDMapData : SyncMsg
     public SyncMsgOSDMapData(MsgType pMType, RegionSyncModule pRegionSyncModule)
         : base(pMType, pRegionSyncModule)
     {
+        // m_log.DebugFormat("{0} SyncMsgOSDMapData.constructor: dir=out, type={1}, syncMod={2}", LogHeader, pMType, pRegionSyncModule.Name);
         DataMap = null;
     }
     public SyncMsgOSDMapData(MsgType pType, int pLength, byte[] pData)
         : base(pType, pLength, pData)
     {
+        // m_log.DebugFormat("{0} SyncMsgOSDMapData.constructor: dir=in, type={1}, len={2}", LogHeader, pType, pLength);
         DataMap = null;
     }
     // Convert the received block of binary bytes into an OSDMap (DataMap)
@@ -388,12 +401,21 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         {
             case Direction.In:
                 // A received message so convert the buffer data to an OSDMap for use by children classes
-                DataMap = DeserializeMessage();
+                if (DataLength != 0)
+                {
+                    DataMap = DeserializeMessage();
+                    // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertIn: dir=in, map={1}", LogHeader, DataMap.ToString());
+                }
+                else
+                {
+                    // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertIn: dir=in, no data", LogHeader);
+                }
                 break;
             case Direction.Out:
                 // A message being built for output.
                 // It is actually an error that this method is called as there should be no binary data.
                 DataMap = null;
+                // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertIn: dir=out, map=NULL", LogHeader);
                 break;
         }
         return (DataMap != null);
@@ -407,19 +429,29 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                 // A message received being sent out again.
                 // Current architecture is to just output the existing binary buffer so
                 //     nothing is converted.
+                // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertOut: dir=in, typ={1}", LogHeader, MType);
                 break;
             case Direction.Out:
                 // Message being created for output. The children of this base class
                 //    should have created a DataMap from the local variables.
-                if (DataMap != null)
+                lock (m_dataLock)
                 {
-                    string s = OSDParser.SerializeJsonString(DataMap, true);
-                    m_data = System.Text.Encoding.ASCII.GetBytes(s);
-                    DataLength = m_data.Length;
-                }
-                else
-                {
-                    DataLength = 0;
+                    if (DataMap != null)
+                    {
+                        if (m_data == null)
+                        {
+                            string s = OSDParser.SerializeJsonString(DataMap, true);
+                            m_data = System.Text.Encoding.ASCII.GetBytes(s);
+                            DataLength = m_data.Length;
+                            // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertOut: building m_data, dir=out, typ={1}, len={2}",
+                            //                                    LogHeader, MType, DataLength);
+                        }
+                    }
+                    else
+                    {
+                        DataLength = 0;
+                        // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertOut: no m_data, dir=out, typ={1}", LogHeader, MType);
+                    }
                 }
                 break;
         }
@@ -675,15 +707,20 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
             SyncedProperties = SyncedProperty.DecodeProperties(DataMap);
             if (SyncedProperties == null)
             {
-                m_log.ErrorFormat("{0} HandleUpdatedProperties could not get syncedProperties", LogHeader);
+                m_log.ErrorFormat("{0} UpdatedProperties.ConvertIn could not get syncedProperties", LogHeader);
                 ret = false;
             }
             Uuid = DataMap["uuid"].AsUUID();
             if (Uuid == null)
             {
-                m_log.ErrorFormat("{0} HandleUpdatedProperties could not get UUID!", LogHeader);
+                m_log.ErrorFormat("{0} UpdatedProperties.ConvertIn could not get UUID!", LogHeader);
                 ret = false;
             }
+        }
+        else
+        {
+            m_log.ErrorFormat("{0} UpdatedProperties.ConvertIn failed to convert input data", LogHeader);
+            ret = false;
         }
         return ret;
     }
@@ -691,13 +728,14 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     {
         if (base.HandleIn(pRegionContext))
         {
-            if (SyncableProperties.Count > 0)
+            if (SyncedProperties != null && SyncedProperties.Count > 0)
             {
                 // Update local sync info and scene object/presence
                 pRegionContext.RememberLocallyGeneratedEvent(MType);
                 HashSet<SyncableProperties.Type> propertiesUpdated = pRegionContext.InfoManager.UpdateSyncInfoBySync(Uuid, SyncedProperties);
                 pRegionContext.ForgetLocallyGeneratedEvent();
 
+                // Do our own detail logging after we know which properties are actually updated (in propertiesUpdated)
                 pRegionContext.DetailedUpdateLogging(Uuid, propertiesUpdated, SyncedProperties, "RecUpdateN", ConnectorContext.otherSideActorID, DataLength);
 
                 // Relay the update properties
@@ -709,11 +747,20 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     }
     public override bool ConvertOut(RegionSyncModule pRegionContext)
     {
-        if (Dir == Direction.Out && DataMap == null)
+        lock (m_dataLock)
         {
-            DataMap = pRegionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+            if (Dir == Direction.Out && DataMap == null)
+            {
+                DataMap = pRegionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+                // m_log.DebugFormat("{0} SyncMsgUpdatedProperties.ConvertOut, syncProp={1}, DataMap={2}", LogHeader, SyncableProperties, DataMap);
+            }
         }
         return base.ConvertOut(pRegionContext);
+    }
+    public void ClearConvertedData()
+    {
+        DataMap = null;
+        m_data = null;
     }
     public override void LogReception(RegionSyncModule pRegionContext, SyncConnector pConnectorContext)
     {
@@ -751,6 +798,7 @@ public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
         if (base.HandleIn(pRegionContext))
         {
             SyncMsgRegionInfo msg = new SyncMsgRegionInfo(pRegionContext, pRegionContext.Scene.RegionInfo);
+            msg.ConvertOut(pRegionContext);
             ConnectorContext.ImmediateOutgoingMsg(msg);
         }
         return true;
@@ -877,7 +925,7 @@ public class SyncMsgGetTerrain : SyncMsgOSDMapData
         {
             SyncMsgTerrain msg = new SyncMsgTerrain(pRegionContext, pRegionContext.TerrainSyncInfo);
             msg.ConvertOut(pRegionContext);
-            msg.ConnectorContext.ImmediateOutgoingMsg(msg);
+            ConnectorContext.ImmediateOutgoingMsg(msg);
         }
         return true;
     }
@@ -1016,7 +1064,7 @@ public class SyncMsgGetPresences : SyncMsgOSDMapData
                     // The ACD normally only gets updated when an avatar is moving between regions.
                     SyncMsgNewPresence msg = new SyncMsgNewPresence(pRegionContext, sp);
                     msg.ConvertOut(pRegionContext);
-                    m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
+                    // m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
                     ConnectorContext.ImmediateOutgoingMsg(msg);
                 }
             }
