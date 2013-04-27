@@ -210,44 +210,44 @@ public abstract class SyncMsg
 
         switch (mType)
         {
-            case MsgType.UpdatedProperties: ret = new SyncMsgUpdatedProperties(mType, length, data);    break;
-            case MsgType.GetTerrain:        ret = new SyncMsgGetTerrain(mType, length, data);           break;
-            case MsgType.GetObjects:        ret = new SyncMsgGetObjects(mType, length, data);           break;
-            case MsgType.GetPresences:      ret = new SyncMsgGetPresences(mType, length, data);         break;
-            case MsgType.GetRegionInfo:     ret = new SyncMsgGetRegionInfo(mType, length, data);        break;
-            case MsgType.Terrain:           ret = new SyncMsgTerrain(mType, length, data);              break;
-            case MsgType.RegionInfo:        ret = new SyncMsgRegionInfo(mType, length, data);           break;
-            case MsgType.NewObject:         ret = new SyncMsgNewObject(mType, length, data);            break;
-            case MsgType.RemovedObject:     ret = new SyncMsgRemovedObject(mType, length, data);        break;
-            case MsgType.LinkObject:        ret = new SyncMsgLinkObject(mType, length, data);           break;
-            case MsgType.DelinkObject:      ret = new SyncMsgDelinkObject(mType, length, data);         break;
-            case MsgType.NewPresence:       ret = new SyncMsgNewPresence(mType, length, data);          break;
-            case MsgType.RemovedPresence:   ret = new SyncMsgRemovedPresence(mType, length, data);      break;
-            case MsgType.RegionName:        ret = new SyncMsgRegionName(mType, length, data);           break;
-            case MsgType.ActorID:           ret = new SyncMsgActorID(mType, length, data);              break;
-            case MsgType.RegionStatus:      ret = new SyncMsgRegionStatus(mType, length, data);         break;
+            case MsgType.UpdatedProperties: ret = new SyncMsgUpdatedProperties(length, data);    break;
+            case MsgType.GetTerrain:        ret = new SyncMsgGetTerrain(length, data);           break;
+            case MsgType.GetObjects:        ret = new SyncMsgGetObjects(length, data);           break;
+            case MsgType.GetPresences:      ret = new SyncMsgGetPresences(length, data);         break;
+            case MsgType.GetRegionInfo:     ret = new SyncMsgGetRegionInfo(length, data);        break;
+            case MsgType.Terrain:           ret = new SyncMsgTerrain(length, data);              break;
+            case MsgType.RegionInfo:        ret = new SyncMsgRegionInfo(length, data);           break;
+            case MsgType.NewObject:         ret = new SyncMsgNewObject(length, data);            break;
+            case MsgType.RemovedObject:     ret = new SyncMsgRemovedObject(length, data);        break;
+            case MsgType.LinkObject:        ret = new SyncMsgLinkObject(length, data);           break;
+            case MsgType.DelinkObject:      ret = new SyncMsgDelinkObject(length, data);         break;
+            case MsgType.NewPresence:       ret = new SyncMsgNewPresence(length, data);          break;
+            case MsgType.RemovedPresence:   ret = new SyncMsgRemovedPresence(length, data);      break;
+            case MsgType.RegionName:        ret = new SyncMsgRegionName(length, data);           break;
+            case MsgType.ActorID:           ret = new SyncMsgActorID(length, data);              break;
+            case MsgType.RegionStatus:      ret = new SyncMsgRegionStatus(length, data);         break;
 
-            case MsgType.NewScript:         ret = new SyncMsgNewScript(mType, length, data);            break;
-            case MsgType.UpdateScript:      ret = new SyncMsgUpdateScript(mType, length, data);         break;
-            case MsgType.ScriptReset:       ret = new SyncMsgScriptReset(mType, length, data);          break;
-            case MsgType.ChatFromClient:    ret = new SyncMsgChatFromClient(mType, length, data);       break;
-            case MsgType.ChatFromWorld:     ret = new SyncMsgChatFromWorld(mType, length, data);        break;
-            case MsgType.ChatBroadcast:     ret = new SyncMsgChatBroadcast(mType, length, data);        break;
-            case MsgType.ObjectGrab:        ret = new SyncMsgObjectGrab(mType, length, data);           break;
-            case MsgType.ObjectGrabbing:    ret = new SyncMsgObjectGrabbing(mType, length, data);       break;
-            case MsgType.ObjectDeGrab:      ret = new SyncMsgObjectDeGrab(mType, length, data);         break;
-            case MsgType.Attach:            ret = new SyncMsgAttach(mType, length, data);               break;
+            case MsgType.NewScript:         ret = new SyncMsgNewScript(length, data);            break;
+            case MsgType.UpdateScript:      ret = new SyncMsgUpdateScript(length, data);         break;
+            case MsgType.ScriptReset:       ret = new SyncMsgScriptReset(length, data);          break;
+            case MsgType.ChatFromClient:    ret = new SyncMsgChatFromClient(length, data);       break;
+            case MsgType.ChatFromWorld:     ret = new SyncMsgChatFromWorld(length, data);        break;
+            case MsgType.ChatBroadcast:     ret = new SyncMsgChatBroadcast(length, data);        break;
+            case MsgType.ObjectGrab:        ret = new SyncMsgObjectGrab(length, data);           break;
+            case MsgType.ObjectGrabbing:    ret = new SyncMsgObjectGrabbing(length, data);       break;
+            case MsgType.ObjectDeGrab:      ret = new SyncMsgObjectDeGrab(length, data);         break;
+            case MsgType.Attach:            ret = new SyncMsgAttach(length, data);               break;
 
-            // case MsgType.PhysicsCollision:      ret = new SyncMsgPhysicsCollision(mType, length, data);     break;
-            case MsgType.ScriptCollidingStart:  ret = new SyncMsgScriptCollidingStart(mType, length, data); break;
-            case MsgType.ScriptColliding:       ret = new SyncMsgScriptColliding(mType, length, data);      break;
-            case MsgType.ScriptCollidingEnd:    ret = new SyncMsgScriptCollidingEnd(mType, length, data);   break;
-            case MsgType.ScriptLandCollidingStart:ret = new SyncMsgScriptLandCollidingStart(mType, length, data);   break;
-            case MsgType.ScriptLandColliding:   ret = new SyncMsgScriptLandColliding(mType, length, data);  break;
-            case MsgType.ScriptLandCollidingEnd:ret = new SyncMsgScriptLandCollidingEnd(mType, length, data);   break;
+            // case MsgType.PhysicsCollision:      ret = new SyncMsgPhysicsCollision(length, data);     break;
+            case MsgType.ScriptCollidingStart:  ret = new SyncMsgScriptCollidingStart(length, data); break;
+            case MsgType.ScriptColliding:       ret = new SyncMsgScriptColliding(length, data);      break;
+            case MsgType.ScriptCollidingEnd:    ret = new SyncMsgScriptCollidingEnd(length, data);   break;
+            case MsgType.ScriptLandCollidingStart:ret = new SyncMsgScriptLandCollidingStart(length, data);   break;
+            case MsgType.ScriptLandColliding:   ret = new SyncMsgScriptLandColliding(length, data);  break;
+            case MsgType.ScriptLandCollidingEnd:ret = new SyncMsgScriptLandCollidingEnd(length, data);   break;
 
-            case MsgType.TimeStamp:         ret = new SyncMsgTimeStamp(mType, length, data);            break;
-            // case MsgType.UpdatedBucketProperties: ret = new SyncMsgUpdatedBucketProperties(mType, length, data); break;
+            case MsgType.TimeStamp:         ret = new SyncMsgTimeStamp(length, data);            break;
+            // case MsgType.UpdatedBucketProperties: ret = new SyncMsgUpdatedBucketProperties(length, data); break;
 
             default:
                 break;
@@ -693,8 +693,8 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
         Uuid = pUuid;
         SyncableProperties = pSyncableProperties;
     }
-    public SyncMsgUpdatedProperties(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgUpdatedProperties(int pLength, byte[] pData)
+        : base(MsgType.UpdatedProperties, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -785,8 +785,8 @@ public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
         : base(MsgType.GetRegionInfo, pRegionContext)
     {
     }
-    public SyncMsgGetRegionInfo(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgGetRegionInfo(int pLength, byte[] pData)
+        : base(MsgType.GetRegionInfo, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -823,8 +823,8 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
     {
         RegInfo = pRegionInfo;
     }
-    public SyncMsgRegionInfo(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgRegionInfo(int pLength, byte[] pData)
+        : base(MsgType.RegionInfo, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -875,8 +875,8 @@ public class SyncMsgTimeStamp : SyncMsgOSDMapData
     {
         TickTime = pTickTime;
     }
-    public SyncMsgTimeStamp(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgTimeStamp(int pLength, byte[] pData)
+        : base(MsgType.TimeStamp, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -911,8 +911,8 @@ public class SyncMsgGetTerrain : SyncMsgOSDMapData
         : base(MsgType.GetTerrain, pRegionContext)
     {
     }
-    public SyncMsgGetTerrain(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgGetTerrain(int pLength, byte[] pData)
+        : base(MsgType.GetTerrain, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -957,8 +957,8 @@ public class SyncMsgTerrain : SyncMsgOSDMapData
         : base(MsgType.Terrain, pRegionContext)
     {
     }
-    public SyncMsgTerrain(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgTerrain(int pLength, byte[] pData)
+        : base(MsgType.Terrain, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1005,8 +1005,8 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
         : base(MsgType.GetObjects, pRegionContext)
     {
     }
-    public SyncMsgGetObjects(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgGetObjects(int pLength, byte[] pData)
+        : base(MsgType.GetObjects, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1041,8 +1041,8 @@ public class SyncMsgGetPresences : SyncMsgOSDMapData
         : base(MsgType.GetPresences, pRegionContext)
     {
     }
-    public SyncMsgGetPresences(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgGetPresences(int pLength, byte[] pData)
+        : base(MsgType.GetPresences, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1090,8 +1090,8 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
     {
         SOG = pSog;
     }
-    public SyncMsgNewObject(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgNewObject(int pLength, byte[] pData)
+        : base(MsgType.NewObject, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1208,8 +1208,8 @@ public class SyncMsgRemovedObject : SyncMsgOSDMapData
         SoftDelete = pSoftDelete;
         ActorID = pActorID;
     }
-    public SyncMsgRemovedObject(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgRemovedObject(int pLength, byte[] pData)
+        : base(MsgType.RemovedObject, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1298,8 +1298,8 @@ public class SyncMsgLinkObject : SyncMsgOSDMapData
         ChildrenIDs = pChildrenUUIDs;
         ActorID = pActorID;
     }
-    public SyncMsgLinkObject(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgLinkObject(int pLength, byte[] pData)
+        : base(MsgType.LinkObject, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1412,8 +1412,8 @@ public class SyncMsgDelinkObject : SyncMsgOSDMapData
         BeforeDelinkGroupIDs = pBeforeDlinkGroupIDs;
         AfterDelinkGroups = pAfterDelinkGroups;
     }
-    public SyncMsgDelinkObject(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgDelinkObject(int pLength, byte[] pData)
+        : base(MsgType.DelinkObject, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1564,8 +1564,8 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
         SP = pSP;
         Uuid = SP.UUID;
     }
-    public SyncMsgNewPresence(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgNewPresence(int pLength, byte[] pData)
+        : base(MsgType.NewPresence, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1634,8 +1634,8 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
         Uuid = pUuid;
     }
         
-    public SyncMsgRemovedPresence(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgRemovedPresence(int pLength, byte[] pData)
+        : base(MsgType.RemovedPresence, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1695,8 +1695,8 @@ public class SyncMsgRegionName : SyncMsgOSDMapData
     {
         RegName = pRegionName;
     }
-    public SyncMsgRegionName(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgRegionName(int pLength, byte[] pData)
+        : base(MsgType.RegionName, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1757,8 +1757,8 @@ public class SyncMsgActorID : SyncMsgOSDMapData
     {
         ActorID = pActorID;
     }
-    public SyncMsgActorID(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgActorID(int pLength, byte[] pData)
+        : base(MsgType.ActorID, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1815,8 +1815,8 @@ public class SyncMsgRegionStatus : SyncMsgOSDMapData
         : base(MsgType.RegionStatus, pRegionContext)
     {
     }
-    public SyncMsgRegionStatus(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgRegionStatus(int pLength, byte[] pData)
+        : base(MsgType.RegionStatus, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -1961,8 +1961,8 @@ public class SyncMsgNewScript : SyncMsgEvent
         ItemID = pItemID;
         SyncableProperties = pSyncableProperties;
     }
-    public SyncMsgNewScript(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgNewScript(int pLength, byte[] pData)
+        : base(MsgType.NewScript, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2037,8 +2037,8 @@ public class SyncMsgUpdateScript : SyncMsgEvent
         IsRunning = pIsRunning;
         AssetID = pAssetID;
     }
-    public SyncMsgUpdateScript(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgUpdateScript(int pLength, byte[] pData)
+        : base(MsgType.UpdateScript, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2096,8 +2096,8 @@ public class SyncMsgScriptReset : SyncMsgEvent
         ItemID = pItemID;
         PrimID = pPrimID;
     }
-    public SyncMsgScriptReset(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgScriptReset(int pLength, byte[] pData)
+        : base(MsgType.ScriptReset, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2152,8 +2152,8 @@ public class SyncMsgChatFromClient : SyncMsgEvent
     {
         ChatMessage = pChatMessage;
     }
-    public SyncMsgChatFromClient(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgChatFromClient(int pLength, byte[] pData)
+        : base(MsgType.ChatFromClient, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2200,8 +2200,8 @@ public class SyncMsgChatFromWorld : SyncMsgEvent
     {
         ChatMessage = pChatMessage;
     }
-    public SyncMsgChatFromWorld(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgChatFromWorld(int pLength, byte[] pData)
+        : base(MsgType.ChatFromWorld, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2248,8 +2248,8 @@ public class SyncMsgChatBroadcast : SyncMsgEvent
     {
         ChatMessage = pChatMessage;
     }
-    public SyncMsgChatBroadcast(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgChatBroadcast(int pLength, byte[] pData)
+        : base(MsgType.ChatBroadcast, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2383,8 +2383,8 @@ public class SyncMsgObjectGrab : SyncMsgEventGrabber
         : base(MsgType.ObjectGrab, pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
-    public SyncMsgObjectGrab(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgObjectGrab(int pLength, byte[] pData)
+        : base(MsgType.ObjectGrab, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2417,8 +2417,8 @@ public class SyncMsgObjectGrabbing : SyncMsgEventGrabber
         : base(MsgType.ObjectGrabbing, pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
-    public SyncMsgObjectGrabbing(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgObjectGrabbing(int pLength, byte[] pData)
+        : base(MsgType.ObjectGrabbing, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2451,8 +2451,8 @@ public class SyncMsgObjectDeGrab : SyncMsgEventGrabber
         : base(MsgType.ObjectDeGrab, pRegionContext, pAgentID, pPrimID, pOrigPrimID, pOffset, pTouchArgs)
     {
     }
-    public SyncMsgObjectDeGrab(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgObjectDeGrab(int pLength, byte[] pData)
+        : base(MsgType.ObjectDeGrab, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2492,8 +2492,8 @@ public class SyncMsgAttach : SyncMsgEvent
         ItemID = pItemID;
         AvatarID = pAvatarID;
     }
-    public SyncMsgAttach(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgAttach(int pLength, byte[] pData)
+        : base(MsgType.Attach, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2716,8 +2716,8 @@ public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
         : base(MsgType.ScriptCollidingStart, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
-    public SyncMsgScriptCollidingStart(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgScriptCollidingStart(int pLength, byte[] pData)
+        : base(MsgType.ScriptLandCollidingStart, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2756,8 +2756,8 @@ public class SyncMsgScriptColliding : SyncMsgEventCollision
         : base(MsgType.ScriptColliding, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
-    public SyncMsgScriptColliding(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgScriptColliding(int pLength, byte[] pData)
+        : base(MsgType.ScriptColliding, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2793,8 +2793,8 @@ public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
         : base(MsgType.ScriptCollidingEnd, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
-    public SyncMsgScriptCollidingEnd(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgScriptCollidingEnd(int pLength, byte[] pData)
+        : base(MsgType.ScriptCollidingEnd, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2830,8 +2830,8 @@ public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
         : base(MsgType.ScriptLandCollidingStart, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
-    public SyncMsgScriptLandCollidingStart(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgScriptLandCollidingStart(int pLength, byte[] pData)
+        : base(MsgType.ScriptLandCollidingStart, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2867,8 +2867,8 @@ public class SyncMsgScriptLandColliding : SyncMsgEventCollision
         : base(MsgType.ScriptLandColliding, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
-    public SyncMsgScriptLandColliding(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgScriptLandColliding(int pLength, byte[] pData)
+        : base(MsgType.ScriptLandColliding, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
@@ -2904,8 +2904,8 @@ public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
         : base(MsgType.ScriptLandCollidingEnd, pRegionContext, pCollidee, pCollideeID, pColliders)
     {
     }
-    public SyncMsgScriptLandCollidingEnd(MsgType pMsgType, int pLength, byte[] pData)
-        : base(pMsgType, pLength, pData)
+    public SyncMsgScriptLandCollidingEnd(int pLength, byte[] pData)
+        : base(MsgType.ScriptLandCollidingEnd, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
