@@ -238,7 +238,16 @@ namespace DSG.RegionSync
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
             update.LogTransmission(this);
             // Enqueue is thread safe
-            if (m_outQ.Enqueue(id, update) && m_collectingStats)
+            bool actuallyQueued = m_outQ.Enqueue(id, update);
+            /* BEGIN DEBUG
+            if (!actuallyQueued)
+            {
+                SyncMsgUpdatedProperties upd = update as SyncMsgUpdatedProperties;
+                m_log.DebugFormat("{0} EnqueueOutgoingUpdate. Multiple update. UUID={1}, prop={2}",
+                                    LogHeader, upd.Uuid, upd.PropsAsString());
+            }
+             END DEBUG */
+            if (actuallyQueued && m_collectingStats)
                 currentQueue.Event(1);
         }
 

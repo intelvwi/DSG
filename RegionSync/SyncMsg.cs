@@ -314,7 +314,7 @@ public abstract class SyncMsg
                 m_rawOutBytes = new byte[DataLength + 8];
                 Utils.IntToBytes((int)MType, m_rawOutBytes, 0);
                 Utils.IntToBytes(DataLength, m_rawOutBytes, 4);
-                if (DataLength != 0)
+                if (DataLength > 0)
                     Array.Copy(m_data, 0, m_rawOutBytes, 8, DataLength);
             }
         }
@@ -329,7 +329,6 @@ public abstract class SyncMsg
     {
         // m_log.DebugFormat("{0} ConvertIn: typ={1}", LogHeader, MType);
         RegionContext = pRegionContext;
-        m_rawOutBytes = null;
         return true;
     }
     // Handle the received message. ConvertIn() has been called before this.
@@ -350,7 +349,6 @@ public abstract class SyncMsg
     {
         // m_log.DebugFormat("{0} ConvertOut: typ={1}", LogHeader, MType);
         RegionContext = pRegionContext;
-        m_rawOutBytes = null;
         return true;
     }
 
@@ -682,10 +680,12 @@ public abstract class SyncMsgOSDMapData : SyncMsg
 // ====================================================================================================
 public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
 {
+    // On transmission, the properties that are to be sent.
     public HashSet<SyncableProperties.Type> SyncableProperties { get; set; }
     public UUID Uuid { get; set; }
 
-    private HashSet<SyncedProperty> SyncedProperties;
+    // On reception, the properties updated with their values
+    public HashSet<SyncedProperty> SyncedProperties;
 
     public SyncMsgUpdatedProperties(RegionSyncModule pRegionContext, UUID pUuid, HashSet<SyncableProperties.Type> pSyncableProperties)
         : base(MsgType.UpdatedProperties, pRegionContext)
@@ -757,10 +757,52 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
         }
         return base.ConvertOut(pRegionContext);
     }
-    public void ClearConvertedData()
+    // Add new updates to this update message.
+    // Happens when this message is in the output queue and more updated properties are 
+    //     ready to be output. This adds to the list of properties to send and a final
+    //     ConvertOut() will gather the updated properties for transmission.
+    // The tricky part is this could be a received message and this changes the direction of the
+    //     message so it will be rebuilt for output.
+    public void AddUpdates(HashSet<SyncableProperties.Type> pNewSyncableProperties)
     {
-        DataMap = null;
-        m_data = null;
+        lock (m_dataLock)
+        {
+            if (Dir == Direction.In)
+            {
+                // If this was an input message, create the list of properties to send from the received list.
+                SyncableProperties = new HashSet<SyncableProperties.Type>();
+                foreach (SyncedProperty sp in SyncedProperties)
+                {
+                    SyncableProperties.Add(sp.Property);
+                }
+            }
+            // m_log.DebugFormat("{0} UpdatedProperties.AddUpdates: uuid={1}, prevProp={2}, addProp={3}",
+            //                         LogHeader, Uuid, PropToString(SyncableProperties), PropToString(pNewSyncableProperties));
+            Dir = Direction.Out;
+            SyncableProperties.Union(pNewSyncableProperties);
+            // Any output data buffers must be rebuilt
+            DataMap = null;
+            m_data = null;
+        }
+    }
+    public string PropsAsString()
+    {
+        string ret = "";
+        if (SyncableProperties != null)
+            ret = PropToString(SyncableProperties);
+        return ret;
+    }
+    private string PropToString(HashSet<SyncableProperties.Type> props)
+    {
+        StringBuilder buff = new StringBuilder();
+        buff.Append("<");
+        foreach (SyncableProperties.Type t in props)
+        {
+            buff.Append(t.ToString());
+            buff.Append(",");
+        }
+        buff.Append(">");
+        return buff.ToString();
     }
     public override void LogReception(RegionSyncModule pRegionContext, SyncConnector pConnectorContext)
     {
@@ -1605,9 +1647,8 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
         if (base.ConvertIn(pRegionContext))
         {
             // Decode presence and syncInfo from message data
-            SyncInfoBase syncInfo;
-            DecodeScenePresence(DataMap, out syncInfo, pRegionContext.Scene);
-            Uuid = syncInfo.UUID;
+            DecodeScenePresence(DataMap, out SyncInfo, pRegionContext.Scene);
+            Uuid = SyncInfo.UUID;
             ret = true;
         }
         return ret;
@@ -2720,7 +2761,7 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
                 data["collisionUUIDs"] = collisionUUIDs;
 
                 DataMap = data;
-                m_log.DebugFormat("{0} EventCollision.ConvertOut: data={1}", LogHeader, DataMap);   // DEBUG DEBUG
+                // m_log.DebugFormat("{0} EventCollision.ConvertOut: data={1}", LogHeader, DataMap);   // DEBUG DEBUG
             }
         }
         return base.ConvertOut(pRegionContext);

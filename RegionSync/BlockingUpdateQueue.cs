@@ -79,6 +79,7 @@ namespace DSG.RegionSync
                 if (!m_updates.ContainsKey(id))
                 {
                     m_queue.Enqueue(id);
+                    m_updates[id] = update;
                     ret = true;
                 }
                 else
@@ -89,15 +90,13 @@ namespace DSG.RegionSync
                     SyncMsgUpdatedProperties existingUpdatedPropMsg = m_updates[id] as SyncMsgUpdatedProperties;
                     if (updatedPropMsg != null && existingUpdatedPropMsg != null)
                     {
-                        existingUpdatedPropMsg.SyncableProperties.Union(updatedPropMsg.SyncableProperties);
-                        existingUpdatedPropMsg.ClearConvertedData();
+                        existingUpdatedPropMsg.AddUpdates(updatedPropMsg.SyncableProperties);
                     }
                     else
                     {
                         // It is very odd that it is not one of ours. Don't know how another type got into the list.
                     }
                 }
-                m_updates[id] = update;
                 Monitor.Pulse(m_syncRoot);
             }
             return ret;

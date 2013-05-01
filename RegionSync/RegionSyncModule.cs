@@ -2470,7 +2470,6 @@ namespace DSG.RegionSync
                             //HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(sop, update.Value);
                             //updatedProperties.UnionWith(propertiesWithSyncInfoUpdated);
 
-                            OSDMap syncData;
                             HashSet<string> syncIDs = null;
                             try
                             {
