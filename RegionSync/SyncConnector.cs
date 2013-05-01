@@ -259,11 +259,11 @@ namespace DSG.RegionSync
         private void Send(SyncMsg msg)
         {
             // m_log.DebugFormat("{0} Send msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
-            byte[] data = msg.GetWireBytes();
             if (m_tcpConnection.Connected)
             {
                 try
                 {
+                    byte[] data = msg.GetWireBytes();
                     CollectSendStat(msg.MType.ToString(), msg.DataLength);
                     // Rather than async write, use the TCP flow control to stop this thread if the
                     //    receiver cannot consume the data quick enough.
@@ -285,7 +285,8 @@ namespace DSG.RegionSync
                 }
                 catch (Exception e)
                 {
-                    m_log.ErrorFormat("{0}:Error in Send() {1} has disconnected: {2}.", LogHeader, m_connectorNum, e);
+                    m_log.ErrorFormat("{0}:Error in Send() {1}/{2} has disconnected: connector={3}, msgType={4}. e={5}",
+                                LogHeader, otherSideActorID, otherSideRegionName, m_connectorNum, msg.MType.ToString(), e);
                 }
             }
         }

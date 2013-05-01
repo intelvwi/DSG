@@ -1823,11 +1823,13 @@ namespace DSG.RegionSync
                         switch (synp.Property)
                         {
                             // don't print out value
-                            case SyncableProperties.Type.AvatarAppearance:
                             case SyncableProperties.Type.AgentCircuitData:
+                            case SyncableProperties.Type.AvatarAppearance:
+                            case SyncableProperties.Type.Shape:
                                 break;
                             // print out specific uint values as hex
                             case SyncableProperties.Type.AgentControlFlags:
+                            case SyncableProperties.Type.AggregateScriptEvents:
                                 uint acf = (uint)synp.LastUpdateValue;
                                 sVal = acf.ToString("X");
                                 break;
@@ -1947,7 +1949,7 @@ namespace DSG.RegionSync
             }
             catch (Exception e)
             {
-                m_log.ErrorFormat("HandleRemoteEvent_PhysicsCollision ERROR: {0}", e.Message);
+                m_log.ErrorFormat("HandleRemoteEvent_PhysicsCollision ERROR: {0}", e);
             }
         }
 
@@ -2541,7 +2543,7 @@ namespace DSG.RegionSync
                             }
                             catch (Exception e)
                             {
-                                m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e.Message);
+                                m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e);
                             }
                             
                             updateIndex++;
