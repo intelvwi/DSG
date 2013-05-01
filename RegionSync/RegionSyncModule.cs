@@ -269,9 +269,30 @@ namespace DSG.RegionSync
         // This is called just before the first heartbeat of the region. Everything should be loaded and ready to simulate.
         private void OnRegionStarted(Scene scene)
         {
-            // Would only want to clear regions for non-persistence actors. Not a problem if using null storage. 
-            //Scene.DeleteAllSceneObjects();
-            SyncStart(null);
+            if (m_isSyncListenerLocal)
+            {
+                m_log.Warn(LogHeader + " Starting Sync - Sync listener is local");
+                if (m_localSyncListener != null && m_localSyncListener.IsListening)
+                {
+                    m_log.Warn(LogHeader + " RegionSyncListener is local, already started");
+                }
+                else
+                {
+                    StartLocalSyncListener();
+                }
+            }
+            else
+            {
+                m_log.Warn(LogHeader + " Starting Sync - Sync listener is remote");
+                if (m_remoteSyncListeners == null)
+                {
+                    GetRemoteSyncListenerInfo();
+                }
+                if (StartSyncConnections())
+                {
+                    DoInitialSync();
+                }
+            }
         }
 
         public void RemoveRegion(Scene scene)
@@ -646,14 +667,6 @@ namespace DSG.RegionSync
         #region Console Command Interface
         private void InstallInterfaces()
         {
-            Command cmdSyncStart = new Command("start", CommandIntentions.COMMAND_HAZARDOUS, SyncStart, "Begins synchronization with RegionSyncServer.");
-            //cmdSyncStart.AddArgument("server_address", "The IP address of the server to synchronize with", "String");
-            //cmdSyncStart.AddArgument("server_port", "The port of the server to synchronize with", "Integer");
-
-            Command cmdSyncStop = new Command("stop", CommandIntentions.COMMAND_HAZARDOUS, SyncStop, "Stops synchronization with RegionSyncServer.");
-            //cmdSyncStop.AddArgument("server_address", "The IP address of the server to synchronize with", "String");
-            //cmdSyncStop.AddArgument("server_port", "The port of the server to synchronize with", "Integer");
-
             //for test and debugging purpose
             Command cmdSyncDebug = new Command("debug", CommandIntentions.COMMAND_HAZARDOUS, SyncDebug, "Trigger some debugging functions");
 
@@ -667,9 +680,6 @@ namespace DSG.RegionSync
             cmdSyncDumpUUID.AddArgument("uuid", "The uuid to print values for", "UUID");
             cmdSyncDumpUUID.AddArgument("full", "Print all values, not just differences", "String");
 
-
-            m_commander.RegisterCommand("start", cmdSyncStart);
-            m_commander.RegisterCommand("stop", cmdSyncStop);
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
@@ -1082,65 +1092,6 @@ namespace DSG.RegionSync
                 RegionSyncListenerInfo info = new RegionSyncListenerInfo(addr, port);
                 m_remoteSyncListeners = new HashSet<RegionSyncListenerInfo>();
                 m_remoteSyncListeners.Add(info);
-            }
-        }
-
-        //Start SyncListener if a listener is supposed to run on this actor; Otherwise, initiate connections to remote listeners.
-        private void SyncStart(Object[] args)
-        {
-            if (m_isSyncListenerLocal)
-            {
-                m_log.Warn(LogHeader + " SyncStart - Sync listener is local");
-                if (m_localSyncListener!=null && m_localSyncListener.IsListening)
-                {
-                    m_log.Warn(LogHeader + " RegionSyncListener is local, already started");
-                }
-                else
-                {
-                    StartLocalSyncListener();
-                }
-            }
-            else
-            {
-                m_log.Warn(LogHeader + " SyncStart - Sync listener is remote");
-                if (m_remoteSyncListeners == null)
-                {
-                    GetRemoteSyncListenerInfo();
-                }
-                if (StartSyncConnections())
-                {
-                    DoInitialSync();
-                }
-            }
-        }
-
-        private void SyncStop(Object[] args)
-        {
-            if (m_isSyncListenerLocal)
-            {
-                if (m_localSyncListener!=null && m_localSyncListener.IsListening)
-                {
-                    m_localSyncListener.Shutdown();
-                    //Trigger SyncStop event, ActorSyncModules can then take actor specific action if needed.
-                    //For instance, script engine will save script states
-                    //save script state and stop script instances
-                    //Scene.EventManager.TriggerOnSymmetricSyncStop();
-                }
-                m_synced = true;
-            }
-            else
-            {
-                //Shutdown all sync connectors
-                if (m_synced)
-                {
-                    StopAllSyncConnectors();
-                    m_synced = false;
-
-                    //Trigger SyncStop event, ActorSyncModules can then take actor specific action if needed.
-                    //For instance, script engine will save script states
-                    //save script state and stop script instances
-                    //Scene.EventManager.TriggerOnSymmetricSyncStop();
-                }
             }
         }
 
