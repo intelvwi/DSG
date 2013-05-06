@@ -149,6 +149,7 @@ namespace DSG.RegionSync
             AgentCircuitData,
             AgentControlFlags,
             ParentId,
+            RealRegion,
             AllowMovement,
             PresenceType,
             Rotation
@@ -181,6 +182,7 @@ namespace DSG.RegionSync
                     case Type.AllowMovement:
                     case Type.ParentId:
                     case Type.PresenceType:
+                    case Type.RealRegion:
                     case Type.Rotation:
                     case Type.PA_Velocity:
                     case Type.PA_TargetVelocity:
@@ -276,6 +278,7 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.Rotation);
             allProperties.Add(SyncableProperties.Type.PA_Velocity);
             allProperties.Add(SyncableProperties.Type.PA_TargetVelocity);
+            allProperties.Add(SyncableProperties.Type.RealRegion);
             allProperties.Add(SyncableProperties.Type.Flying);
             allProperties.Add(SyncableProperties.Type.PresenceType);
             allProperties.Add(SyncableProperties.Type.IsColliding);
@@ -285,6 +288,7 @@ namespace DSG.RegionSync
 
         // No AvatarAppearance in AvatarSyncableProperties 
         // Don't sync AgentCircuitData after initial NewPresence message
+        // Don't sync RealRegion after initial NewPresence message (might need to change once we support border crossing)
         private static HashSet<SyncableProperties.Type> GetAvatarSyncableProperties()
         {
             HashSet<SyncableProperties.Type> allProperties = new HashSet<SyncableProperties.Type>();

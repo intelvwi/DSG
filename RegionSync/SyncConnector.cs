@@ -191,14 +191,22 @@ namespace DSG.RegionSync
 
         public void Shutdown()
         {
-            m_log.Warn(LogHeader + " shutdown connection");
-            // Abort receive and send loop
-            m_rcvLoop.Abort();
-            m_send_loop.Abort();
+            // Cleanup on a worker thread because it will usually kill this thread that's currently running
+            // (either the m_send_loop or m_rcvLoop)
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                m_log.WarnFormat("{0}: Shutting down connection", LogHeader);
 
-            // Close the connection
-            m_tcpConnection.Client.Close();
-            m_tcpConnection.Close();
+                // Close the connection
+                m_tcpConnection.Client.Close();
+                m_tcpConnection.Close();
+
+                m_regionSyncModule.CleanupAvatars();
+
+                // Abort receive and send loop
+                m_rcvLoop.Abort();
+                m_send_loop.Abort();
+            });
         }
 
         ///////////////////////////////////////////////////////////
@@ -219,7 +227,7 @@ namespace DSG.RegionSync
             }
             catch (Exception e)
             {
-                m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e.Message);
+                m_log.ErrorFormat("{0}: SendLoop: {1}.", description, e.Message);
             }
             Shutdown();
         }
@@ -275,7 +283,7 @@ namespace DSG.RegionSync
                 }
                 catch (Exception e)
                 {
-                    m_log.WarnFormat("{0}:Error in Send() {1} has disconnected -- error message: {2}.", description, m_connectorNum, e.Message);
+                    m_log.ErrorFormat("{0}: Send: {1}.", description, e.Message);
                 }
             }
         }
@@ -299,7 +307,7 @@ namespace DSG.RegionSync
                 catch (Exception e)
                 {
                     //ShutdownClient();
-                    m_log.ErrorFormat("{0}: ReceiveLoop error {1} has disconnected -- error message {2}.", description, m_connectorNum, e.Message);
+                    m_log.ErrorFormat("{0}: ReceiveLoop: {1}.", description, e.Message);
                     Shutdown();
                     return;
                 }

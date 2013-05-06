@@ -1526,8 +1526,6 @@ namespace DSG.RegionSync
 
                 m_syncConnectors = newlist;
             }
-
-            m_log.DebugFormat("{0}: new connector {1}", LogHeader, syncConnector.ConnectorNum);
         }
 
         private void RemoveSyncConnector(SyncConnector syncConnector)
@@ -1552,19 +1550,6 @@ namespace DSG.RegionSync
 
         }
 
-        private void StopAllSyncConnectors()
-        {
-            lock (m_syncConnectorsLock)
-            {
-                foreach (SyncConnector syncConnector in m_syncConnectors)
-                {
-                    syncConnector.Shutdown();
-                }
-
-                m_syncConnectors.Clear();
-            }
-        }
-
         private bool IsSyncingWithOtherSyncNodes()
         {
             return (m_syncConnectors.Count > 0);
@@ -1582,7 +1567,7 @@ namespace DSG.RegionSync
             SendSyncMessage(SymmetricSyncMessage.MsgType.TimeStamp, DateTime.UtcNow.Ticks.ToString());
 
             SendSyncMessage(SymmetricSyncMessage.MsgType.RegionName, Scene.RegionInfo.RegionName);
-            m_log.WarnFormat("Sending region name: \"{0}\"", Scene.RegionInfo.RegionName);
+            m_log.WarnFormat("{0}: Sending region name: \"{0}\"", LogHeader, Scene.RegionInfo.RegionName);
 
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetRegionInfo);
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetTerrain);
@@ -1626,12 +1611,18 @@ namespace DSG.RegionSync
         private void ForEachSyncConnector(Action<SyncConnector> action)
         {
             List<SyncConnector> closed = null;
+
+            HashSet<string> connectedRegions = new HashSet<string>();
+            // The local region is always connected
+            connectedRegions.Add(Scene.Name);
+
             foreach (SyncConnector syncConnector in m_syncConnectors)
             {
                 // If connected, apply the action
                 if (syncConnector.connected)
                 {
                     action(syncConnector);
+                    connectedRegions.Add(syncConnector.otherSideRegionName);
                 }                
                     // Else, remove the SyncConnector from the list
                 else
@@ -1642,13 +1633,39 @@ namespace DSG.RegionSync
                 }
             }
 
+            // If a connector has disconnected
             if (closed != null)
             {
+                // Remove the disconnected connectors
                 foreach (SyncConnector connector in closed)
                 {
                     RemoveSyncConnector(connector);
                 }
+
+                // Remove scene presences from disconnected regions
+                List<UUID> avatarsToRemove = new List<UUID>();
+                Scene.ForEachRootScenePresence(delegate(ScenePresence sp)
+                {
+                    UUID uuid = sp.UUID;
+                    SyncInfoPresence sip = (SyncInfoPresence)(m_SyncInfoManager.GetSyncInfo(uuid));
+                    string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
+                    if (!connectedRegions.Contains(cachedRealRegionName))
+                    {
+                        avatarsToRemove.Add(uuid);
+                    }
+
+                });
+                foreach (UUID uuid in avatarsToRemove)
+                {
+                    Scene.RemoveClient(uuid, false);
+                }
             }
+        }
+
+        public void CleanupAvatars()
+        {
+            // Force a loop through each of the sync connectors which will clean up any disconnected connectors.
+            ForEachSyncConnector(delegate(SyncConnector sc){ ; });
         }
 
         #region Sync message handlers

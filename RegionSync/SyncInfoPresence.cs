@@ -430,6 +430,9 @@ namespace DSG.RegionSync
                     if (sp.PhysicsActor == null)
                         return Vector3.Zero;
                     return sp.PhysicsActor.Velocity;
+                case SyncableProperties.Type.RealRegion:
+                    // Always just the local scene name the avatar is in when requested locally. 
+                    return sp.Scene.Name;
                 case SyncableProperties.Type.PA_TargetVelocity:
                     if (sp.PhysicsActor == null)
                         return Vector3.Zero;
@@ -512,6 +515,9 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.PA_Velocity:
                     if (sp.PhysicsActor != null)
                         sp.PhysicsActor.Velocity = (Vector3)pValue;
+                    break;
+                case SyncableProperties.Type.RealRegion:
+                    ////// NOP //////
                     break;
                 case SyncableProperties.Type.PA_TargetVelocity:
                     if(sp.PhysicsActor != null)
