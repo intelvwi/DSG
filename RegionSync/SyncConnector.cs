@@ -191,14 +191,22 @@ namespace DSG.RegionSync
 
         public void Shutdown()
         {
-            m_log.Warn(LogHeader + " shutdown connection");
-            // Abort receive and send loop
-            m_rcvLoop.Abort();
-            m_send_loop.Abort();
+            // Cleanup on a worker thread because it will usually kill this thread that's currently running
+            // (either the m_send_loop or m_rcvLoop)
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                m_log.WarnFormat("{0}: Shutting down connection", LogHeader);
 
-            // Close the connection
-            m_tcpConnection.Client.Close();
-            m_tcpConnection.Close();
+                // Close the connection
+                m_tcpConnection.Client.Close();
+                m_tcpConnection.Close();
+
+                m_regionSyncModule.CleanupAvatars();
+
+                // Abort receive and send loop
+                m_rcvLoop.Abort();
+                m_send_loop.Abort();
+            });
         }
 
         ///////////////////////////////////////////////////////////
