@@ -109,6 +109,7 @@ namespace DSG.RegionSync
         public event DeRezObject OnDeRezObject;
         public event Action<IClientAPI> OnRegionHandShakeReply;
         public event GenericCall1 OnRequestWearables;
+        public event CachedTextureRequest OnCachedTextureRequest;
         public event Action<IClientAPI, bool> OnCompleteMovementToRegion;
         public event UpdateAgent OnPreAgentUpdate;
         public event UpdateAgent OnAgentUpdate;
@@ -479,6 +480,10 @@ namespace DSG.RegionSync
             m_log.Debug("[REGION SYNC AVATAR] SendAppearance");
         }
 
+        public virtual void SendCachedTextureResponse(ISceneEntity avatar, int serial, List<CachedTextureResponseArg> cachedTextures)
+        {
+        }
+
         public virtual void Kick(string message)
         {
         }
@@ -496,7 +501,7 @@ namespace DSG.RegionSync
 
         }
 
-        public virtual void SendKillObject(ulong regionHandle, List<uint> localID)
+        public virtual void SendKillObject(List<uint> localIDs)
         {
         }
 
