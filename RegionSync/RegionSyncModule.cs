@@ -1739,7 +1739,7 @@ namespace DSG.RegionSync
         // This is a lot of work, but it really helps when debugging.
         // Routine returns the name of the passed 'syncedProperty.Type' (short form)
         //   or a list of all the changed properties with their values.
-        // The string output will have not commas in it so it doesn't break the comma
+        // The string output will have no commas in it so it doesn't break the comma
         //   separated log fields. Each property/values are separated by "/"s.
         private string GenerateUpdatedPropertyName(
                             UUID sopUUID,
@@ -1794,6 +1794,22 @@ namespace DSG.RegionSync
                             case SyncableProperties.Type.AgentCircuitData:
                             case SyncableProperties.Type.AvatarAppearance:
                             case SyncableProperties.Type.Shape:
+                                break;
+                            case SyncableProperties.Type.Animations:
+                                OSDArray anims = synp.LastUpdateValue as OSDArray;
+                                if (anims != null)
+                                {
+                                    foreach (OSD anim in anims)
+                                    {
+                                        OSDMap animMap = anim as OSDMap;
+                                        if (animMap != null)
+                                        {
+                                            OpenSim.Framework.Animation oneAnim = new OpenSim.Framework.Animation(animMap);
+                                            sVal += oneAnim.ToString();
+                                            sVal += "&";
+                                        }
+                                    }
+                                }
                                 break;
                             // print out specific uint values as hex
                             case SyncableProperties.Type.AgentControlFlags:

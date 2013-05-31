@@ -201,6 +201,10 @@ namespace DSG.RegionSync
                         value = (OSDMap)LastUpdateValue;
                         break;
 
+                    case SyncableProperties.Type.Animations:
+                        value = (OSDArray)LastUpdateValue;
+                        break;
+
                     ////////////////////////////
                     // Integer/enum type properties
                     ////////////////////////////
@@ -372,6 +376,10 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AgentCircuitData:
                 case SyncableProperties.Type.AvatarAppearance:
                     LastUpdateValue = (OSDMap)value;
+                    break;
+
+                case SyncableProperties.Type.Animations:
+                    LastUpdateValue = (OSDArray)value;
                     break;
 
                 ////////////////////////////

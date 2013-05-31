@@ -148,6 +148,7 @@ namespace DSG.RegionSync
             AvatarAppearance,
             AgentCircuitData,
             AgentControlFlags,
+            Animations,
             ParentId,
             RealRegion,
             AllowMovement,
@@ -180,6 +181,7 @@ namespace DSG.RegionSync
                     case Type.AgentCircuitData:
                     case Type.AgentControlFlags:
                     case Type.AllowMovement:
+                    case Type.Animations:
                     case Type.ParentId:
                     case Type.PresenceType:
                     case Type.RealRegion:
@@ -272,6 +274,7 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.AbsolutePosition); 
             allProperties.Add(SyncableProperties.Type.AgentCircuitData);
             allProperties.Add(SyncableProperties.Type.AgentControlFlags);
+            allProperties.Add(SyncableProperties.Type.Animations);
             allProperties.Add(SyncableProperties.Type.ParentId);
             allProperties.Add(SyncableProperties.Type.AllowMovement);
             allProperties.Add(SyncableProperties.Type.AvatarAppearance);
@@ -295,6 +298,7 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.AbsolutePosition); 
             //allProperties.Add(SyncableProperties.Type.AgentCircuitData);
             allProperties.Add(SyncableProperties.Type.AgentControlFlags);
+            allProperties.Add(SyncableProperties.Type.Animations);
             allProperties.Add(SyncableProperties.Type.ParentId);
             allProperties.Add(SyncableProperties.Type.AllowMovement);
             //allProperties.Add(SyncableProperties.Type.AvatarAppearance);
