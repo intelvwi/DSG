@@ -509,6 +509,7 @@ namespace DSG.RegionSync
                     uint localID = (uint)pValue;
                     if (localID == 0)
                     {
+                        DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. Standup. Input={1}", LogHeader, localID); // DEBUG DEBUG
                         sp.StandUp();
                     }
                     else
@@ -517,6 +518,8 @@ namespace DSG.RegionSync
                         if (parentPart != null) // TODO ??
                         {
                             sp.HandleAgentRequestSit(sp.ControllingClient, sp.ControllingClient.AgentId, parentPart.UUID, Vector3.Zero);
+                            DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. SitRequest. Input={1},sp={2},newParentID={3}",
+                                            LogHeader, localID, (string)(sp == null ? "NULL" : sp.Name), sp.ParentID); // DEBUG DEBUG
                         }
                     }
                     //sp.ParentID = (uint)pValue;
@@ -574,7 +577,7 @@ namespace DSG.RegionSync
             AnimationSet currentSet = sp.Animator.Animations;
             if (!newSet.Equals(currentSet))
             {
-                // DebugLog.DebugFormat("{0} UpdateAvatarAnimations. spID={1},NewAnims={2}", LogHeader, sp.LocalId, newSet); // DEBUG DEBUG
+                DebugLog.DebugFormat("{0} UpdateAvatarAnimations. spID={1},CurrAnims={2},NewAnims={3}", LogHeader, sp.LocalId, currentSet, newSet); // DEBUG DEBUG
                 // If something changed, stuff the new values in the existing animation collection.
                 sp.Animator.Animations.FromOSDArray(pPackedAnimations);
                 // Tell anyone listening that animations changed.

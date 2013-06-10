@@ -1790,11 +1790,13 @@ namespace DSG.RegionSync
                         //   or that we want to format specially.
                         switch (synp.Property)
                         {
-                            // don't print out value
+                            // don't print out value because it is usually gigantic
                             case SyncableProperties.Type.AgentCircuitData:
                             case SyncableProperties.Type.AvatarAppearance:
                             case SyncableProperties.Type.Shape:
+                            case SyncableProperties.Type.TaskInventory:
                                 break;
+                            // Animations are kept as an OSDArray so unpack and format same
                             case SyncableProperties.Type.Animations:
                                 OSDArray anims = synp.LastUpdateValue as OSDArray;
                                 if (anims != null)
@@ -1811,13 +1813,24 @@ namespace DSG.RegionSync
                                     }
                                 }
                                 break;
-                            // print out specific uint values as hex
-                            case SyncableProperties.Type.AgentControlFlags:
+                            // AggregateScriptEvents is an enum that prints out nicely if we let ToString() do its thing.
                             case SyncableProperties.Type.AggregateScriptEvents:
+                                scriptEvents events = (scriptEvents)synp.LastUpdateValue;
+                                sVal = events.ToString();
+                                break;
+                            // AgentControlFlags is an enum that prints out nicely if we let ToString() do its thing.
+                            case SyncableProperties.Type.AgentControlFlags:
+                                AgentManager.ControlFlags flags = (AgentManager.ControlFlags)((uint)synp.LastUpdateValue);
+                                sVal = flags.ToString();
+                                break;
+                                /*
+                            // Print out specific uint values as hex
+                            case SyncableProperties.Type.SomeValueThatLooksGoodInHex:
                                 uint acf = (uint)synp.LastUpdateValue;
                                 sVal = acf.ToString("X");
                                 break;
-                            // default relies on 'ToString()' to output the correct format
+                                 */
+                            // Default relies on 'ToString()' to output the correct format
                             default:
                                 Object val = synp.LastUpdateValue;
                                 sVal = val.ToString();
@@ -1829,9 +1842,11 @@ namespace DSG.RegionSync
                             sb.Append(sVal);
                         }
                     }
-                    catch 
+                    catch (Exception e)
                     {
                         // if value fetching fails, just go onto next property
+                        m_log.DebugFormat("{0} GenerateUpdatedPropertyName: Exception getting values: prop={1}, e={2}",
+                                                    LogHeader, synp.Property.ToString(), e);
                     }
                 }
                 // So the fields are still separated by commas, replace all the commas in the values
