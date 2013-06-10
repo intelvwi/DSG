@@ -162,7 +162,7 @@ namespace DSG.RegionSync
                     writer.WriteElementString("R", color.R.ToString(Utils.EnUsCulture));
                     writer.WriteElementString("G", color.G.ToString(Utils.EnUsCulture));
                     writer.WriteElementString("B", color.B.ToString(Utils.EnUsCulture));
-                    writer.WriteElementString("A", color.G.ToString(Utils.EnUsCulture));
+                    writer.WriteElementString("A", color.A.ToString(Utils.EnUsCulture));
                     writer.WriteEndElement();
                 }
                 serializedColor = sw.ToString();
