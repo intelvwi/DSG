@@ -577,7 +577,7 @@ namespace DSG.RegionSync
             AnimationSet currentSet = sp.Animator.Animations;
             if (!newSet.Equals(currentSet))
             {
-                DebugLog.DebugFormat("{0} UpdateAvatarAnimations. spID={1},CurrAnims={2},NewAnims={3}", LogHeader, sp.LocalId, currentSet, newSet); // DEBUG DEBUG
+                // DebugLog.DebugFormat("{0} UpdateAvatarAnimations. spID={1},CurrAnims={2},NewAnims={3}", LogHeader, sp.LocalId, currentSet, newSet); // DEBUG DEBUG
                 // If something changed, stuff the new values in the existing animation collection.
                 sp.Animator.Animations.FromOSDArray(pPackedAnimations);
                 // Tell anyone listening that animations changed.
