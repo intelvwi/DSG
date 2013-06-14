@@ -113,6 +113,7 @@ public abstract class SyncMsg
         //control command
         SyncStateReport,
         TimeStamp,
+        KeepAlive
     }
 
     /// <summary>
@@ -2041,6 +2042,46 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
         // Suppress automatic logging as message logging is done in RegionSyncModule when more info is known.
     }
 }
+
+public class SyncMsgKeepAlive : SyncMsgOSDMapData
+{
+    public override string DetailLogTagRcv { get { return "RcvKeepAlive"; } }
+    public override string DetailLogTagSnd { get { return "SndKeepAlive"; } }
+
+    //public string RegName;
+
+    public SyncMsgKeepAlive(RegionSyncModule pRegionContext)
+        : base(MsgType.KeepAlive, pRegionContext)
+    {
+    }
+    public SyncMsgKeepAlive(int pLength, byte[] pData)
+        : base(MsgType.KeepAlive, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
+    {
+        bool ret = false;
+        if (base.ConvertIn(pRegionContext))
+        {
+            ret = true;
+        }
+
+        return ret;
+    }
+    public override bool HandleIn(RegionSyncModule pRegionContext)
+    {
+        if (base.HandleIn(pRegionContext))
+        {
+        }
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        return base.ConvertOut(pRegionContext);
+    }
+
+}
+
 // ====================================================================================================
 public class SyncMsgNewScript : SyncMsgEvent
 {

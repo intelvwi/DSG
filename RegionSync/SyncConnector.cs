@@ -64,6 +64,9 @@ namespace DSG.RegionSync
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
     public class SyncConnector
     {
+        public static int KeepAliveMaxInterval = 1000; //milliseconds
+        private DateTime m_lastSendTime = DateTime.MinValue;
+
         private TcpClient m_tcpConnection = null;
         private RegionSyncListenerInfo m_remoteListenerInfo = null;
         private Thread m_rcvLoop;
@@ -209,6 +212,19 @@ namespace DSG.RegionSync
             });
         }
 
+
+        public bool KeepAlive(SyncMsg msg)
+        {
+            TimeSpan timePassed = DateTime.Now - m_lastSendTime;
+            if (timePassed.Milliseconds > KeepAliveMaxInterval)
+            {
+                ImmediateOutgoingMsg(msg);
+                return true;
+            }
+            else
+                return false;
+        }
+
         ///////////////////////////////////////////////////////////
         // Sending messages out to the other side of the connection
         ///////////////////////////////////////////////////////////
@@ -285,6 +301,9 @@ namespace DSG.RegionSync
                     // Rather than async write, use the TCP flow control to stop this thread if the
                     //    receiver cannot consume the data quick enough.
                     m_tcpConnection.GetStream().Write(data, 0, data.Length);
+                    
+                    m_lastSendTime = DateTime.Now;
+
                     /*
                     m_tcpConnection.GetStream().BeginWrite(data, 0, data.Length, ar =>
                     {

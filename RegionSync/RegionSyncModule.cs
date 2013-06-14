@@ -2331,7 +2331,16 @@ namespace DSG.RegionSync
                         msg.HandleIn(this);
                     }
                 });
+            }else
+            {
+                //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
+                //sent is longer than SyncConnector.KeeyAliveMaxInterval)
+                SyncMsg msg = new SyncMsgKeepAlive(this);
+                foreach (SyncConnector syncConnector in m_syncConnectors){
+                    syncConnector.KeepAlive(msg);
+                }
             }
+
 
             // Existing value of 1 indicates that updates are currently being sent so skip updates this pass
             if (Interlocked.Exchange(ref m_sendingPropertyUpdates, 1) == 1)
