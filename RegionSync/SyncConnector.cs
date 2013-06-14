@@ -60,6 +60,7 @@ namespace DSG.RegionSync
         Idle, //not connected
         Initialization, //initializing local copy of Scene
         Syncing, //done initialization, in normal process of syncing terrain, objects, etc
+        Reconnecting, //tcp connection down, trying to reconnect
     }
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
     public class SyncConnector
@@ -108,16 +109,21 @@ namespace DSG.RegionSync
         //The region name of the other side of the connection
         public string otherSideRegionName { get; set; }
 
+        //to indicate if to stop Send and Recv Loops
+        private volatile bool _shouldStopSend = false;
+        private volatile bool _shouldStopRecv = false;
+
         // Check if the client is connected
-        public bool connected
+        public bool InSyncConnection
         { 
             get 
             { 
-                return (m_tcpConnection != null && m_tcpConnection.Connected); 
+                //return (m_tcpConnection != null && m_tcpConnection.Connected); 
+                return (m_syncState != SyncConnectorState.Idle);
             } 
         }
 
-        public string description
+        public string Description
         {
             get
             {
@@ -140,6 +146,8 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            m_syncState = SyncConnectorState.Initialization;
+
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -154,6 +162,8 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            m_syncState = SyncConnectorState.Initialization;
+
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -164,6 +174,7 @@ namespace DSG.RegionSync
             try
             {
                 m_tcpConnection.Connect(m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
+                m_syncState = SyncConnectorState.Syncing;
             }
             catch (Exception e)
             {
@@ -181,14 +192,14 @@ namespace DSG.RegionSync
         {
             // Create a thread for the receive loop
             m_rcvLoop = new Thread(new ThreadStart(ReceiveLoop));
-            m_rcvLoop.Name = description + " (ReceiveLoop)";
-            m_log.WarnFormat("{0} Starting {1} thread", description, m_rcvLoop.Name);
+            m_rcvLoop.Name = Description + " (ReceiveLoop)";
+            m_log.WarnFormat("{0} Starting {1} thread", Description, m_rcvLoop.Name);
             m_rcvLoop.Start();
 
             // Create a thread for the send loop
             m_send_loop = new Thread(new ThreadStart(delegate() { SendLoop(); }));
-            m_send_loop.Name = description + " (SendLoop)";
-            m_log.WarnFormat("{0} Starting {1} thread", description, m_send_loop.Name);
+            m_send_loop.Name = Description + " (SendLoop)";
+            m_log.WarnFormat("{0} Starting {1} thread", Description, m_send_loop.Name);
             m_send_loop.Start();
         }
 
@@ -209,9 +220,66 @@ namespace DSG.RegionSync
                 // Abort receive and send loop
                 m_rcvLoop.Abort();
                 m_send_loop.Abort();
+
+                m_syncState = SyncConnectorState.Idle;
             });
         }
 
+                //An effort to reconnect to remote listener (for now, that means for actors other than PSA)
+        public void TryReconnect()
+        {
+            if (m_syncState == SyncConnectorState.Idle)
+            {
+                //Reconnect seems already been triggered, and failed. 
+                return;
+            }
+
+            m_syncState = SyncConnectorState.Reconnecting;
+
+            RequestSendRecvLoopsStop();
+            // Close the connection
+            m_tcpConnection.Client.Close();
+            m_tcpConnection.Close();
+
+            if (m_remoteListenerInfo != null)
+            {
+                m_log.WarnFormat("{0}: Trying to reconnect to {1}:{2}", LogHeader, m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
+
+                try
+                {
+                    m_tcpConnection.Connect(m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
+
+                    m_syncState = SyncConnectorState.Syncing;
+                    RequestSendRecvLoopsStart();
+                    m_send_loop.Start();
+                    m_rcvLoop.Start();
+                }
+                catch (Exception e)
+                {
+                    m_log.WarnFormat("{0} [Reconnect] Could not re-connect to RegionSyncModule at {1}:{2}", LogHeader, m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
+                    m_log.Warn(e.Message);
+
+                    Shutdown();
+                }
+            }
+            else
+            {
+                Shutdown();
+            }
+
+        }
+
+        private void RequestSendRecvLoopsStop()
+        {
+            _shouldStopRecv = true;
+            _shouldStopSend = true;
+        }
+
+        private void RequestSendRecvLoopsStart()
+        {
+            _shouldStopRecv = false;
+            _shouldStopSend = false;
+        }
 
         public bool KeepAlive(SyncMsg msg)
         {
@@ -234,7 +302,8 @@ namespace DSG.RegionSync
         {
             try
             {
-                while (true)
+                //while (true)
+                while (!_shouldStopSend && m_tcpConnection.Connected)
                 {
                     SyncMsg msg = m_outQ.Dequeue();
 
@@ -247,9 +316,13 @@ namespace DSG.RegionSync
             }
             catch (Exception e)
             {
-                m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e);
+                m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", Description, e);
+
+                //Let try to reconnect first before shutting down the connection
+                TryReconnect();
+                return;
             }
-            Shutdown();
+            //Shutdown();
         }
 
         /// <summary>
@@ -333,7 +406,8 @@ namespace DSG.RegionSync
         private void ReceiveLoop()
         {
             m_log.WarnFormat("{0} Thread running: {1}", LogHeader, m_rcvLoop.Name);
-            while (true && m_tcpConnection.Connected)
+            //while (true && m_tcpConnection.Connected)
+            while (!_shouldStopRecv && m_tcpConnection.Connected)
             {
                 SyncMsg msg;
                 // Try to get the message from the network stream
@@ -347,7 +421,11 @@ namespace DSG.RegionSync
                 {
                     //ShutdownClient();
                     m_log.ErrorFormat("{0}: ReceiveLoop error. Connector {1} disconnected: {2}.", LogHeader, m_connectorNum, e);
-                    Shutdown();
+                    //Shutdown();
+
+                    //Let try to reconnect first before shutting down the connection
+                    TryReconnect();
+
                     return;
                 }
                 // Try handling the message
@@ -371,6 +449,8 @@ namespace DSG.RegionSync
 
         private void HandleMessage(SyncMsg msg)
         {
+            if (msg == null)
+                return;
 
             // m_log.DebugFormat("{0} Recv msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
             CollectReceiveStat(msg.MType.ToString(), msg.DataLength);
@@ -410,7 +490,7 @@ namespace DSG.RegionSync
                 return;
 
             msgsIn = new SyncConnectorStat(
-                "DSG_Msgs_Rcvd|" + description, // shortName
+                "DSG_Msgs_Rcvd|" + Description, // shortName
                 "Msgs_Rcvd",                    // name
                 "connector DSG messages rcvd",  // description
                 " messages",                    // unit
@@ -427,7 +507,7 @@ namespace DSG.RegionSync
             m_registeredStats.Add(msgsIn);
 
             msgsOut = new SyncConnectorStat(
-                "DSG_Msgs_Sent|" + description, // shortName
+                "DSG_Msgs_Sent|" + Description, // shortName
                 "Msgs_Sent",                    // name
                 "connector DSG messages sent",  // description
                 " messages",                    // unit
@@ -444,7 +524,7 @@ namespace DSG.RegionSync
             m_registeredStats.Add(msgsOut);
 
             bytesIn = new SyncConnectorStat(
-                "DSG_Bytes_Rcvd|" + description,    // shortName
+                "DSG_Bytes_Rcvd|" + Description,    // shortName
                 "Bytes_Rcvd",                   // name
                 "connector DSG bytes rcvd",     // description
                 " bytes",                       // unit
@@ -459,7 +539,7 @@ namespace DSG.RegionSync
             m_registeredStats.Add(bytesIn);
 
             bytesOut = new SyncConnectorStat(
-                "DSG_Bytes_Sent|" + description,    // shortName
+                "DSG_Bytes_Sent|" + Description,    // shortName
                 "Bytes_Sent",                   // name
                 "connector DSG bytes sent",     // description
                 " bytes",                       // unit
@@ -474,7 +554,7 @@ namespace DSG.RegionSync
             m_registeredStats.Add(bytesOut);
 
             currentQueue = new SyncConnectorStat(
-                "DSG_Queued_Msgs|" + description,   // shortName
+                "DSG_Queued_Msgs|" + Description,   // shortName
                 "Queued_Msgs",                  // name
                 "connector DSG queued updates", // description
                 " messages",                    // unit
@@ -503,7 +583,7 @@ namespace DSG.RegionSync
                     if (!m_packetTypesSent.TryGetValue(type, out msgStat))
                     {
                         msgStat = new SyncConnectorStat(
-                            "DSG_Msgs_Typ_Sent|" + description + "|" + type,    // shortName
+                            "DSG_Msgs_Typ_Sent|" + Description + "|" + type,    // shortName
                             type + "_Sent",                 // name
                             "connector DSG messages sent of type " + type,      // description
                             " messages",                    // unit
@@ -535,7 +615,7 @@ namespace DSG.RegionSync
                     if (!m_packetTypesRcvd.TryGetValue(type, out msgStat))
                     {
                         msgStat = new SyncConnectorStat(
-                            "DSG_Msgs_Typ_Rcvd|" + description + "|" + type,    // shortName
+                            "DSG_Msgs_Typ_Rcvd|" + Description + "|" + type,    // shortName
                             type + "_Rcvd",                 // name
                             "connector DSG messages of type " + type,   // description
                             " messages",                    // unit

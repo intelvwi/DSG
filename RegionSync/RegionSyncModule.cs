@@ -835,7 +835,7 @@ namespace DSG.RegionSync
                 {
                     if (!syncConnectorsSent.Contains(connector.ConnectorNum) && !connector.otherSideActorID.Equals(senderActorID))
                     {
-                        m_log.DebugFormat("{0}: send DeLinkObject to {1}", LogHeader, connector.description);
+                        m_log.DebugFormat("{0}: send DeLinkObject to {1}", LogHeader, connector.Description);
                         // connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
                         connector.ImmediateOutgoingMsg(syncMsg);
                         syncConnectorsSent.Add(connector.ConnectorNum);
@@ -1492,7 +1492,7 @@ namespace DSG.RegionSync
             foreach (SyncConnector syncConnector in m_syncConnectors)
             {
                 // If connected, apply the action
-                if (syncConnector.connected)
+                if (syncConnector.InSyncConnection)
                 {
                     action(syncConnector);
                     connectedRegions.Add(syncConnector.otherSideRegionName);
