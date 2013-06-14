@@ -216,7 +216,7 @@ namespace DSG.RegionSync
         public bool KeepAlive(SyncMsg msg)
         {
             TimeSpan timePassed = DateTime.Now - m_lastSendTime;
-            if (timePassed.Milliseconds > KeepAliveMaxInterval)
+            if (timePassed.TotalMilliseconds > KeepAliveMaxInterval)
             {
                 ImmediateOutgoingMsg(msg);
                 return true;

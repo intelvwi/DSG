@@ -184,6 +184,8 @@ namespace DSG.RegionSync
 
             //this is temp solution for reducing collision events for country fair demo
             m_reportCollisions = m_sysConfig.GetString("ReportCollisions", "All");
+
+            m_syncMsgKeepAlive = new SyncMsgKeepAlive(this);
         }
 
         //Called after Initialise()
@@ -469,6 +471,8 @@ namespace DSG.RegionSync
         private bool Active { get; set; }
         public bool IsSyncRelay { get; private set; }
         private bool TerrainIsTainted { get; set; }
+
+        private SyncMsgKeepAlive m_syncMsgKeepAlive;
 
         private class SyncMessageRecord
         {
@@ -2331,14 +2335,6 @@ namespace DSG.RegionSync
                         msg.HandleIn(this);
                     }
                 });
-            }else
-            {
-                //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
-                //sent is longer than SyncConnector.KeeyAliveMaxInterval)
-                SyncMsg msg = new SyncMsgKeepAlive(this);
-                foreach (SyncConnector syncConnector in m_syncConnectors){
-                    syncConnector.KeepAlive(msg);
-                }
             }
 
 
@@ -2466,6 +2462,18 @@ namespace DSG.RegionSync
                             
                             updateIndex++;
                             
+                        }
+
+                        //If no updates to send out, see if SyncConnectors need to send KeeyAlive
+                        if (updates.Count == 0)
+                        {
+
+                            //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
+                            //sent is longer than SyncConnector.KeeyAliveMaxInterval)
+                            foreach (SyncConnector syncConnector in m_syncConnectors)
+                            {
+                                syncConnector.KeepAlive(m_syncMsgKeepAlive);
+                            }
                         }
                     }
 

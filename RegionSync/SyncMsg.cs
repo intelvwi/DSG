@@ -250,7 +250,9 @@ public abstract class SyncMsg
             case MsgType.TimeStamp:         ret = new SyncMsgTimeStamp(length, data);            break;
             // case MsgType.UpdatedBucketProperties: ret = new SyncMsgUpdatedBucketProperties(length, data); break;
 
+            case MsgType.KeepAlive: ret = new SyncMsgKeepAlive(length, data); break;
             default:
+                m_log.ErrorFormat("{0}: Unknown Sync Message Type {1}", LogHeader, mType);
                 break;
         }
 
