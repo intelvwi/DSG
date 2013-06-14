@@ -684,6 +684,9 @@ namespace DSG.RegionSync
             cmdSyncDumpUUID.AddArgument("uuid", "The uuid to print values for", "UUID");
             cmdSyncDumpUUID.AddArgument("full", "Print all values, not just differences", "String");
 
+            // For handling and debugging disconnection, reconnection trial, etc
+           
+
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
@@ -1512,6 +1515,7 @@ namespace DSG.RegionSync
                 // Remove the disconnected connectors
                 foreach (SyncConnector connector in closed)
                 {
+                    m_log.WarnFormat("SyncConnector to {0} to be removed", connector.otherSideActorID);
                     RemoveSyncConnector(connector);
                 }
 
@@ -1524,6 +1528,7 @@ namespace DSG.RegionSync
                     string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
                     if (!connectedRegions.Contains(cachedRealRegionName))
                     {
+                        m_log.WarnFormat("Remove avatars with home region {0}", cachedRealRegionName);
                         avatarsToRemove.Add(uuid);
                     }
 

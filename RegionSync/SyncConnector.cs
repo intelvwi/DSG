@@ -228,7 +228,7 @@ namespace DSG.RegionSync
                 //An effort to reconnect to remote listener (for now, that means for actors other than PSA)
         public void TryReconnect()
         {
-            if (m_syncState == SyncConnectorState.Idle)
+            if (m_syncState == SyncConnectorState.Reconnecting || m_syncState == SyncConnectorState.Idle)
             {
                 //Reconnect seems already been triggered, and failed. 
                 return;
@@ -259,11 +259,13 @@ namespace DSG.RegionSync
                     m_log.WarnFormat("{0} [Reconnect] Could not re-connect to RegionSyncModule at {1}:{2}", LogHeader, m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
                     m_log.Warn(e.Message);
 
+                    m_syncState = SyncConnectorState.Idle;
                     Shutdown();
                 }
             }
             else
             {
+                m_syncState = SyncConnectorState.Idle; 
                 Shutdown();
             }
 
@@ -396,6 +398,10 @@ namespace DSG.RegionSync
                 {
                     m_log.ErrorFormat("{0}:Error in Send() {1}/{2} has disconnected: connector={3}, msgType={4}. e={5}",
                                 LogHeader, otherSideActorID, otherSideRegionName, m_connectorNum, msg.MType.ToString(), e);
+
+                    //Let try to reconnect first before shutting down the connection
+                    TryReconnect();
+                    return;
                 }
             }
         }
