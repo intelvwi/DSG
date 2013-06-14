@@ -878,11 +878,59 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
         if (base.HandleIn(pRegionContext))
         {
             RegInfo = pRegionContext.Scene.RegionInfo;
-            RegInfo.RegionSettings.TerrainTexture1 = DataMap["tex1"].AsUUID();
-            RegInfo.RegionSettings.TerrainTexture2 = DataMap["tex2"].AsUUID();
-            RegInfo.RegionSettings.TerrainTexture3 = DataMap["tex3"].AsUUID();
-            RegInfo.RegionSettings.TerrainTexture4 = DataMap["tex4"].AsUUID();
-            RegInfo.RegionSettings.WaterHeight = DataMap["waterheight"].AsReal();
+            RegInfo.RegionSettings.AgentLimit = DataMap["agentLimit"].AsInteger();
+            RegInfo.RegionSettings.AllowDamage = DataMap["allowDamage"].AsBoolean() ;
+            RegInfo.RegionSettings.AllowLandJoinDivide = DataMap["allowLandJoinDivide"].AsBoolean() ;
+            RegInfo.RegionSettings.AllowLandResell = DataMap["allowLandResale"].AsBoolean() ;
+            RegInfo.RegionSettings.BlockFly = DataMap["blockFly"].AsBoolean() ;
+            RegInfo.RegionSettings.BlockShowInSearch = DataMap["blockShowInSearch"].AsBoolean() ;
+            RegInfo.RegionSettings.BlockTerraform = DataMap["blockTerraform"].AsBoolean() ;
+            RegInfo.RegionSettings.Covenant = DataMap["covenant"].AsUUID() ;
+            RegInfo.RegionSettings.DisableCollisions = DataMap["disableCollisions"].AsBoolean() ;
+            RegInfo.RegionSettings.DisablePhysics = DataMap["disablePhysics"].AsBoolean() ;
+            RegInfo.RegionSettings.DisableScripts = DataMap["disableScripts"].AsBoolean() ;
+            RegInfo.RegionSettings.Elevation1NE = DataMap["elevation1NE"];
+            RegInfo.RegionSettings.Elevation1NW = DataMap["elevation1NW"];
+            RegInfo.RegionSettings.Elevation1SE = DataMap["elevation1SE"];
+            RegInfo.RegionSettings.Elevation1SW = DataMap["elevation1SW"];
+            RegInfo.RegionSettings.Elevation2NE = DataMap["elevation2NE"];
+            RegInfo.RegionSettings.Elevation2NW = DataMap["elevation2NW"];
+            RegInfo.RegionSettings.Elevation2SE = DataMap["elevation2SE"];
+            RegInfo.RegionSettings.Elevation2SW = DataMap["elevation2SW"];
+            RegInfo.RegionSettings.FixedSun = DataMap["regionFixedSun"].AsBoolean() ;
+            RegInfo.RegionSettings.Maturity = DataMap["maturity"].AsInteger() ;
+            RegInfo.RegionSettings.ParcelImageID = DataMap["parcelImageID"].AsUUID() ;
+            RegInfo.RegionSettings.RestrictPushing = DataMap["restrictPushing"].AsBoolean() ;
+            RegInfo.RegionSettings.Sandbox = DataMap["sandbox"].AsBoolean() ;
+            RegInfo.RegionSettings.TelehubObject = DataMap["telehubObject"].AsUUID() ;
+            RegInfo.RegionSettings.TerrainImageID = DataMap["terrainImageID"].AsUUID() ;
+            RegInfo.RegionSettings.TerrainLowerLimit = DataMap["terrainLowerLimit"].AsReal() ;
+            RegInfo.RegionSettings.TerrainRaiseLimit = DataMap["terrainRaiseLimit"].AsReal() ;
+            RegInfo.RegionSettings.TerrainTexture1 = DataMap["terrainTexture1"].AsUUID() ;
+            RegInfo.RegionSettings.TerrainTexture2 = DataMap["terrainTexture2"].AsUUID() ;
+            RegInfo.RegionSettings.TerrainTexture3 = DataMap["terrainTexture3"].AsUUID() ;
+            RegInfo.RegionSettings.TerrainTexture4 = DataMap["terrainTexture4"].AsUUID() ;
+            RegInfo.RegionSettings.UseEstateSun = DataMap["useEstateSun"].AsBoolean() ;
+            RegInfo.RegionSettings.WaterHeight = DataMap["waterHeight"].AsReal() ;
+
+            RegInfo.EstateSettings.AllowLandmark = DataMap["allowLandmark"].AsBoolean();
+            RegInfo.EstateSettings.AllowParcelChanges = DataMap["allowParcelChanges"].AsBoolean();
+            RegInfo.EstateSettings.AllowSetHome = DataMap["allowSetHome"].AsBoolean();
+            RegInfo.EstateSettings.AllowVoice = DataMap["allowVoice"].AsBoolean();
+            RegInfo.EstateSettings.DenyAnonymous = DataMap["denyAnonymous"].AsBoolean();
+            RegInfo.EstateSettings.DenyIdentified = DataMap["denyIdentified"].AsBoolean();
+            RegInfo.EstateSettings.DenyMinors = DataMap["denyMinors"].AsBoolean();
+            RegInfo.EstateSettings.DenyTransacted = DataMap["denyTransacted"].AsBoolean();
+            // RegInfo.EstateSettings.EstateAccess = DataMap["estateAccess"].AsUUIDArray();
+            // RegInfo.EstateSettings.EstateBans = DataMap["estateBans"].AsUUIDArray();
+            // RegInfo.EstateSettings.EstateGroups = DataMap["estateGroups"].AsUUIDArray();
+            // RegInfo.EstateSettings.EstateManagers = DataMap["estateManagers"].AsUUIDArray();
+            RegInfo.EstateSettings.EstateName = DataMap["estateName"].AsString();
+            RegInfo.EstateSettings.EstateOwner = DataMap["estateOwner"].AsUUID();
+            RegInfo.EstateSettings.EstateSkipScripts = DataMap["estateSkipScripts"].AsBoolean();
+            RegInfo.EstateSettings.FixedSun = DataMap["estateFixedSun"].AsBoolean();
+            RegInfo.EstateSettings.PublicAccess = DataMap["publicAccess"].AsBoolean();
+
             IEstateModule estate = pRegionContext.Scene.RequestModuleInterface<IEstateModule>();
             if (estate != null)
                 estate.sendRegionHandshakeToAll();
@@ -896,15 +944,75 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
             if (Dir == Direction.Out && DataMap == null)
             {
                 OSDMap data = new OSDMap(5);
-                data["tex1"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture1);
-                data["tex2"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture2);
-                data["tex3"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture3);
-                data["tex4"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture4);
-                data["waterheight"] = OSD.FromReal(RegInfo.RegionSettings.WaterHeight);
+                data["agentLimit"] = OSD.FromInteger(RegInfo.RegionSettings.AgentLimit);
+                data["allowDamage"] = OSD.FromBoolean(RegInfo.RegionSettings.AllowDamage);
+                data["allowLandJoinDivide"] = OSD.FromBoolean(RegInfo.RegionSettings.AllowLandJoinDivide);
+                data["allowLandResale"] = OSD.FromBoolean(RegInfo.RegionSettings.AllowLandResell);
+                data["blockFly"] = OSD.FromBoolean(RegInfo.RegionSettings.BlockFly);
+                data["blockShowInSearch"] = OSD.FromBoolean(RegInfo.RegionSettings.BlockShowInSearch);
+                data["blockTerraform"] = OSD.FromBoolean(RegInfo.RegionSettings.BlockTerraform);
+                data["covenant"] = OSD.FromUUID(RegInfo.RegionSettings.Covenant);
+                data["disableCollisions"] = OSD.FromBoolean(RegInfo.RegionSettings.DisableCollisions);
+                data["disablePhysics"] = OSD.FromBoolean(RegInfo.RegionSettings.DisablePhysics);
+                data["disableScripts"] = OSD.FromBoolean(RegInfo.RegionSettings.DisableScripts);
+                data["elevation1NE"] = OSD.FromReal(RegInfo.RegionSettings.Elevation1NE);
+                data["elevation1NW"] = OSD.FromReal(RegInfo.RegionSettings.Elevation1NW);
+                data["elevation1SE"] = OSD.FromReal(RegInfo.RegionSettings.Elevation1SE);
+                data["elevation1SW"] = OSD.FromReal(RegInfo.RegionSettings.Elevation1SW);
+                data["elevation2NE"] = OSD.FromReal(RegInfo.RegionSettings.Elevation2NE);
+                data["elevation2NW"] = OSD.FromReal(RegInfo.RegionSettings.Elevation2NW);
+                data["elevation2SE"] = OSD.FromReal(RegInfo.RegionSettings.Elevation2SE);
+                data["elevation2SW"] = OSD.FromReal(RegInfo.RegionSettings.Elevation2SW);
+                data["regionFixedSun"] = OSD.FromBoolean(RegInfo.RegionSettings.FixedSun);
+                data["maturity"] = OSD.FromInteger(RegInfo.RegionSettings.Maturity);
+                data["parcelImageID"] = OSD.FromUUID(RegInfo.RegionSettings.ParcelImageID);
+                data["restrictPushing"] = OSD.FromBoolean(RegInfo.RegionSettings.RestrictPushing);
+                data["sandbox"] = OSD.FromBoolean(RegInfo.RegionSettings.Sandbox);
+                data["telehubObject"] = OSD.FromUUID(RegInfo.RegionSettings.TelehubObject);
+                data["terrainImageID"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainImageID);
+                data["terrainLowerLimit"] = OSD.FromReal(RegInfo.RegionSettings.TerrainLowerLimit);
+                data["terrainRaiseLimit"] = OSD.FromReal(RegInfo.RegionSettings.TerrainRaiseLimit);
+                data["terrainTexture1"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture1);
+                data["terrainTexture2"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture2);
+                data["terrainTexture3"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture3);
+                data["terrainTexture4"] = OSD.FromUUID(RegInfo.RegionSettings.TerrainTexture4);
+                data["useEstateSun"] = OSD.FromBoolean(RegInfo.RegionSettings.UseEstateSun);
+                data["waterHeight"] = OSD.FromReal(RegInfo.RegionSettings.WaterHeight);
+                
+                data["allowLandmark"] = OSD.FromBoolean(RegInfo.EstateSettings.AllowLandmark);
+                data["allowParcelChanges"] = OSD.FromBoolean(RegInfo.EstateSettings.AllowParcelChanges);
+                data["allowSetHome"] = OSD.FromBoolean(RegInfo.EstateSettings.AllowSetHome);
+                data["allowVoice"] = OSD.FromBoolean(RegInfo.EstateSettings.AllowVoice);
+                data["denyAnonymous"] = OSD.FromBoolean(RegInfo.EstateSettings.DenyAnonymous);
+                data["denyIdentified"] = OSD.FromBoolean(RegInfo.EstateSettings.DenyIdentified);
+                data["denyMinors"] = OSD.FromBoolean(RegInfo.EstateSettings.DenyMinors);
+                data["denyTransacted"] = OSD.FromBoolean(RegInfo.EstateSettings.DenyTransacted);
+                // data["estateAccess"] = OSD.FromUUIDArray(RegInfo.EstateSettings.EstateAccess);
+                // data["estateBans"] = OSD.FromBoolean(RegInfo.EstateSettings.EstateBans);
+                // data["estateGroups"] = OSD.FromBoolean(RegInfo.EstateSettings.EstateGroups);
+                // data["estateManagers"] = OSD.FromBoolean(RegInfo.EstateSettings.EstateManagers);
+                data["estateName"] = OSD.FromString(RegInfo.EstateSettings.EstateName);
+                data["estateOwner"] = OSD.FromUUID(RegInfo.EstateSettings.EstateOwner);
+                data["estateSkipScripts"] = OSD.FromBoolean(RegInfo.EstateSettings.EstateSkipScripts);
+                data["estateFixedSun"] = OSD.FromBoolean(RegInfo.EstateSettings.FixedSun);
+                data["publicAccess"] = OSD.FromBoolean(RegInfo.EstateSettings.PublicAccess);
+
+                /* Someday send the parcel information
+                List<ILandObject> parcels = RegionContext.Scene.LandChannel.AllParcels();
+                foreach (ILandObject parcel in parcels)
+                {
+                }
+                 */
+
                 DataMap = data;
             }
         }
         return base.ConvertOut(pRegionContext);
+    }
+    // Logs the whole string of parameters received. Only happens once per region connect.
+    public override void LogReception(RegionSyncModule pRegionContext, SyncConnector pConnectorContext)
+    {
+        pRegionContext.DetailedUpdateWrite(DetailLogTagRcv, ZeroUUID, 0, ZeroUUID, DataMap.ToString(), DataLength);
     }
 }
 // ====================================================================================================
