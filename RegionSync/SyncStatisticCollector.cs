@@ -296,7 +296,7 @@ namespace DSG.RegionSync
             if (Enabled)
             {
                 DSGCategory = cfg.GetString("LogDSGCategory", "dsg");
-                DSGCategory = cfg.GetString("LogDSGDetailCategory", "dsg-detail");
+                DSGDetailCategory = cfg.GetString("LogDSGDetailCategory", "dsg-detail");
                 LogIntervalSeconds = cfg.GetInt("LogIntervalSeconds", 10);
                 m_log.InfoFormat("{0} Enabling statistic logging. Category={1}, Interval={2}sec",
                             LogHeader, DSGCategory, LogIntervalSeconds);
