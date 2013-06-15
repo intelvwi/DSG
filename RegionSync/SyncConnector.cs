@@ -60,6 +60,7 @@ namespace DSG.RegionSync
         Idle, //not connected
         Initialization, //initializing local copy of Scene
         Syncing, //done initialization, in normal process of syncing terrain, objects, etc
+        Reconnecting //Trying to reconnect
     }
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
     public class SyncConnector
@@ -144,6 +145,7 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            m_syncState = SyncConnectorState.Initialization;
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -158,6 +160,7 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            m_syncState = SyncConnectorState.Initialization;
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -168,6 +171,7 @@ namespace DSG.RegionSync
             try
             {
                 m_tcpConnection.Connect(m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
+                m_syncState = SyncConnectorState.Syncing;
             }
             catch (Exception e)
             {
@@ -217,7 +221,16 @@ namespace DSG.RegionSync
                 m_rcvLoop.Join();
                 m_send_loop.Join();
 
-                m_regionSyncModule.TryReconnect(this, m_remoteListenerInfo);
+                //check if //Reconnect seems already been triggered
+                if (m_syncState == SyncConnectorState.Reconnecting || m_syncState == SyncConnectorState.Idle)
+                    return;
+                else
+                {
+                    m_syncState = SyncConnectorState.Reconnecting;
+                    //Tell RegionSyncModule to try reconnection, which will start a new SyncConnector. This one will be removed.
+                    m_regionSyncModule.TryReconnect(this, m_remoteListenerInfo);
+                    m_syncState = SyncConnectorState.Idle;
+                }
             });
         }
 
