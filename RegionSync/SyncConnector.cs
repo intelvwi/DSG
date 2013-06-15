@@ -108,6 +108,10 @@ namespace DSG.RegionSync
         //The region name of the other side of the connection
         public string otherSideRegionName { get; set; }
 
+                //to indicate if to stop Send and Recv Loops
+        private volatile bool _shouldStopSend = false;
+        private volatile bool _shouldStopRecv = false;
+
         // Check if the client is connected
         public bool connected
         { 
@@ -206,13 +210,21 @@ namespace DSG.RegionSync
 
                 m_regionSyncModule.CleanupAvatars();
 
+                RequestSendRecvLoopsStop();
                 // Abort receive and send loop
-                m_rcvLoop.Abort();
-                m_send_loop.Abort();
+                //m_rcvLoop.Abort();
+                //m_send_loop.Abort();^M
+                m_rcvLoop.Join();
+                m_send_loop.Join();
             });
         }
 
-
+        private void RequestSendRecvLoopsStop()
+        {
+            _shouldStopRecv = true;
+            _shouldStopSend = true;
+        }
+        
         public bool KeepAlive(SyncMsg msg)
         {
             TimeSpan timePassed = DateTime.Now - m_lastSendTime;
@@ -223,6 +235,14 @@ namespace DSG.RegionSync
             }
             else
                 return false;
+        }
+
+        private void TryReconnect()
+        {
+            //shutdown the current connector
+            Shutdown();
+            //ask higher level management module to try reconnect
+            m_regionSyncModule.TryReconnect(this, m_remoteListenerInfo);
         }
 
         ///////////////////////////////////////////////////////////
@@ -248,8 +268,10 @@ namespace DSG.RegionSync
             catch (Exception e)
             {
                 m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e);
+
+                TryReconnect();
             }
-            Shutdown();
+            //Shutdown();
         }
 
         /// <summary>
@@ -323,6 +345,8 @@ namespace DSG.RegionSync
                 {
                     m_log.ErrorFormat("{0}:Error in Send() {1}/{2} has disconnected: connector={3}, msgType={4}. e={5}",
                                 LogHeader, otherSideActorID, otherSideRegionName, m_connectorNum, msg.MType.ToString(), e);
+
+                    TryReconnect();
                 }
             }
         }
@@ -347,7 +371,10 @@ namespace DSG.RegionSync
                 {
                     //ShutdownClient();
                     m_log.ErrorFormat("{0}: ReceiveLoop error. Connector {1} disconnected: {2}.", LogHeader, m_connectorNum, e);
-                    Shutdown();
+
+                    //Shutdown();
+                    TryReconnect();
+
                     return;
                 }
                 // Try handling the message

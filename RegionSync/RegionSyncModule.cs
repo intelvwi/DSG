@@ -1481,6 +1481,11 @@ namespace DSG.RegionSync
             });
         }
 
+        private void SendSyncMessageToSyncConnector(SyncConnector syncConnector, SyncMsg msg)
+        {
+            syncConnector.ImmediateOutgoingMsg(msg);
+        }
+
         private void ForEachSyncConnector(Action<SyncConnector> action)
         {
             List<SyncConnector> closed = null;
@@ -1515,6 +1520,7 @@ namespace DSG.RegionSync
                     RemoveSyncConnector(connector);
                 }
 
+                /*
                 // Remove scene presences from disconnected regions
                 List<UUID> avatarsToRemove = new List<UUID>();
                 Scene.ForEachRootScenePresence(delegate(ScenePresence sp)
@@ -1532,6 +1538,7 @@ namespace DSG.RegionSync
                 {
                     Scene.RemoveClient(uuid, false);
                 }
+                 * */ 
             }
         }
 
@@ -1541,6 +1548,46 @@ namespace DSG.RegionSync
             ForEachSyncConnector(delegate(SyncConnector sc){ ; });
         }
 
+        public void TryReconnect(SyncConnector oldConnector, RegionSyncListenerInfo remoteListener)
+        {
+            //Remove the old, disconnected SyncConnector
+            RemoveSyncConnector(oldConnector);
+
+            m_log.WarnFormat("{0}: TryReconnect to {1}, {2}", LogHeader, remoteListener.Addr, remoteListener.Port);
+            SyncConnector syncConnector = new SyncConnector(m_syncConnectorNum++, remoteListener, this);
+            if (syncConnector.Connect())
+            {
+                m_log.WarnFormat("{0}: Reconnect successful, start send/recv and exchange sync message", LogHeader);
+
+                syncConnector.StartCommThreads();
+                AddSyncConnector(syncConnector);
+                m_synced = true;
+
+                DoReconnectSync(syncConnector);
+            }
+        }
+
+
+
+        private void DoReconnectSync(SyncConnector syncConnector)
+        {
+
+            SendSyncMessageToSyncConnector(syncConnector, new SyncMsgActorID(this, ActorID));
+            // SendSyncMessage(new SyncMsgActorType(ActorType.ToString());
+            // SendSyncMessage(new SyncMsgSyncID(m_syncID));
+
+            // message sent to help calculating the difference in the clocks
+            SendSyncMessageToSyncConnector(syncConnector, new SyncMsgTimeStamp(this, DateTime.UtcNow.Ticks));
+
+            SendSyncMessageToSyncConnector(syncConnector, new SyncMsgRegionName(this, Scene.RegionInfo.RegionName));
+            m_log.WarnFormat("{0}: Sending region name: \"{0}\"", LogHeader, Scene.RegionInfo.RegionName);
+
+            SendSyncMessageToSyncConnector(syncConnector, new SyncMsgGetRegionInfo(this));
+            //SendSyncMessage(new SyncMsgGetTerrain(this));
+            //SendSyncMessage(new SyncMsgGetPresences(this));
+            //SendSyncMessage(new SyncMsgGetObjects(this));
+
+        }
         #region Sync message handlers
 
         /// <summary>
