@@ -690,7 +690,8 @@ namespace DSG.RegionSync
             // For handling and debugging disconnection, reconnection trial, etc
             Command cmdSyncConnMgmt = new Command("conn", CommandIntentions.COMMAND_HAZARDOUS, SyncConnMgmt, "Manage and debug sync connections");
             cmdSyncConnMgmt.AddArgument("mgmtCmd", "command for managing connections", "String");
-            cmdSyncConnMgmt.AddArgument("otherActorID", "actorID of the actor/sim on the other side of the sync connection", "String");
+            cmdSyncConnMgmt.AddArgument("otherActorID/remoteListenerAddr:Port", 
+                "actorID of the actor/sim on the other side of the sync connection, if 'all', then all syncconnectors are included; or addr:port for reconn", "String");
 
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
@@ -844,7 +845,7 @@ namespace DSG.RegionSync
                 {
                     if (!syncConnectorsSent.Contains(connector.ConnectorNum) && !connector.otherSideActorID.Equals(senderActorID))
                     {
-                        m_log.DebugFormat("{0}: send DeLinkObject to {1}", LogHeader, connector.description);
+                        m_log.DebugFormat("{0}: send DeLinkObject to {1}", LogHeader, connector.Description);
                         // connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
                         connector.ImmediateOutgoingMsg(syncMsg);
                         syncConnectorsSent.Add(connector.ConnectorNum);
@@ -1244,30 +1245,64 @@ namespace DSG.RegionSync
             string otherActorID = (string)args[1];
 
             SyncConnector syncConnector = null;
-            foreach (SyncConnector connector in m_syncConnectors)
+            if (otherActorID != "all")
             {
-                if (connector.otherSideActorID == otherActorID)
+                foreach (SyncConnector connector in m_syncConnectors)
                 {
-                    syncConnector = connector;
-                    break;
+                    if (connector.otherSideActorID == otherActorID)
+                    {
+                        syncConnector = connector;
+                        break;
+                    }
                 }
             }
 
-            if (syncConnector != null)
+            switch (mgmtCmd)
             {
-                switch (mgmtCmd)
-                {
-                    case "close":
+                case "close":
+                    if (syncConnector != null)
                         syncConnector.Shutdown();
-                        break;
-                    case "reconn":
-                        break;
-                    case "show":
-
-                    default:
-                        break;
-                }
+                    break;
+                case "reconn":
+                    string remoteListener = (string)args[1];
+                    string[] addrArgs = remoteListener.Split(new char[] { ':' });
+                    string addr = addrArgs[0];
+                    int port = Convert.ToInt32(addrArgs[1]);
+                    bool stillConnected = false;
+                    foreach (SyncConnector connector in m_syncConnectors)
+                    {
+                        if(connector.RemoteListenerMatch(addr, port))
+                        {
+                            stillConnected = true;
+                            break;
+                        }
+                    }
+                    if(stillConnected){
+                        m_log.WarnFormat("Still connected to {0}:{1}", addr, port);
+                        return;
+                    }else{
+                        RegionSyncListenerInfo rListener = new RegionSyncListenerInfo(addr, port);
+                        TryReconnect(null, rListener);
+                    }
+                    break;
+                case "show":
+                    if (otherActorID == "all")
+                    {
+                        foreach (SyncConnector connector in m_syncConnectors)
+                        {
+                            Console.WriteLine("SyncConnector " + connector.ConnectorNum + ", connected to " + connector.otherSideActorID + "/" + connector.otherSideRegionName);
+                        }
+                    }
+                    else
+                    {
+                        if (syncConnector != null)
+                            Console.WriteLine("SyncConnector " + syncConnector.ConnectorNum + ", connected to " + syncConnector.otherSideActorID + "/" + syncConnector.otherSideRegionName);
+                    }
+                    break;
+                default:
+                    break;
             }
+
         }
 
 
@@ -1601,7 +1636,8 @@ namespace DSG.RegionSync
             Thread.Sleep(1000);
 
             //Remove the old, disconnected SyncConnector
-            RemoveSyncConnector(oldConnector);
+            if (oldConnector != null)
+                RemoveSyncConnector(oldConnector);
 
             m_log.WarnFormat("{0}: TryReconnect to {1}, {2}", LogHeader, remoteListener.Addr, remoteListener.Port);
             SyncConnector syncConnector = new SyncConnector(m_syncConnectorNum++, remoteListener, this);
