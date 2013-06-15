@@ -687,10 +687,16 @@ namespace DSG.RegionSync
             cmdSyncDumpUUID.AddArgument("uuid", "The uuid to print values for", "UUID");
             cmdSyncDumpUUID.AddArgument("full", "Print all values, not just differences", "String");
 
+            // For handling and debugging disconnection, reconnection trial, etc
+            Command cmdSyncConnMgmt = new Command("conn", CommandIntentions.COMMAND_HAZARDOUS, SyncConnMgmt, "Manage and debug sync connections");
+            cmdSyncConnMgmt.AddArgument("mgmtCmd", "command for managing connections", "String");
+            cmdSyncConnMgmt.AddArgument("otherActorID", "actorID of the actor/sim on the other side of the sync connection", "String");
+
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
             m_commander.RegisterCommand("uuid", cmdSyncDumpUUID);
+            m_commander.RegisterCommand("conn", cmdSyncConnMgmt);
 
             lock (Scene)
             {
@@ -1232,6 +1238,37 @@ namespace DSG.RegionSync
             m_log.WarnFormat("Estimated size of SyncInfoManager is {0}", m_SyncInfoManager.Size);
         }
 
+        private void SyncConnMgmt(Object[] args)
+        {
+            string mgmtCmd = (string)args[0];
+            string otherActorID = (string)args[1];
+
+            SyncConnector syncConnector = null;
+            foreach (SyncConnector connector in m_syncConnectors)
+            {
+                if (connector.otherSideActorID == otherActorID)
+                {
+                    syncConnector = connector;
+                    break;
+                }
+            }
+
+            if (syncConnector != null)
+            {
+                switch (mgmtCmd)
+                {
+                    case "close":
+                        syncConnector.Shutdown();
+                        break;
+                    case "reconn":
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+
         private void SyncDebug(Object[] args)
         {
             /*
@@ -1554,6 +1591,9 @@ namespace DSG.RegionSync
         public void TryReconnect(SyncConnector oldConnector, RegionSyncListenerInfo remoteListener)
         {
             if (!m_tryReconnectAfterDisconnect)
+                return;
+
+            if (remoteListener == null || remoteListener.Addr == null)
                 return;
 
             Thread.Sleep(1000);
