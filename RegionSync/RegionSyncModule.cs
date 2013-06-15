@@ -1262,6 +1262,8 @@ namespace DSG.RegionSync
                         break;
                     case "reconn":
                         break;
+                    case "show":
+
                     default:
                         break;
                 }
@@ -1630,7 +1632,7 @@ namespace DSG.RegionSync
             SendSyncMessageToSyncConnector(syncConnector, new SyncMsgRegionName(this, Scene.RegionInfo.RegionName));
             m_log.WarnFormat("{0}: Sending region name: \"{0}\"", LogHeader, Scene.RegionInfo.RegionName);
 
-            SendSyncMessageToSyncConnector(syncConnector, new SyncMsgGetRegionInfo(this));
+            //SendSyncMessageToSyncConnector(syncConnector, new SyncMsgGetRegionInfo(this));
             //SendSyncMessage(new SyncMsgGetTerrain(this));
             //SendSyncMessage(new SyncMsgGetPresences(this));
             //SendSyncMessage(new SyncMsgGetObjects(this));
