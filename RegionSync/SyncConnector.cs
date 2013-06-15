@@ -213,9 +213,11 @@ namespace DSG.RegionSync
                 RequestSendRecvLoopsStop();
                 // Abort receive and send loop
                 //m_rcvLoop.Abort();
-                //m_send_loop.Abort();^M
+                //m_send_loop.Abort();
                 m_rcvLoop.Join();
                 m_send_loop.Join();
+
+                m_regionSyncModule.TryReconnect(this, m_remoteListenerInfo);
             });
         }
 
@@ -237,6 +239,7 @@ namespace DSG.RegionSync
                 return false;
         }
 
+        /*
         private void TryReconnect()
         {
             //shutdown the current connector
@@ -244,6 +247,7 @@ namespace DSG.RegionSync
             //ask higher level management module to try reconnect
             m_regionSyncModule.TryReconnect(this, m_remoteListenerInfo);
         }
+         * */
 
         ///////////////////////////////////////////////////////////
         // Sending messages out to the other side of the connection
@@ -254,7 +258,8 @@ namespace DSG.RegionSync
         {
             try
             {
-                while (true)
+                //while (true)
+                while (!_shouldStopSend && m_tcpConnection.Connected)
                 {
                     SyncMsg msg = m_outQ.Dequeue();
 
@@ -269,7 +274,7 @@ namespace DSG.RegionSync
             {
                 m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e);
 
-                TryReconnect();
+                Shutdown();
             }
             //Shutdown();
         }
@@ -346,7 +351,8 @@ namespace DSG.RegionSync
                     m_log.ErrorFormat("{0}:Error in Send() {1}/{2} has disconnected: connector={3}, msgType={4}. e={5}",
                                 LogHeader, otherSideActorID, otherSideRegionName, m_connectorNum, msg.MType.ToString(), e);
 
-                    TryReconnect();
+                    //TryReconnect();
+                    Shutdown();
                 }
             }
         }
@@ -357,7 +363,8 @@ namespace DSG.RegionSync
         private void ReceiveLoop()
         {
             m_log.WarnFormat("{0} Thread running: {1}", LogHeader, m_rcvLoop.Name);
-            while (true && m_tcpConnection.Connected)
+            //while (true && m_tcpConnection.Connected)
+            while (!_shouldStopRecv && m_tcpConnection.Connected)
             {
                 SyncMsg msg;
                 // Try to get the message from the network stream
@@ -372,8 +379,8 @@ namespace DSG.RegionSync
                     //ShutdownClient();
                     m_log.ErrorFormat("{0}: ReceiveLoop error. Connector {1} disconnected: {2}.", LogHeader, m_connectorNum, e);
 
-                    //Shutdown();
-                    TryReconnect();
+                    Shutdown();
+                    //TryReconnect();
 
                     return;
                 }

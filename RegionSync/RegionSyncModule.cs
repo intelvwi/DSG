@@ -185,6 +185,8 @@ namespace DSG.RegionSync
             //this is temp solution for reducing collision events for country fair demo
             m_reportCollisions = m_sysConfig.GetString("ReportCollisions", "All");
 
+            m_tryReconnectAfterDisconnect = m_sysConfig.GetBoolean("ReconnectAfterDisconnect", true);
+
             m_syncMsgKeepAlive = new SyncMsgKeepAlive(this);
         }
 
@@ -473,6 +475,7 @@ namespace DSG.RegionSync
         private bool TerrainIsTainted { get; set; }
 
         private SyncMsgKeepAlive m_syncMsgKeepAlive;
+        private bool m_tryReconnectAfterDisconnect = true;
 
         private class SyncMessageRecord
         {
@@ -1550,6 +1553,11 @@ namespace DSG.RegionSync
 
         public void TryReconnect(SyncConnector oldConnector, RegionSyncListenerInfo remoteListener)
         {
+            if (!m_tryReconnectAfterDisconnect)
+                return;
+
+            Thread.Sleep(1000);
+
             //Remove the old, disconnected SyncConnector
             RemoveSyncConnector(oldConnector);
 
