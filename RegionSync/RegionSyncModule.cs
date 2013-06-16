@@ -697,8 +697,8 @@ namespace DSG.RegionSync
             // For handling and debugging disconnection, reconnection trial, etc
             Command cmdSyncConnMgmt = new Command("conn", CommandIntentions.COMMAND_HAZARDOUS, SyncConnMgmt, "Manage and debug sync connections");
             cmdSyncConnMgmt.AddArgument("mgmtCmd", "command for managing connections", "String");
-            cmdSyncConnMgmt.AddArgument("otherActorID/remoteListenerAddr:Port", 
-                "actorID of the actor/sim on the other side of the sync connection, if 'all', then all syncconnectors are included; or addr:port for reconn", "String");
+            cmdSyncConnMgmt.AddArgument("otherSideRegionName/remoteListenerAddr:Port", 
+                "regionName of the actor/sim on the other side of the sync connection, if 'all', then all syncconnectors are included; or addr:port for reconn", "String");
 
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
@@ -1249,14 +1249,14 @@ namespace DSG.RegionSync
         private void SyncConnMgmt(Object[] args)
         {
             string mgmtCmd = (string)args[0];
-            string otherActorID = (string)args[1];
+            string otherSideRegionName = (string)args[1];
 
             SyncConnector syncConnector = null;
-            if (otherActorID != "all")
+            if (otherSideRegionName != "all")
             {
                 foreach (SyncConnector connector in m_syncConnectors)
                 {
-                    if (connector.otherSideActorID == otherActorID)
+                    if (connector.otherSideRegionName == otherSideRegionName)
                     {
                         syncConnector = connector;
                         break;
@@ -1293,7 +1293,7 @@ namespace DSG.RegionSync
                     }
                     break;
                 case "show":
-                    if (otherActorID == "all")
+                    if (otherSideRegionName == "all")
                     {
                         foreach (SyncConnector connector in m_syncConnectors)
                         {
@@ -1304,6 +1304,16 @@ namespace DSG.RegionSync
                     {
                         if (syncConnector != null)
                             Console.WriteLine("SyncConnector " + syncConnector.ConnectorNum + ", connected to " + syncConnector.otherSideActorID + "/" + syncConnector.otherSideRegionName);
+                    }
+                    break;
+                case "rmavatar":
+                    if (otherSideRegionName == "all")
+                    {
+                        ClearAvatarsFromDisconnectedRemoteActor();
+                    }
+                    else
+                    {
+                        ClearAvatarsFromDisconnectedRemoteActor(otherSideRegionName);
                     }
                     break;
                 default:
@@ -1650,7 +1660,7 @@ namespace DSG.RegionSync
             //First, check if all remote actors in m_disconnectedActors are still disconnected, they may reconnect back
             foreach (SyncConnector connector in m_syncConnectors)
             {
-                if (connector.otherSideRegionName!=null &&  m_disconnectedActors.ContainsKey(connector.otherSideRegionName))
+                if (connector.connected && connector.otherSideRegionName!=null &&  m_disconnectedActors.ContainsKey(connector.otherSideRegionName))
                 {
                     lock (m_disconnectedActorsLock)
                     {
@@ -1691,6 +1701,35 @@ namespace DSG.RegionSync
                 SyncInfoPresence sip = (SyncInfoPresence)(m_SyncInfoManager.GetSyncInfo(uuid));
                 string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
                 if (avatarToRemoveRegions.Contains(cachedRealRegionName))
+                {
+                    avatarsToRemove.Add(uuid);
+                }
+
+            });
+            foreach (UUID uuid in avatarsToRemove)
+            {
+                Scene.RemoveClient(uuid, false);
+            }
+        }
+
+        private void ClearAvatarsFromDisconnectedRemoteActor(string disconnOtherSideRegionName)
+        {
+            m_log.WarnFormat("{0}: To remove avatars from {1}", LogHeader, disconnOtherSideRegionName);
+
+            if (m_disconnectedActors.ContainsKey(disconnOtherSideRegionName))
+            {
+                lock (m_disconnectedActorsLock)
+                    m_disconnectedActors.Remove(disconnOtherSideRegionName);
+            }
+
+            // Remove scene presences from the given region
+            List<UUID> avatarsToRemove = new List<UUID>();
+            Scene.ForEachRootScenePresence(delegate(ScenePresence sp)
+            {
+                UUID uuid = sp.UUID;
+                SyncInfoPresence sip = (SyncInfoPresence)(m_SyncInfoManager.GetSyncInfo(uuid));
+                string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
+                if (cachedRealRegionName == disconnOtherSideRegionName)
                 {
                     avatarsToRemove.Add(uuid);
                 }
