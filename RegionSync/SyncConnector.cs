@@ -60,7 +60,8 @@ namespace DSG.RegionSync
         Idle, //not connected
         Initialization, //initializing local copy of Scene
         Syncing, //done initialization, in normal process of syncing terrain, objects, etc
-        Reconnecting //Trying to reconnect
+        Reconnecting, //Trying to reconnect
+        ShuttingDown
     }
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
     public class SyncConnector
@@ -210,11 +211,16 @@ namespace DSG.RegionSync
 
         public void Shutdown()
         {
+            if (m_syncState == SyncConnectorState.ShuttingDown || m_syncState == SyncConnectorState.Reconnecting || m_syncState == SyncConnectorState.Idle)
+                return;
+
+            m_syncState = SyncConnectorState.ShuttingDown;
+
             // Cleanup on a worker thread because it will usually kill this thread that's currently running
             // (either the m_send_loop or m_rcvLoop)
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                m_log.WarnFormat("{0}: Shutting down connection", LogHeader);
+                m_log.WarnFormat("{0}: Shutting down connection to {1}", LogHeader, otherSideRegionName);
 
                 // Close the connection
                 m_tcpConnection.Client.Close();

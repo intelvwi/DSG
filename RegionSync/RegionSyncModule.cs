@@ -186,6 +186,7 @@ namespace DSG.RegionSync
             m_reportCollisions = m_sysConfig.GetString("ReportCollisions", "All");
 
             m_tryReconnectAfterDisconnect = m_sysConfig.GetBoolean("ReconnectAfterDisconnect", true);
+            m_DisconnectMaxWait = m_sysConfig.GetInt("DisconnectMaxWait", 120); //seconds
 
             m_syncMsgKeepAlive = new SyncMsgKeepAlive(this);
         }
@@ -476,6 +477,12 @@ namespace DSG.RegionSync
 
         private SyncMsgKeepAlive m_syncMsgKeepAlive;
         private bool m_tryReconnectAfterDisconnect = true;
+        //record the list of previously connected actors/sims that have disconnected:
+        //<OthersideRegionName, detectedTime>
+        Dictionary<string, DateTime> m_disconnectedActors = new Dictionary<string, DateTime>();
+        object m_disconnectedActorsLock = new object();
+        int m_DisconnectMaxWait = 120; //seconds
+        long m_updateTick = 0;
 
         private class SyncMessageRecord
         {
@@ -1577,7 +1584,16 @@ namespace DSG.RegionSync
                 if (syncConnector.connected)
                 {
                     action(syncConnector);
+                    if (syncConnector.otherSideRegionName == null)
+                        continue;
                     connectedRegions.Add(syncConnector.otherSideRegionName);
+                    lock (m_disconnectedActorsLock)
+                    {
+                        if (m_disconnectedActors.Remove(syncConnector.otherSideRegionName))
+                        {
+                            m_log.WarnFormat("Remote region {0} no longer disconnected, remove from disconnection record at {1}", syncConnector.otherSideRegionName, DateTime.Now);
+                        }
+                    }
                 }                
                     // Else, remove the SyncConnector from the list
                 else
@@ -1595,8 +1611,15 @@ namespace DSG.RegionSync
                 foreach (SyncConnector connector in closed)
                 {
                     RemoveSyncConnector(connector);
+                    if (connector.otherSideRegionName!=null && !m_disconnectedActors.ContainsKey(connector.otherSideRegionName))
+                    {
+                        m_log.WarnFormat("Remote region {0} disconnected at {1}", connector.otherSideRegionName, DateTime.Now);
+                        lock (m_disconnectedActorsLock)
+                            m_disconnectedActors.Add(connector.otherSideRegionName, DateTime.Now);
+                    }
                 }
 
+                //code below moved into ClearAvatarsFromDisconnectedRemoteActor()
                 /*
                 // Remove scene presences from disconnected regions
                 List<UUID> avatarsToRemove = new List<UUID>();
@@ -1619,6 +1642,66 @@ namespace DSG.RegionSync
             }
         }
 
+        //The call will be triggered periodically (for now, from SyncOutUpdate, but outside the InterLock section
+        private void ClearAvatarsFromDisconnectedRemoteActor()
+        {
+            //m_log.WarnFormat("ClearAvatarsFromDisconnectedRemoteActor called");
+
+            //First, check if all remote actors in m_disconnectedActors are still disconnected, they may reconnect back
+            foreach (SyncConnector connector in m_syncConnectors)
+            {
+                if (connector.otherSideRegionName!=null &&  m_disconnectedActors.ContainsKey(connector.otherSideRegionName))
+                {
+                    lock (m_disconnectedActorsLock)
+                    {
+                        if (m_disconnectedActors.Remove(connector.otherSideRegionName))
+                        {
+                            m_log.WarnFormat("Remote region {0} no longer disconnected, remove from disconnection record at {1}", connector.otherSideRegionName, DateTime.Now);
+                        }
+                    }
+                }
+            }
+
+            HashSet<string> avatarToRemoveRegions = new HashSet<string>(); 
+            foreach (KeyValuePair<string, DateTime> disconnRecord in m_disconnectedActors)
+            {
+                
+                TimeSpan disconnecSpan = DateTime.Now - disconnRecord.Value;
+                //m_log.WarnFormat("Check if {0} disconnected long enough, time spane {1}", disconnRecord.Key, disconnecSpan.TotalSeconds);
+                if (disconnecSpan.TotalSeconds > m_DisconnectMaxWait)
+                {
+                    m_log.WarnFormat("{0}: Remote actor with region name {1} disconnected for too long, remove any scene presences initiated from that actor",
+                        LogHeader, disconnRecord.Key);
+                    avatarToRemoveRegions.Add(disconnRecord.Key);
+                }
+            }
+
+            //These regions are disconnected for a long time,
+            foreach (string regionName in avatarToRemoveRegions)
+            {
+                lock (m_disconnectedActorsLock)
+                    m_disconnectedActors.Remove(regionName);
+            }
+
+            // Remove scene presences from disconnected long enough regions
+            List<UUID> avatarsToRemove = new List<UUID>();
+            Scene.ForEachRootScenePresence(delegate(ScenePresence sp)
+            {
+                UUID uuid = sp.UUID;
+                SyncInfoPresence sip = (SyncInfoPresence)(m_SyncInfoManager.GetSyncInfo(uuid));
+                string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
+                if (avatarToRemoveRegions.Contains(cachedRealRegionName))
+                {
+                    avatarsToRemove.Add(uuid);
+                }
+
+            });
+            foreach (UUID uuid in avatarsToRemove)
+            {
+                Scene.RemoveClient(uuid, false);
+            }
+        }
+
         public void CleanupAvatars()
         {
             // Force a loop through each of the sync connectors which will clean up any disconnected connectors.
@@ -1627,6 +1710,18 @@ namespace DSG.RegionSync
 
         public void TryReconnect(SyncConnector oldConnector, RegionSyncListenerInfo remoteListener)
         {
+            //Remove the old, disconnected SyncConnector
+            if (oldConnector != null)
+            {
+                RemoveSyncConnector(oldConnector);
+                if (!m_disconnectedActors.ContainsKey(oldConnector.otherSideRegionName))
+                {
+                    m_log.WarnFormat("Remote region {0} disconnected at {1}", oldConnector.otherSideRegionName, DateTime.Now);
+                    lock (m_disconnectedActorsLock)
+                        m_disconnectedActors.Add(oldConnector.otherSideRegionName, DateTime.Now);
+                }
+            }
+
             if (!m_tryReconnectAfterDisconnect)
                 return;
 
@@ -1634,10 +1729,6 @@ namespace DSG.RegionSync
                 return;
 
             Thread.Sleep(1000);
-
-            //Remove the old, disconnected SyncConnector
-            if (oldConnector != null)
-                RemoveSyncConnector(oldConnector);
 
             m_log.WarnFormat("{0}: TryReconnect to {1}, {2}", LogHeader, remoteListener.Addr, remoteListener.Port);
             SyncConnector syncConnector = new SyncConnector(m_syncConnectorNum++, remoteListener, this);
@@ -2470,6 +2561,7 @@ namespace DSG.RegionSync
                 });
             }
 
+            Dictionary<UUID, HashSet<SyncableProperties.Type>> updates;
 
             // Existing value of 1 indicates that updates are currently being sent so skip updates this pass
             if (Interlocked.Exchange(ref m_sendingPropertyUpdates, 1) == 1)
@@ -2478,7 +2570,7 @@ namespace DSG.RegionSync
                 return;
             }
 
-            //m_updateTick++;
+            m_updateTick++;
 
             lock (m_propertyUpdateLock)
             {
@@ -2494,7 +2586,7 @@ namespace DSG.RegionSync
                  * */ 
 
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
-                Dictionary<UUID, HashSet<SyncableProperties.Type>> updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
+                updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
                 m_propertyUpdates.Clear();
 
                 // Starting a new thread to prepare sync message and enqueue it to SyncConnectors
@@ -2596,18 +2688,6 @@ namespace DSG.RegionSync
                             updateIndex++;
                             
                         }
-
-                        //If no updates to send out, see if SyncConnectors need to send KeeyAlive
-                        if (updates.Count == 0)
-                        {
-
-                            //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
-                            //sent is longer than SyncConnector.KeeyAliveMaxInterval)
-                            foreach (SyncConnector syncConnector in m_syncConnectors)
-                            {
-                                syncConnector.KeepAlive(m_syncMsgKeepAlive);
-                            }
-                        }
                     }
 
                     /*
@@ -2623,6 +2703,27 @@ namespace DSG.RegionSync
 
                     // Indicate that the current batch of updates has been completed
                     Interlocked.Exchange(ref m_sendingPropertyUpdates, 0);
+
+                    //Do some other house keeping work, but we don't have to include these inside the Interlocked
+
+                    //If no updates to send out, see if SyncConnectors need to send KeeyAlive
+                    if (updates.Count == 0)
+                    {
+
+                        //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
+                        //sent is longer than SyncConnector.KeeyAliveMaxInterval)
+                        foreach (SyncConnector syncConnector in m_syncConnectors)
+                        {
+                            syncConnector.KeepAlive(m_syncMsgKeepAlive);
+                        }
+                    }
+
+                    if (m_updateTick % 10 ==0)
+                    {
+                        //periodically, let's check if some disconnected remote actors need to be cleaned up
+                        ClearAvatarsFromDisconnectedRemoteActor();
+                    }
+
                 });
             }
 
