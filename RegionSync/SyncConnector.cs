@@ -60,6 +60,7 @@ namespace DSG.RegionSync
         Idle, //not connected
         Initialization, //initializing local copy of Scene
         Syncing, //done initialization, in normal process of syncing terrain, objects, etc
+        ShuttingDown
     }
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
     public class SyncConnector
@@ -108,6 +109,10 @@ namespace DSG.RegionSync
         //The region name of the other side of the connection
         public string otherSideRegionName { get; set; }
 
+        //to indicate if to stop Send and Recv Loops
+        private volatile bool _shouldStopSend = false;
+        private volatile bool _shouldStopRecv = false;
+
         // Check if the client is connected
         public bool connected
         { 
@@ -140,6 +145,7 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            m_syncState = SyncConnectorState.Initialization;
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -154,6 +160,7 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            m_syncState = SyncConnectorState.Initialization;
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -164,6 +171,7 @@ namespace DSG.RegionSync
             try
             {
                 m_tcpConnection.Connect(m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
+                m_syncState = SyncConnectorState.Syncing;
             }
             catch (Exception e)
             {
@@ -194,6 +202,12 @@ namespace DSG.RegionSync
 
         public void Shutdown()
         {
+            //If already in Shuttingdown state, or Idle, no need to do through shutdown again
+            if (m_syncState == SyncConnectorState.ShuttingDown || m_syncState == SyncConnectorState.Idle)
+                return;
+
+            m_syncState = SyncConnectorState.ShuttingDown;
+
             // Cleanup on a worker thread because it will usually kill this thread that's currently running
             // (either the m_send_loop or m_rcvLoop)
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
@@ -206,9 +220,14 @@ namespace DSG.RegionSync
 
                 m_regionSyncModule.CleanupAvatars();
 
+                RequestSendRecvLoopsStop();
                 // Abort receive and send loop
-                m_rcvLoop.Abort();
-                m_send_loop.Abort();
+                //m_rcvLoop.Abort();
+                //m_send_loop.Abort();
+                m_rcvLoop.Join();
+                m_send_loop.Join();
+
+                m_syncState = SyncConnectorState.Idle;
             });
         }
 
@@ -223,6 +242,12 @@ namespace DSG.RegionSync
             }
             else
                 return false;
+	}
+
+        private void RequestSendRecvLoopsStop()
+        {
+            _shouldStopRecv = true;
+            _shouldStopSend = true;
         }
 
         ///////////////////////////////////////////////////////////
@@ -234,7 +259,8 @@ namespace DSG.RegionSync
         {
             try
             {
-                while (true)
+                //while (true)
+                while (!_shouldStopSend && m_tcpConnection.Connected)
                 {
                     SyncMsg msg = m_outQ.Dequeue();
 
@@ -323,6 +349,7 @@ namespace DSG.RegionSync
                 {
                     m_log.ErrorFormat("{0}:Error in Send() {1}/{2} has disconnected: connector={3}, msgType={4}. e={5}",
                                 LogHeader, otherSideActorID, otherSideRegionName, m_connectorNum, msg.MType.ToString(), e);
+                    Shutdown();
                 }
             }
         }
@@ -333,7 +360,8 @@ namespace DSG.RegionSync
         private void ReceiveLoop()
         {
             m_log.WarnFormat("{0} Thread running: {1}", LogHeader, m_rcvLoop.Name);
-            while (true && m_tcpConnection.Connected)
+            //while (true && m_tcpConnection.Connected)
+            while (!_shouldStopRecv && m_tcpConnection.Connected)
             {
                 SyncMsg msg;
                 // Try to get the message from the network stream
