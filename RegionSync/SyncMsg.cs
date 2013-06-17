@@ -48,7 +48,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Text;
-using System.Net.Sockets;
 
 using OpenSim.Framework;
 using OpenSim.Region.Framework.Interfaces;
@@ -202,13 +201,13 @@ public abstract class SyncMsg
     //      4 bytes: the msgType code
     //      4 bytes: number of bytes following for the message data
     //      N bytes: the data for this type of messsage
-    public static SyncMsg SyncMsgFactory(NetworkStream pStream, SyncConnector pConnectorContext)
+    public static SyncMsg SyncMsgFactory(Stream pStream, SyncConnector pConnectorContext)
     {
         SyncMsg ret = null;
 
-        MsgType mType = (MsgType)Utils.BytesToInt(GetBytesFromStream(pStream, 4, pConnectorContext));
-        int length = Utils.BytesToInt(GetBytesFromStream(pStream, 4, pConnectorContext));
-        byte[] data = GetBytesFromStream(pStream, length, pConnectorContext);
+        MsgType mType = (MsgType)Utils.BytesToInt(GetBytesFromStream(pStream, 4));
+        int length = Utils.BytesToInt(GetBytesFromStream(pStream, 4));
+        byte[] data = GetBytesFromStream(pStream, length);
 
         switch (mType)
         {
@@ -294,13 +293,12 @@ public abstract class SyncMsg
         RegionContext = null;
         ConnectorContext = null;
     }
-    private static byte[] GetBytesFromStream(NetworkStream stream, int count, SyncConnector pConnectorContext)
+    private static byte[] GetBytesFromStream(Stream stream, int count)
     {
         // Loop to receive the message length
         byte[] ret = new byte[count];
         int i = 0;
-        //while (stream.DataAvailable && i < count)
-        while (pConnectorContext.connected && i < count)
+        while (i < count)
         {
             i += stream.Read(ret, i, count - i);
         }
