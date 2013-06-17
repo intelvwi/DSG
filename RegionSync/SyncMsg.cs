@@ -48,6 +48,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Text;
+using System.Net.Sockets;
 
 using OpenSim.Framework;
 using OpenSim.Region.Framework.Interfaces;
@@ -201,7 +202,7 @@ public abstract class SyncMsg
     //      4 bytes: the msgType code
     //      4 bytes: number of bytes following for the message data
     //      N bytes: the data for this type of messsage
-    public static SyncMsg SyncMsgFactory(Stream pStream, SyncConnector pConnectorContext)
+    public static SyncMsg SyncMsgFactory(NetworkStream pStream, SyncConnector pConnectorContext)
     {
         SyncMsg ret = null;
 
@@ -293,12 +294,12 @@ public abstract class SyncMsg
         RegionContext = null;
         ConnectorContext = null;
     }
-    private static byte[] GetBytesFromStream(Stream stream, int count)
+    private static byte[] GetBytesFromStream(NetworkStream stream, int count)
     {
         // Loop to receive the message length
         byte[] ret = new byte[count];
         int i = 0;
-        while (i < count)
+        while (stream.DataAvailable && i < count)
         {
             i += stream.Read(ret, i, count - i);
         }
