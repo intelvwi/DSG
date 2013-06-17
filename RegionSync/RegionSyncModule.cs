@@ -185,6 +185,9 @@ namespace DSG.RegionSync
             //this is temp solution for reducing collision events for country fair demo
             m_reportCollisions = m_sysConfig.GetString("ReportCollisions", "All");
 
+            //Configure KeepAliveMaxInterval to send out KeepAlive message on a SyncConnector, if nothing
+            //has been sent through that connection for KeepAliveMaxInterval ms.
+            SyncConnector.KeepAliveMaxInterval = m_sysConfig.GetInt("KeepAliveMaxInterval", 10000); //unit of ms
             m_syncMsgKeepAlive = new SyncMsgKeepAlive(this);
         }
 

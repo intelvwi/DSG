@@ -65,7 +65,7 @@ namespace DSG.RegionSync
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
     public class SyncConnector
     {
-        public static int KeepAliveMaxInterval = 1000; //milliseconds
+        public static int KeepAliveMaxInterval = 10000; //unit: milliseconds
         private DateTime m_lastSendTime = DateTime.MinValue;
 
         private TcpClient m_tcpConnection = null;
