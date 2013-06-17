@@ -206,9 +206,9 @@ public abstract class SyncMsg
     {
         SyncMsg ret = null;
 
-        MsgType mType = (MsgType)Utils.BytesToInt(GetBytesFromStream(pStream, 4));
-        int length = Utils.BytesToInt(GetBytesFromStream(pStream, 4));
-        byte[] data = GetBytesFromStream(pStream, length);
+        MsgType mType = (MsgType)Utils.BytesToInt(GetBytesFromStream(pStream, 4, pConnectorContext));
+        int length = Utils.BytesToInt(GetBytesFromStream(pStream, 4, pConnectorContext));
+        byte[] data = GetBytesFromStream(pStream, length, pConnectorContext);
 
         switch (mType)
         {
@@ -294,12 +294,13 @@ public abstract class SyncMsg
         RegionContext = null;
         ConnectorContext = null;
     }
-    private static byte[] GetBytesFromStream(NetworkStream stream, int count)
+    private static byte[] GetBytesFromStream(NetworkStream stream, int count, SyncConnector pConnectorContext)
     {
         // Loop to receive the message length
         byte[] ret = new byte[count];
         int i = 0;
-        while (stream.DataAvailable && i < count)
+        //while (stream.DataAvailable && i < count)
+        while (pConnectorContext.connected && i < count)
         {
             i += stream.Read(ret, i, count - i);
         }
