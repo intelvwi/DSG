@@ -1,0 +1,29 @@
+Things to lookat/consider while doing msgClass refactor
+=======================================================
+RegionSyncModule.m_savedSyncMessage
+    Currently disabled (although most code is executed).
+    Useful for hanging onto messages received for objects not created yet.
+    Generalize into message saving mechanism that can be used for events,
+    updates and operations.
+Some messages expect to send the received binary buffer out again.
+	Check those that to a resend (usually "Get*") and figure out how to
+	make it so the data is not re-serialized.
+	SyncMsgNewPresence
+	SyncMsgNewObject
+	Look for references to IsSyncRelay in SyncMsg.cs
+Add ConvertIn to SyncMsg classes so decoding is in ConvertIn so it
+	matches ConvertOut.
+SyncMsgNewPresence is messed up: moves SyncInfo and not a ScenePresence.
+SyncMsgRegionName needs work.
+SyncMsgActorID needs work.
+SyncMsgRegionStatus needs work.
+The calls to base.ConvertIn and base.HandleIn return true/false. These
+	values should be cheched and each layer properly return their success.
+The generation of all the data for RegionSyncModule.SyncDelinkObject is messed up.
+	Refer to the original code to figure out where 'groupSyncInfo' comes from.
+RegionSyncModule.SyncStateDetailReport needs fixing.
+RegionSyncModule.OnLocalNewScript generates an updated property list which causes
+	the inventory to be updated. This is not being handled properly by
+	SyncMsgnewScript.
+
+What is the ending UUID on detail log messages? It seems to be always zero UUID.

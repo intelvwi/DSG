@@ -94,7 +94,6 @@ namespace DSG.RegionSync
         // Constructor
         public SyncedProperty(SyncableProperties.Type property, Object initValue, long initTS, string syncID)
         {
-            //m_log.WarnFormat("[SYNCED PROPERTY]: Constructing SyncedProperty for {0}. initValue is {1}null", property, (initValue == null ? "" : "not "));
             Property = property;
             LastUpdateValue = initValue;
             LastUpdateTimeStamp = initTS;
@@ -202,6 +201,10 @@ namespace DSG.RegionSync
                         value = (OSDMap)LastUpdateValue;
                         break;
 
+                    case SyncableProperties.Type.Animations:
+                        value = (OSDArray)LastUpdateValue;
+                        break;
+
                     ////////////////////////////
                     // Integer/enum type properties
                     ////////////////////////////
@@ -293,11 +296,8 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.NextOwnerMask:
                     case SyncableProperties.Type.OwnerMask:
                     case SyncableProperties.Type.AgentControlFlags:
-                        value = OSD.FromUInteger((uint)LastUpdateValue);
-                        break;
                     case SyncableProperties.Type.ParentId:
                         value = OSD.FromUInteger((uint)LastUpdateValue);
-                        DebugLog.WarnFormat("ToOSDMap: ParentId = {0}", (uint)LastUpdateValue);
                         break;
 
                     ////////////////////////////
@@ -307,7 +307,7 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.Buoyancy:
                         value = OSD.FromReal((float)LastUpdateValue);
                         break;
-
+                    
                     ////////////////////////////
                     // String type properties
                     ////////////////////////////
@@ -316,6 +316,7 @@ namespace DSG.RegionSync
                     case SyncableProperties.Type.Description:
                     case SyncableProperties.Type.MediaUrl:
                     case SyncableProperties.Type.Name:
+                    case SyncableProperties.Type.RealRegion:
                     case SyncableProperties.Type.Shape:
                     case SyncableProperties.Type.SitName:
                     case SyncableProperties.Type.TaskInventory:
@@ -375,6 +376,10 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AgentCircuitData:
                 case SyncableProperties.Type.AvatarAppearance:
                     LastUpdateValue = (OSDMap)value;
+                    break;
+
+                case SyncableProperties.Type.Animations:
+                    LastUpdateValue = (OSDArray)value;
                     break;
 
                 ////////////////////////////
@@ -485,6 +490,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.Description:
                 case SyncableProperties.Type.MediaUrl:
                 case SyncableProperties.Type.Name:
+                case SyncableProperties.Type.RealRegion:
                 case SyncableProperties.Type.Shape:
                 case SyncableProperties.Type.SitName:
                 case SyncableProperties.Type.TaskInventory:

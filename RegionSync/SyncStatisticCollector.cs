@@ -96,6 +96,11 @@ namespace DSG.RegionSync
             OtherSideRegionName = pOtherSideRegionName;
             MessageType = pMessageType;
         }
+
+        public override string ToConsoleString()
+        {
+            return base.ToConsoleString();
+        }
     }
 
     // =================================================================================
@@ -109,7 +114,26 @@ namespace DSG.RegionSync
 
         public override string ToConsoleString()
         {
-            return base.ToConsoleString();
+            StringBuilder ret = new StringBuilder();
+
+            SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
+            if (StatsManager.TryGetStats(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
+            {
+                foreach (string container in DSGStats.Keys)
+                {
+                    OSDMap containerMap = new OSDMap();
+                    foreach (KeyValuePair<string, Stat> aStat in DSGStats[container])
+                    {
+                        SyncConnectorStat connStat = aStat.Value as SyncConnectorStat;
+                        if (connStat != null)
+                        {
+                            ret.Append(connStat.ToConsoleString());
+                            ret.Append(Environment.NewLine);
+                        }
+                    }
+                }
+            }
+            return ret.ToString();
         }
 
         // Build an OSDMap of the DSG sync connector info. Returned map is of the form:
@@ -272,7 +296,7 @@ namespace DSG.RegionSync
             if (Enabled)
             {
                 DSGCategory = cfg.GetString("LogDSGCategory", "dsg");
-                DSGCategory = cfg.GetString("LogDSGDetailCategory", "dsg-detail");
+                DSGDetailCategory = cfg.GetString("LogDSGDetailCategory", "dsg-detail");
                 LogIntervalSeconds = cfg.GetInt("LogIntervalSeconds", 10);
                 m_log.InfoFormat("{0} Enabling statistic logging. Category={1}, Interval={2}sec",
                             LogHeader, DSGCategory, LogIntervalSeconds);
@@ -329,6 +353,9 @@ namespace DSG.RegionSync
                     m_log.InfoFormat("{0} Enabling server logging. Dir={1}, fileAge={2}min, flush={3}",
                             LogHeader, LogLLUDPBWAggDirectory, LogLLUDPBWAggFileTimeMinutes, LogLLUDPBWAggFlushWrites);
                 }
+
+                // If enabled, we add a DSG pretty printer to the output
+                StatsManager.RegisterStat(new SyncConnectorStatAggregator(DSGCategory, DSGCategory, "Distributed Scene Graph", "", DSGCategory));
             }
             lastStatTime = Util.EnvironmentTickCount();
             m_lastLLUDPStatsLogTime = Util.EnvironmentTickCount(); //Util.EnvironmentTickCount() 15.6ms precision

@@ -51,6 +51,7 @@ using log4net;
 using OpenMetaverse;
 using OpenMetaverse.StructuredData;
 using OpenSim.Region.Framework.Scenes;
+using OpenSim.Region.Framework.Scenes.Animation;
 using OpenSim.Framework;
 using System.Diagnostics;
 
@@ -217,7 +218,9 @@ namespace DSG.RegionSync
         /// RegionSyncModule is replaced by SP's data.</returns>
         private bool CompareValue_UpdateByLocal(ScenePresence sp, SyncableProperties.Type property, long lastUpdateByLocalTS, string syncID)
         {
-            //m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal: Updating property {0} on sp {1}", property.ToString(), sp.UUID);
+            //DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal: Updating property {0} on sp {1}", property.ToString(), sp.UUID);
+            // Check to see if this property is in the sync cache for this object.
+            // If not, add it and initialize value to value in ScenePresence.
             bool ret = false;
             if (!CurrentlySyncedProperties.ContainsKey(property))
             {
@@ -237,16 +240,16 @@ namespace DSG.RegionSync
             // sync'ed, it might happen), overwrite SP's value with what's maintained
             // in SyncInfo; otherwise, copy SP's data to SyncInfo.
 
+            SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
+            Object value = GetPropertyValue(sp, property);
+
+            // If both null, no update needed
+            if (syncedProperty.LastUpdateValue == null && value == null)
+                return false;
+
             switch (property)
             {
                 default:
-                    SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
-                    Object value = GetPropertyValue(sp, property);
-
-                    // If both null, no update needed
-                    if (syncedProperty.LastUpdateValue == null && value == null)
-                        return false;
-
                     // If one is null and the other is not, or if the references are different, the property was changed.
                     // This will perform a value comparison for strings in C#. We could use String.Clone instead for string properties.
                     if ((value == null && syncedProperty.LastUpdateValue != null) ||
@@ -255,6 +258,10 @@ namespace DSG.RegionSync
                     {
                         if (value != null)
                         {
+                            // Some values, even if they are not 'equal', might be close enough to be equal.
+                            // Note that the 'Equals()' above will most always return 'false' for lists and OSDMaps
+                            //     since they are probably not the same object.
+                            // Returning a 'false' here means the values don't need any updating (they are equal enough).
                             switch (property)
                             {
                                 case SyncableProperties.Type.AvatarAppearance:
@@ -262,6 +269,40 @@ namespace DSG.RegionSync
                                     String lastStringValue = OSDParser.SerializeJsonString((OSDMap)syncedProperty.LastUpdateValue);
                                     if (stringValue == lastStringValue)
                                         return false;
+                                    break;
+                                case SyncableProperties.Type.Animations:
+                                    if (syncedProperty.LastUpdateValue != null)
+                                    {
+                                        AnimationSet lastAnimations = new AnimationSet((OSDArray)syncedProperty.LastUpdateValue);
+
+                                        // Get the home region for this presence (the client manager the presence is connected to).
+                                        string cachedRealRegionName = (string)(CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
+                                        if (cachedRealRegionName != Scene.Name && sp.Animator.Animations.ToArray().Length == 0)
+                                        {
+                                            // If this is not the originating region for this presence or there is no additional
+                                            //   animations being added, this simulator does not change the animation.
+                                            // THIS IS A HORRIBLE KLUDGE. FIGURE OUT THE REAL SOLUTION!!
+                                            // The problem is that animations are changed by every simulator (setting default
+                                            //   sit and stand when parentID changes) and the updates conflict/override the real
+                                            //   settings (like a scripted sit animation).
+                                            // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal. Not home sim or no anim change. spID={1}, homeSim={2}, thisSim={3}, anims={4}",
+                                            //                     LogHeader, sp.LocalId, cachedRealRegionName, Scene.Name, sp.Animator.Animations.ToArray().Length); // DEBUG DEBUG
+
+                                            return false;
+                                        }
+
+                                        if (lastAnimations.Equals(sp.Animator.Animations))
+                                        {
+                                            // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal. Equal anims. spID={1}, sp.Anim={2}, lastAnim={3}",
+                                            //                     LogHeader, sp.LocalId, sp.Animator.Animations, lastAnimations); // DEBUG DEBUG
+                                            return false;
+                                        }
+                                        else
+                                        {
+                                            // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal. Not equal anims. spID={1}, sp.Anim={2}, lastAnim={3}",
+                                            //                     LogHeader, sp.LocalId, sp.Animator.Animations, lastAnimations); // DEBUG DEBUG
+                                        }
+                                    }
                                     break;
                                 case SyncableProperties.Type.Velocity:
                                 case SyncableProperties.Type.PA_Velocity:
@@ -298,20 +339,14 @@ namespace DSG.RegionSync
                                     }
                             }
                         }
-                        // m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): value != syncedProperty.LastUpdateValue", property.ToString());
+                        // If we get here, the values are not equal and we need to update the cached value if the
+                        //     new value is timestamp newer.
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
-                            // m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
+                            // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal (property={1}): TS >= lastTS (updating SyncInfo)", LogHeader, property);
                             CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
-/*
-                            // Updating either absolute position or position also requires checking for updates to group position
-                            if (property == SyncableProperties.Type.AbsolutePosition || property == SyncableProperties.Type.Position)
-                                CompareValue_UpdateByLocal(sp, SyncableProperties.Type.GroupPosition, lastUpdateByLocalTS, syncID);
-*/
                             return true;
                         }
-                        // m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): TS < lastTS (updating SP)", property.ToString());
-                        //SetPropertyValue(property);
                     }
                     break;
             }
@@ -435,6 +470,8 @@ namespace DSG.RegionSync
                     return sp.AgentControlFlags;
                 case SyncableProperties.Type.AllowMovement:
                     return sp.AllowMovement;
+                case SyncableProperties.Type.Animations:
+                    return sp.Animator.Animations.ToOSDArray();
                 case SyncableProperties.Type.AvatarAppearance:
                     return sp.Appearance.Pack();
                 case SyncableProperties.Type.Rotation:
@@ -443,6 +480,9 @@ namespace DSG.RegionSync
                     if (sp.PhysicsActor == null)
                         return Vector3.Zero;
                     return sp.PhysicsActor.Velocity;
+                case SyncableProperties.Type.RealRegion:
+                    // Always just the local scene name the avatar is in when requested locally. 
+                    return sp.Scene.Name;
                 case SyncableProperties.Type.PA_TargetVelocity:
                     if (sp.PhysicsActor == null)
                         return Vector3.Zero;
@@ -498,6 +538,7 @@ namespace DSG.RegionSync
                     uint localID = (uint)pValue;
                     if (localID == 0)
                     {
+                        // DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. Standup. Input={1}", LogHeader, localID); // DEBUG DEBUG
                         sp.StandUp();
                     }
                     else
@@ -506,6 +547,8 @@ namespace DSG.RegionSync
                         if (parentPart != null) // TODO ??
                         {
                             sp.HandleAgentRequestSit(sp.ControllingClient, sp.ControllingClient.AgentId, parentPart.UUID, Vector3.Zero);
+                            // DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. SitRequest. Input={1},sp={2},newParentID={3}",
+                            //                 LogHeader, localID, (string)(sp == null ? "NULL" : sp.Name), sp.ParentID); // DEBUG DEBUG
                         }
                     }
                     //sp.ParentID = (uint)pValue;
@@ -519,12 +562,18 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AvatarAppearance:
                     sp.Appearance.Unpack((OSDMap)pValue);
                     break;
+                case SyncableProperties.Type.Animations:
+                    UpdateAvatarAnimations(sp, (OSDArray)pValue);
+                    break;
                 case SyncableProperties.Type.Rotation:
                     sp.Rotation = (Quaternion)pValue;
                     break;
                 case SyncableProperties.Type.PA_Velocity:
                     if (sp.PhysicsActor != null)
                         sp.PhysicsActor.Velocity = (Vector3)pValue;
+                    break;
+                case SyncableProperties.Type.RealRegion:
+                    ////// NOP //////
                     break;
                 case SyncableProperties.Type.PA_TargetVelocity:
                     if(sp.PhysicsActor != null)
@@ -544,6 +593,27 @@ namespace DSG.RegionSync
 
             // When presence values are changed, we tell the simulator with an event
             GenerateAgentUpdated(sp);
+        }
+
+        // Received a list of animations for this avatar. Check to see if animation list has
+        //   changed and update the scene presence.
+        // Doing any updates to the Animator causes events to be sent out so don't change willy nilly.
+        // Changes to the animation set must be done through sp.Animator so the proper side
+        //   effects happen and updates are sent out.
+        private void UpdateAvatarAnimations(ScenePresence sp, OSDArray pPackedAnimations)
+        {
+            AnimationSet newSet = new AnimationSet(pPackedAnimations);
+            AnimationSet currentSet = sp.Animator.Animations;
+            if (!newSet.Equals(currentSet))
+            {
+                // DebugLog.DebugFormat("{0} UpdateAvatarAnimations. spID={1},CurrAnims={2},NewAnims={3}",
+                //                          LogHeader, sp.LocalId, currentSet, newSet); // DEBUG DEBUG
+
+                // If something changed, stuff the new values in the existing animation collection.
+                sp.Animator.Animations.FromOSDArray(pPackedAnimations);
+            }
+            // Doesn't matter if it changed or not. If someone sends us an animation update, tell any connected client.
+            sp.Animator.SendAnimPack();
         }
 
         // Some presence property has changed. Generate a call into the scene presence

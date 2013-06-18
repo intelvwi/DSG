@@ -60,9 +60,9 @@ namespace DSG.RegionSync
     class BlockingUpdateQueue
     {
         private object m_syncRoot = new object();
-        private Queue<SymmetricSyncMessage> m_firstQueue = new Queue<SymmetricSyncMessage>();
+        private Queue<SyncMsg> m_firstQueue = new Queue<SyncMsg>();
         private Queue<UUID> m_queue = new Queue<UUID>();
-        private Dictionary<UUID, SymmetricSyncMessage> m_updates = new Dictionary<UUID, SymmetricSyncMessage>();
+        private Dictionary<UUID, SyncMsg> m_updates = new Dictionary<UUID, SyncMsg>();
 
         // The number of times we throw away an old update for the same UUID
         public long OverWrittenUpdates = 0;
@@ -71,7 +71,7 @@ namespace DSG.RegionSync
         // Note that only one update for each id is queued so it is possible that this particular
         //      update will not get queued if there is already one queued for that id.
         // Returns 'true' if the object was actually enqueued.
-        public bool Enqueue(UUID id, SymmetricSyncMessage update)
+        public bool Enqueue(UUID id, SyncMsg update)
         {
             bool ret = false;
             lock(m_syncRoot)
@@ -79,20 +79,31 @@ namespace DSG.RegionSync
                 if (!m_updates.ContainsKey(id))
                 {
                     m_queue.Enqueue(id);
+                    m_updates[id] = update;
                     ret = true;
                 }
                 else
                 {
                     OverWrittenUpdates++;
+                    // If this is an update, we merge our update flags
+                    SyncMsgUpdatedProperties updatedPropMsg = update as SyncMsgUpdatedProperties;
+                    SyncMsgUpdatedProperties existingUpdatedPropMsg = m_updates[id] as SyncMsgUpdatedProperties;
+                    if (updatedPropMsg != null && existingUpdatedPropMsg != null)
+                    {
+                        existingUpdatedPropMsg.AddUpdates(updatedPropMsg.SyncableProperties);
+                    }
+                    else
+                    {
+                        // It is very odd that it is not one of ours. Don't know how another type got into the list.
+                    }
                 }
-                m_updates[id] = update;
                 Monitor.Pulse(m_syncRoot);
             }
             return ret;
         }
 
         // Add a message to the first of the queue.
-        public void QueueMessageFirst(SymmetricSyncMessage update)
+        public void QueueMessageFirst(SyncMsg update)
         {
             lock (m_syncRoot)
             {
@@ -102,9 +113,9 @@ namespace DSG.RegionSync
         }
 
         // Dequeue an update
-        public SymmetricSyncMessage Dequeue()
+        public SyncMsg Dequeue()
         {
-            SymmetricSyncMessage update = null;
+            SyncMsg update = null;
             lock (m_syncRoot)
             {
                 // If the queue is empty, wait for it to contain something

@@ -61,10 +61,14 @@ namespace DSG.RegionSync
         Idle, //not connected
         Initialization, //initializing local copy of Scene
         Syncing, //done initialization, in normal process of syncing terrain, objects, etc
+        ShuttingDown
     }
     // For implementations, a lot was copied from RegionSyncClientView, especially the SendLoop/ReceiveLoop.
     public class SyncConnector
     {
+        public static int KeepAliveMaxInterval = 10000; //unit: milliseconds
+        private DateTime m_lastSendTime = DateTime.MinValue;
+
         private TcpClient m_tcpConnection = null;
         private RegionSyncListenerInfo m_remoteListenerInfo = null;
         public RegionSyncListenerInfo RemoteListenerInfo {
@@ -104,10 +108,14 @@ namespace DSG.RegionSync
         }
 
         //the actorID of the other end of the connection
-        public string otherSideActorID { get; private set; }
+        public string otherSideActorID { get; set; }
 
         //The region name of the other side of the connection
-        public string otherSideRegionName { get; private set; }
+        public string otherSideRegionName { get; set; }
+
+        //to indicate if to stop Send and Recv Loops
+        private volatile bool _shouldStopSend = false;
+        private volatile bool _shouldStopRecv = false;
 
         // Check if the client is connected
         public bool connected
@@ -147,7 +155,7 @@ namespace DSG.RegionSync
             int port = ((IPEndPoint)tcpclient.Client.RemoteEndPoint).Port;
             RegionSyncListenerInfo listenerInfo = new RegionSyncListenerInfo(ip, port);
             m_remoteListenerInfo = listenerInfo;
-
+            m_syncState = SyncConnectorState.Initialization;
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -162,6 +170,7 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            m_syncState = SyncConnectorState.Initialization;
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 
@@ -172,6 +181,7 @@ namespace DSG.RegionSync
             try
             {
                 m_tcpConnection.Connect(m_remoteListenerInfo.Addr, m_remoteListenerInfo.Port);
+                m_syncState = SyncConnectorState.Syncing;
             }
             catch (Exception e)
             {
@@ -202,14 +212,52 @@ namespace DSG.RegionSync
 
         public void Shutdown()
         {
-            m_log.Warn(LogHeader + " shutdown connection");
-            // Abort receive and send loop
-            m_rcvLoop.Abort();
-            m_send_loop.Abort();
+            //If already in Shuttingdown state, or Idle, no need to do through shutdown again
+            if (m_syncState == SyncConnectorState.ShuttingDown || m_syncState == SyncConnectorState.Idle)
+                return;
 
-            // Close the connection
-            m_tcpConnection.Client.Close();
-            m_tcpConnection.Close();
+            m_syncState = SyncConnectorState.ShuttingDown;
+
+            // Cleanup on a worker thread because it will usually kill this thread that's currently running
+            // (either the m_send_loop or m_rcvLoop)
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                m_log.WarnFormat("{0}: Shutting down connection", LogHeader);
+
+                // Close the connection
+                m_tcpConnection.Client.Close();
+                m_tcpConnection.Close();
+
+                m_regionSyncModule.CleanupAvatars();
+
+                RequestSendRecvLoopsStop();
+                // Abort receive and send loop
+                //m_rcvLoop.Abort();
+                //m_send_loop.Abort();
+                m_rcvLoop.Join();
+                m_send_loop.Join();
+
+                m_syncState = SyncConnectorState.Idle;
+            });
+        }
+
+
+        public bool KeepAlive(SyncMsg msg)
+        {
+            TimeSpan timePassed = DateTime.Now - m_lastSendTime;
+            if (timePassed.TotalMilliseconds > KeepAliveMaxInterval)
+            {
+                ImmediateOutgoingMsg(msg);
+                return true;
+            }
+            else
+                return false;
+	}
+
+        private void RequestSendRecvLoopsStop()
+        {
+            _shouldStopRecv = true;
+            _shouldStopSend = true;
         }
 
         ///////////////////////////////////////////////////////////
@@ -221,16 +269,21 @@ namespace DSG.RegionSync
         {
             try
             {
-                while (true)
+                //while (true)
+                while (!_shouldStopSend && m_tcpConnection.Connected)
                 {
-                    SymmetricSyncMessage msg = m_outQ.Dequeue();
+                    SyncMsg msg = m_outQ.Dequeue();
+
+                    // Do any conversion if it was not done earlier (on a friendlier thread)
+                    msg.ConvertOut(m_regionSyncModule);
+
                     if (m_collectingStats) currentQueue.Event(-1);
                     Send(msg);
                 }
             }
             catch (Exception e)
             {
-                m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e.Message);
+                m_log.ErrorFormat("{0} has disconnected: {1} (SendLoop)", description, e);
             }
             Shutdown();
         }
@@ -240,18 +293,28 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="id">UUID of the object/avatar</param>
         /// <param name="update">the update infomation in byte format</param>
-        public void EnqueueOutgoingUpdate(UUID id, SymmetricSyncMessage update)
+        public void EnqueueOutgoingUpdate(UUID id, SyncMsg update)
         {
             // m_log.DebugFormat("{0} Enqueue msg {1}", LogHeader, update.ToString());
+            update.LogTransmission(this);
             // Enqueue is thread safe
-            if (m_outQ.Enqueue(id, update) && m_collectingStats)
+            bool actuallyQueued = m_outQ.Enqueue(id, update);
+            /* BEGIN DEBUG
+            if (!actuallyQueued)
+            {
+                SyncMsgUpdatedProperties upd = update as SyncMsgUpdatedProperties;
+                m_log.DebugFormat("{0} EnqueueOutgoingUpdate. Multiple update. UUID={1}, prop={2}",
+                                    LogHeader, upd.Uuid, upd.PropsAsString());
+            }
+             END DEBUG */
+            if (actuallyQueued && m_collectingStats)
                 currentQueue.Event(1);
         }
 
-        public void ImmediateOutgoingMsg(SymmetricSyncMessage msg)
+        // Queue the outgoing message so it it sent "now" and before update messages.
+        public void ImmediateOutgoingMsg(SyncMsg msg)
         {
-            // The old way was to just call Send and hope the networking worked out.
-            // Send(msg);
+            msg.LogTransmission(this);
 
             // The new way is to add a first queue and to place this message at the front.
             m_outQ.QueueMessageFirst(msg);
@@ -262,15 +325,22 @@ namespace DSG.RegionSync
 
         //Send out a messge directly. This should only by called for short messages that are not sent frequently.
         //Don't call this function for sending out updates. Call EnqueueOutgoingUpdate instead
-        private void Send(SymmetricSyncMessage msg)
+        private void Send(SyncMsg msg)
         {
             // m_log.DebugFormat("{0} Send msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
-            byte[] data = msg.ToBytes();
             if (m_tcpConnection.Connected)
             {
                 try
                 {
-                    CollectSendStat(msg.Type.ToString(), msg.Data.Length);
+                    byte[] data = msg.GetWireBytes();
+                    CollectSendStat(msg.MType.ToString(), msg.DataLength);
+                    // Rather than async write, use the TCP flow control to stop this thread if the
+                    //    receiver cannot consume the data quick enough.
+                    m_tcpConnection.GetStream().Write(data, 0, data.Length);
+                    
+                    m_lastSendTime = DateTime.Now;
+
+                    /*
                     m_tcpConnection.GetStream().BeginWrite(data, 0, data.Length, ar =>
                     {
                         if (m_tcpConnection.Connected)
@@ -283,10 +353,13 @@ namespace DSG.RegionSync
                             { }
                         }
                     }, null);
+                     */
                 }
                 catch (Exception e)
                 {
-                    m_log.WarnFormat("{0}:Error in Send() {1} has disconnected -- error message: {2}.", description, m_connectorNum, e.Message);
+                    m_log.ErrorFormat("{0}:Error in Send() {1}/{2} has disconnected: connector={3}, msgType={4}. e={5}",
+                                LogHeader, otherSideActorID, otherSideRegionName, m_connectorNum, msg.MType.ToString(), e);
+                    Shutdown();
                 }
             }
         }
@@ -297,20 +370,21 @@ namespace DSG.RegionSync
         private void ReceiveLoop()
         {
             m_log.WarnFormat("{0} Thread running: {1}", LogHeader, m_rcvLoop.Name);
-            while (true && m_tcpConnection.Connected)
+            //while (true && m_tcpConnection.Connected)
+            while (!_shouldStopRecv && m_tcpConnection.Connected)
             {
-                SymmetricSyncMessage msg;
+                SyncMsg msg;
                 // Try to get the message from the network stream
                 try
                 {
-                    msg = new SymmetricSyncMessage(m_tcpConnection.GetStream());
+                    msg = SyncMsg.SyncMsgFactory(m_tcpConnection.GetStream(), this);
                     // m_log.WarnFormat("{0} Recv msg: {1}", LogHeader, msg.ToString());
                 }
                 // If there is a problem reading from the client, shut 'er down. 
                 catch (Exception e)
                 {
                     //ShutdownClient();
-                    m_log.ErrorFormat("{0}: ReceiveLoop error {1} has disconnected -- error message {2}.", description, m_connectorNum, e.Message);
+                    m_log.ErrorFormat("{0}: ReceiveLoop error. Connector {1} disconnected: {2}.", LogHeader, m_connectorNum, e);
                     Shutdown();
                     return;
                 }
@@ -321,56 +395,45 @@ namespace DSG.RegionSync
                 }
                 catch (Exception e)
                 {
-                    m_log.WarnFormat("{0} Encountered an exception: {1} {2} {3} (MSGTYPE = {4})", description, e.Message, e.TargetSite, e.ToString(), msg.ToString());
+                    if (msg == null)
+                    {
+                        m_log.ErrorFormat("{0} Exception handling msg: NULL MESSAGE: {1}", LogHeader, e);
+                    }
+                    else
+                    {
+                        m_log.ErrorFormat("{0} Exception handling msg: type={1},len={2}: {3}", LogHeader, msg.MType, msg.DataLength, e);
+                    }
                 }
             }
         }
 
-        private void HandleMessage(SymmetricSyncMessage msg)
+        private void HandleMessage(SyncMsg msg)
         {
 
             // m_log.DebugFormat("{0} Recv msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
-            CollectReceiveStat(msg.Type.ToString(), msg.Data.Length);
+            CollectReceiveStat(msg.MType.ToString(), msg.DataLength);
 
-            switch (msg.Type)
+            // TODO: Consider doing the data unpacking on a different thread than the input reader thread
+            msg.ConvertIn(m_regionSyncModule);
+
+            // TODO: Consider doing the message processing on a different thread than the input reader thread
+            msg.HandleIn(m_regionSyncModule);
+
+            // If this is an initialization message, print out info and start stats gathering if initialized enough
+            if (msg.MType == SyncMsg.MsgType.RegionName || msg.MType == SyncMsg.MsgType.ActorID)
             {
-                case SymmetricSyncMessage.MsgType.RegionName:
-                    {
-                        otherSideRegionName = Encoding.ASCII.GetString(msg.Data, 0, msg.Length);
-                        m_regionSyncModule.DetailedUpdateWrite("RcvRegnNam", m_zeroUUID, 0, otherSideRegionName, otherSideActorID, msg.Length);
-                        if (m_regionSyncModule.IsSyncRelay)
-                        {
-                            SymmetricSyncMessage outMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RegionName, m_regionSyncModule.Scene.RegionInfo.RegionName);
-                            m_regionSyncModule.DetailedUpdateWrite("SndRegnNam", m_zeroUUID, 0, m_regionSyncModule.Scene.RegionInfo.RegionName, this.otherSideActorID, outMsg.Length);
-                            Send(outMsg);
-                        }
+                switch (msg.MType)
+                {
+                    case SyncMsg.MsgType.RegionName:
                         m_log.DebugFormat("Syncing to region \"{0}\"", otherSideRegionName);
-                        if (otherSideRegionName != null && otherSideActorID != null)
-                            StartCollectingStats();
-                        return;
-                    }
-                case SymmetricSyncMessage.MsgType.ActorID:
-                    {
-                        otherSideActorID = Encoding.ASCII.GetString(msg.Data, 0, msg.Length);
-                        m_regionSyncModule.DetailedUpdateWrite("RcvActorID", m_zeroUUID, 0, otherSideActorID, otherSideActorID, msg.Length);
-                        if (m_regionSyncModule.IsSyncRelay)
-                        {
-                            SymmetricSyncMessage outMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ActorID, m_regionSyncModule.ActorID);
-                            m_regionSyncModule.DetailedUpdateWrite("SndActorID", m_zeroUUID, 0, m_regionSyncModule.ActorID, otherSideActorID, outMsg.Length);
-                            Send(outMsg);
-                        }
+                        break;
+                    case SyncMsg.MsgType.ActorID:
                         m_log.DebugFormat("Syncing to actor \"{0}\"", otherSideActorID);
-                        if (otherSideRegionName != null && otherSideActorID != null)
-                            StartCollectingStats();
-                        return;
-                    }
-                default:
-                    break;
+                        break;
+                }
+                if (otherSideRegionName != null && otherSideActorID != null)
+                    StartCollectingStats();
             }
-
-            //For any other messages, we simply deliver the message to RegionSyncModule for now.
-            //Later on, we may deliver messages to different modules, say sync message to RegionSyncModule and event message to ActorSyncModule.
-            m_regionSyncModule.HandleIncomingMessage(msg, otherSideActorID, this);
         }
 
         private bool m_collectingStats = false;
@@ -380,7 +443,8 @@ namespace DSG.RegionSync
 
         private void StartCollectingStats()
         {
-            if (!m_regionSyncModule.StatCollector.Enabled)
+            // If stats not enabled or stats have already been initialized, just return.
+            if (!m_regionSyncModule.StatCollector.Enabled || m_registeredStats.Count > 0)
                 return;
 
             msgsIn = new SyncConnectorStat(
