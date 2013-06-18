@@ -68,7 +68,28 @@ namespace DSG.RegionSync
         public Object SceneThing { get; set; }
 
         protected Object m_syncLock = new Object();
-        
+
+        // The previous quark the prim resided in
+        private SyncQuark m_prevQuark = null;
+        public SyncQuark PrevQuark
+        {
+            get
+            {
+                return m_prevQuark;
+            }
+            set { m_prevQuark = value; }
+        }
+
+        // The current quark the prim is located in
+        private SyncQuark m_curQuark = null;
+        public SyncQuark CurQuark
+        {
+            get
+            {
+                return m_curQuark;
+            }
+            set { m_curQuark = value; }
+        }
         /// NOTE: CurrentlySyncedProperties should be protected but it's used (without locking) 
         /// by some debug logging in region module
         public Dictionary<SyncableProperties.Type, SyncedProperty> CurrentlySyncedProperties { get; set; }

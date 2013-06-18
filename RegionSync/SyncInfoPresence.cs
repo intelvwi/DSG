@@ -69,11 +69,12 @@ namespace DSG.RegionSync
         /// <param name="scene">The local scene</param>
         public SyncInfoPresence(ScenePresence sp, long initUpdateTimestamp, string syncID, Scene scene)
         {
-            // DebugLog.WarnFormat("[SYNC INFO PRESENCE] Constructing SyncInfoPresence (from scene) for uuid {0}", sp.UUID);
+            // m_log.WarnFormat("[SYNC INFO PRESENCE] Constructing SyncInfoPresence (from scene) for uuid {0}", sp.UUID);
 
             UUID = sp.UUID;
             Scene = scene;
             SceneThing = sp;
+            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition(sp.AbsolutePosition));
             
             lock (m_syncLock)
             {
@@ -96,7 +97,7 @@ namespace DSG.RegionSync
         /// <param name="scene">The local scene</param>
         public SyncInfoPresence(UUID id, OSDMap syncInfoData, Scene scene)
         {
-            // DebugLog.WarnFormat("[SYNC INFO PRESENCE] Constructing SyncInfoPresence (from map) for uuid {0}", id);
+            // m_log.WarnFormat("[SYNC INFO PRESENCE] Constructing SyncInfoPresence (from map) for uuid {0}", id);
 
             UUID = id;
             Scene = scene;
@@ -110,12 +111,24 @@ namespace DSG.RegionSync
                     {
                         SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)syncInfoData[property.ToString()]);
                         CurrentlySyncedProperties.Add(property, syncedProperty);
+                        if (property == SyncableProperties.Type.AbsolutePosition)
+                        {
+                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
+                        }
                     }
                     else
                     {
                         DebugLog.ErrorFormat("[SYNC INFO PRESENCE] SyncInfoPresence: Property {0} not included in the given OSDMap", property);
                     }
                 }
+                // ?? Should I really start as SyncQuark 0?
+                // There was no absolute position information. Start curquark and syncquark as 0.
+                /*
+                if (!(CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.AbsolutePosition)))
+                {
+                    PrevQuark = CurQuark = new SyncQuark(new Vector3(0,0,0));
+                }
+                 * */
             }
         }
         
@@ -141,12 +154,12 @@ namespace DSG.RegionSync
         /// <param name="syncID"></param>
         public override HashSet<SyncableProperties.Type> UpdatePropertiesByLocal(UUID uuid, HashSet<SyncableProperties.Type> updatedProperties, long lastUpdateTS, string syncID)
         {
-            // DebugLog.WarnFormat("[SYNC INFO PRESENCE] UpdatePropertiesByLocal: uuid={0}", uuid);
+            // m_log.WarnFormat("[SYNC INFO PRESENCE] UpdatePropertiesByLocal: uuid={0}", uuid);
             ScenePresence sp = Scene.GetScenePresence(uuid);
 
             if (sp == null)
             {
-                // DebugLog.WarnFormat("[SYNC INFO PRESENCE] UpdatePropertiesByLocal uuid {0} not found in scene", uuid);
+                // m_log.WarnFormat("[SYNC INFO PRESENCE] UpdatePropertiesByLocal uuid {0} not found in scene", uuid);
                 return new HashSet<SyncableProperties.Type>();
             }
 
@@ -167,7 +180,7 @@ namespace DSG.RegionSync
             // string debugprops = "";
             // foreach (SyncableProperties.Type p in propertiesUpdatedByLocal)
             //     debugprops += p.ToString() + ",";
-            // DebugLog.DebugFormat("[SYNC INFO PRESENCE] UpdatePropertiesByLocal ended for {0}. propertiesUpdatedByLocal.Count = {1}: {2}", sp.UUID, propertiesUpdatedByLocal.Count, debugprops);
+            // m_log.DebugFormat("[SYNC INFO PRESENCE] UpdatePropertiesByLocal ended for {0}. propertiesUpdatedByLocal.Count = {1}: {2}", sp.UUID, propertiesUpdatedByLocal.Count, debugprops);
 
             return propertiesUpdatedByLocal;
         }
@@ -204,7 +217,7 @@ namespace DSG.RegionSync
         /// RegionSyncModule is replaced by SP's data.</returns>
         private bool CompareValue_UpdateByLocal(ScenePresence sp, SyncableProperties.Type property, long lastUpdateByLocalTS, string syncID)
         {
-            //DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal: Updating property {0} on sp {1}", property.ToString(), sp.UUID);
+            //m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal: Updating property {0} on sp {1}", property.ToString(), sp.UUID);
             bool ret = false;
             if (!CurrentlySyncedProperties.ContainsKey(property))
             {
@@ -285,10 +298,10 @@ namespace DSG.RegionSync
                                     }
                             }
                         }
-                        // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): value != syncedProperty.LastUpdateValue", property.ToString());
+                        // m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): value != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
-                            // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
+                            // m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
                             CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
 /*
                             // Updating either absolute position or position also requires checking for updates to group position
@@ -297,7 +310,7 @@ namespace DSG.RegionSync
 */
                             return true;
                         }
-                        // DebugLog.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): TS < lastTS (updating SP)", property.ToString());
+                        // m_log.WarnFormat("[SYNC INFO PRESENCE] CompareValue_UpdateByLocal (property={0}): TS < lastTS (updating SP)", property.ToString());
                         //SetPropertyValue(property);
                     }
                     break;
@@ -442,7 +455,7 @@ namespace DSG.RegionSync
                     return sp.IsColliding;
             }
 
-            //DebugLog.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), sp.UUID);
+            //m_log.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), sp.UUID);
             return null;
         }
 

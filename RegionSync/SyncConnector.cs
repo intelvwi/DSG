@@ -52,6 +52,7 @@ using System.Text;
 using log4net;
 using OpenSim.Framework.Monitoring;
 using OpenMetaverse;
+using System.Net;
 
 namespace DSG.RegionSync
 {
@@ -66,6 +67,9 @@ namespace DSG.RegionSync
     {
         private TcpClient m_tcpConnection = null;
         private RegionSyncListenerInfo m_remoteListenerInfo = null;
+        public RegionSyncListenerInfo RemoteListenerInfo {
+            get { return m_remoteListenerInfo; }
+        }
         private Thread m_rcvLoop;
         private Thread m_send_loop;
 
@@ -137,6 +141,13 @@ namespace DSG.RegionSync
             m_connectorNum = connectorNum;
             m_regionSyncModule = syncModule;
             lastStatTime = DateTime.Now;
+            
+            // Store the RegionSyncListenerInfo for this connection.
+            string ip = ((IPEndPoint)tcpclient.Client.RemoteEndPoint).Address.ToString();
+            int port = ((IPEndPoint)tcpclient.Client.RemoteEndPoint).Port;
+            RegionSyncListenerInfo listenerInfo = new RegionSyncListenerInfo(ip, port);
+            m_remoteListenerInfo = listenerInfo;
+
             m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         }
 

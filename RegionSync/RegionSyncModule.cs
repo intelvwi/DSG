@@ -93,10 +93,12 @@ namespace DSG.RegionSync
         private int m_statMsgsOut = 0;
         private int m_statEventIn = 0;
         private int m_statEventOut = 0;
+        private QuarkManager m_quarkManager;
 
         public void Initialise(IConfigSource config)
         {
             m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+            
 
             m_sysConfig = config.Configs["RegionSyncModule"];
             Active = false;
@@ -118,10 +120,10 @@ namespace DSG.RegionSync
                 return;
             }
 
-            // For now, the sync relay and sync listener are both the same (the hub)
-            IsSyncRelay = m_isSyncListenerLocal = m_sysConfig.GetBoolean("IsHub", false);
+            IsSyncRelay =  m_sysConfig.GetBoolean("IsHub", false);
+            m_hasLocalSyncListener = m_sysConfig.GetBoolean("HasLocalSync", false);
             //IsSyncRelay = m_sysConfig.GetBoolean("IsSyncRelay", false);
-            //m_isSyncListenerLocal = m_sysConfig.GetBoolean("IsSyncListenerLocal", false);
+            //m_hasLocalSyncListener = m_sysConfig.GetBoolean("IsSyncListenerLocal", false);
 
             Active = true;
 
@@ -269,7 +271,11 @@ namespace DSG.RegionSync
         // This is called just before the first heartbeat of the region. Everything should be loaded and ready to simulate.
         private void OnRegionStarted(Scene scene)
         {
-            if (m_isSyncListenerLocal)
+            // Quark Configuration. Requests from grid sync connectors it should connect to, and connects to them.
+            QuarkManager.m_log = m_log;
+            m_quarkManager = new QuarkManager(this);
+
+            if (m_hasLocalSyncListener)
             {
                 m_log.Warn(LogHeader + " Starting Sync - Sync listener is local");
                 if (m_localSyncListener != null && m_localSyncListener.IsListening)
@@ -281,6 +287,18 @@ namespace DSG.RegionSync
                     StartLocalSyncListener();
                 }
             }
+
+            if (m_synced)
+            {
+                m_log.Warn(LogHeader + " Starting Initial Sync...");
+                DoInitialSync();
+            }
+            else
+            {
+                m_log.Warn(LogHeader + " No where to sync to yet.");
+            }
+
+            /* ??
             else
             {
                 m_log.Warn(LogHeader + " Starting Sync - Sync listener is remote");
@@ -292,7 +310,7 @@ namespace DSG.RegionSync
                 {
                     DoInitialSync();
                 }
-            }
+            }*/
         }
 
         public void RemoveRegion(Scene scene)
@@ -542,14 +560,15 @@ namespace DSG.RegionSync
         private void OnRemovePresence(UUID uuid)
         {
             // m_log.WarnFormat("{0} OnRemovePresence called for {1}", LogHeader, uuid);
-            // First, remove from SyncInfoManager's record.
-            m_SyncInfoManager.RemoveSyncInfo(uuid);
-
+            
             OSDMap data = new OSDMap();
             data["uuid"] = OSD.FromUUID(uuid);
             SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RemovedPresence, data);
 
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndRemPres", uuid, syncMsg);
+            // Now, remove from SyncInfoManager's record.
+            m_SyncInfoManager.RemoveSyncInfo(uuid);
+
         }
 
         /// <summary>
@@ -593,29 +612,27 @@ namespace DSG.RegionSync
 
         private void OnObjectBeingRemovedFromScene(SceneObjectGroup sog)
         {
-            //First, remove from SyncInfoManager's record.
+
+            if (IsSyncingWithOtherSyncNodes())
+            {
+                OSDMap data = new OSDMap();
+                data["uuid"] = OSD.FromUUID(sog.UUID);
+                //TODO: need to put in SyncID instead of ActorID here. 
+                //For now, keep it the same for simple debugging
+                data["actorID"] = OSD.FromString(ActorID);
+                data["softDelete"] = OSD.FromBoolean(false); // softDelete
+
+                //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
+
+                SymmetricSyncMessage rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RemovedObject, data);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndRemObjj", sog.UUID, rsm);
+            }
+
+            //Now, remove from SyncInfoManager's record.
             foreach (SceneObjectPart part in sog.Parts)
             {
                 m_SyncInfoManager.RemoveSyncInfo(part.UUID);
             }
-
-            if (!IsSyncingWithOtherSyncNodes())
-            {
-                //no SyncConnector connected. Do nothing.
-                return;
-            }
-
-            OSDMap data = new OSDMap();
-            data["uuid"] = OSD.FromUUID(sog.UUID);
-            //TODO: need to put in SyncID instead of ActorID here. 
-            //For now, keep it the same for simple debugging
-            data["actorID"] = OSD.FromString(ActorID);
-            data["softDelete"] = OSD.FromBoolean(false); // softDelete
-
-            //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-
-            SymmetricSyncMessage rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RemovedObject, data);
-            SendSpecialUpdateToRelevantSyncConnectors(ActorID, "SndRemObjj", sog.UUID, rsm);
         }
 
         private void SyncLinkObject(SceneObjectGroup linkedGroup, SceneObjectPart root, List<SceneObjectPart> children)
@@ -787,7 +804,7 @@ namespace DSG.RegionSync
         #endregion Console Command Interface
 
         ///////////////////////////////////////////////////////////////////////
-        // Memeber variables
+        // Member variables
         ///////////////////////////////////////////////////////////////////////
 
         private static int PortUnknown = -1;
@@ -806,10 +823,11 @@ namespace DSG.RegionSync
         private Logging.LogWriter m_updateLoopLog;
        
 
-        private bool m_isSyncListenerLocal = false;
+        private bool m_hasLocalSyncListener = false;
         //private RegionSyncListenerInfo m_localSyncListenerInfo 
 
-        private HashSet<RegionSyncListenerInfo> m_remoteSyncListeners;
+        // Keeps track of all connceted Sync Servers. The string is to make sure we don't start two sync connectors to the same server.
+        private Dictionary<RegionSyncListenerInfo, SyncConnector> m_remoteSyncListeners = new Dictionary<RegionSyncListenerInfo,SyncConnector>();
 
         private int m_syncConnectorNum = 0;
 
@@ -818,6 +836,10 @@ namespace DSG.RegionSync
         private TerrainSyncInfo TerrainSyncInfo { get; set; }
 
         private IConfig m_sysConfig = null;
+        public IConfig SysConfig
+        {
+            get { return m_sysConfig; }
+        }
         private static string LogHeader = "[REGION SYNC MODULE]";
 
         //The list of SyncConnectors. ScenePersistence could have multiple SyncConnectors, each connecting to a differerent actor.
@@ -825,6 +847,14 @@ namespace DSG.RegionSync
         //the actor operates on.
         private HashSet<SyncConnector> m_syncConnectors= new HashSet<SyncConnector>();
         private object m_syncConnectorsLock = new object();
+
+        // List of Sync Connectors, organized by child and parent. We shouldn't need this, but helps for debugging purposes.
+        private HashSet<SyncConnector> m_parentSyncConnectors = new HashSet<SyncConnector>();
+        private object m_parentSyncConnectorsLock = new object();
+
+        private HashSet<SyncConnector> m_childSyncConnectors = new HashSet<SyncConnector>();
+        private object m_childSyncConnectorsLock = new object();
+
 
         //seq number for scene events that are sent out to other actors
         private ulong m_eventSeq = 0;
@@ -878,56 +908,14 @@ namespace DSG.RegionSync
             }
         }
 
-        //ScenePresence updates are sent by enqueuing into each connector's outQueue.
-        // UNUSED??
-        private void SendAvatarUpdateToRelevantSyncConnectors(ScenePresence sp, SymmetricSyncMessage syncMsg)
-        {
-            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
-
-            foreach (SyncConnector connector in syncConnectors)
-                connector.EnqueueOutgoingUpdate(sp.UUID, syncMsg);
-        }
-
-        //Object updates are sent by enqueuing into each connector's outQueue.
-        // UNUSED??
-        private void SendObjectUpdateToRelevantSyncConnectors(SceneObjectGroup sog, SymmetricSyncMessage syncMsg)
-        {
-            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
-
-            foreach (SyncConnector connector in syncConnectors)
-            {
-                //m_log.Debug("Send " + syncMsg.Type.ToString() + " about sog "+sog.Name+","+sog.UUID+ " at pos "+sog.AbsolutePosition.ToString()+" to " + connector.OtherSideActorID);
-                connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
-            }
-        }
-
-        //Object updates are sent by enqueuing into each connector's outQueue.
-        // UNUSED??
-        /*
-        private void SendPrimUpdateToRelevantSyncConnectors(SceneObjectPart updatedPart, SymmetricSyncMessage syncMsg, string lastUpdateActorID)
-        {
-            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
-
-            foreach (SyncConnector connector in syncConnectors)
-            {
-                //m_log.Debug("Send " + syncMsg.Type.ToString() + " about sop " + updatedPart.Name + "," + updatedPart.UUID + " at pos "+updatedPart.GroupPosition.ToString()
-                //+" to " + connector.OtherSideActorID);
-
-                if (!connector.otherSideActorID.Equals(lastUpdateActorID))
-                {
-                    connector.EnqueueOutgoingUpdate(updatedPart.UUID, syncMsg);
-                }
-            }
-        }
-         * */ 
-
         private void SendDelinkObjectToRelevantSyncConnectors(string senderActorID, List<SceneObjectGroup> beforeDelinkGroups, SymmetricSyncMessage syncMsg)
         {
             HashSet<int> syncConnectorsSent = new HashSet<int>();
 
             foreach (SceneObjectGroup sog in beforeDelinkGroups)
             {
-                HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
+                SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(sog.UUID);
+                HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
                 foreach (SyncConnector connector in syncConnectors)
                 {
                     if (!syncConnectorsSent.Contains(connector.ConnectorNum) && !connector.otherSideActorID.Equals(senderActorID))
@@ -950,7 +938,9 @@ namespace DSG.RegionSync
         /// <param name="syncMsg"></param>
         private void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, string logReason, UUID sendingUUID, SymmetricSyncMessage syncMsg)
         {
-            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
+            SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(sendingUUID);
+            // Get connectors based on current quark name
+            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
 
             foreach (SyncConnector connector in syncConnectors)
             {
@@ -998,35 +988,33 @@ namespace DSG.RegionSync
         }
 
         /// <summary>
-        /// Get the set of SyncConnectors to send updates of the given object. 
+        /// Return Sync Connectors subscribed to a particular quark. Returning both active and passive quarks.
         /// </summary>
-        /// 
+        /// <param name="quarkName"></param>
         /// <returns></returns>
+        private HashSet<SyncConnector> GetSyncConnectorsForUpdates(string quarkName)
+        {
+            return m_quarkManager.GetQuarkSubscribers(quarkName);
+        }
+
+        /// <summary>
+        /// Return Sync Connectors subscribed to previous and current quark. Creates the union of all sync connectors
+        /// connected to 
+        /// </summary>
+        /// <param name="quarkName"></param>
+        /// <returns></returns>
+        private HashSet<SyncConnector> GetSyncConnectorsForUpdates(string prevQuark, string curQuark)
+        {
+            HashSet<SyncConnector> allQuarks = m_quarkManager.GetQuarkSubscribers(prevQuark);
+            allQuarks.UnionWith(m_quarkManager.GetQuarkSubscribers(curQuark));
+            return allQuarks;
+        }
+
+        // TODO: Placeholder, remove in the future! Updates should always be made per quark
+        // For now, default to sending to every connector.
         private HashSet<SyncConnector> GetSyncConnectorsForUpdates()
         {
-            HashSet<SyncConnector> syncConnectors = new HashSet<SyncConnector>();
-            if (IsSyncRelay)
-            {
-                //This is a relay node in the synchronization overlay, forward it to all connectors. 
-                //Note LastUpdateTimeStamp and LastUpdateActorID is one per SceneObjectPart, not one per SceneObjectGroup, 
-                //hence an actor sending in an update on one SceneObjectPart of a SceneObjectGroup may need to know updates
-                //in other parts as well, so we are sending to all connectors.
-                ForEachSyncConnector(delegate(SyncConnector connector)
-                {
-                    syncConnectors.Add(connector);
-                });
-            }
-            else
-            {
-                //This is a end node in the synchronization overlay (e.g. a non ScenePersistence actor). Get the right set of synconnectors.
-                //This may go more complex when an actor connects to several ScenePersistence actors.
-                ForEachSyncConnector(delegate(SyncConnector connector)
-                {
-                    syncConnectors.Add(connector);
-                });
-            }
-
-            return syncConnectors;
+            return m_syncConnectors;
         }
 
         /// <summary>
@@ -1154,68 +1142,7 @@ namespace DSG.RegionSync
             return null;
         }
 
-        //Get the information for remote [IP:Port] to connect to for synchronization purpose.
-        //For example, an actor may need to connect to several ScenePersistence's if the objects it operates are hosted collectively
-        //by these ScenePersistence.
-        //For now, we use configuration to access the information. Might be replaced by some Grid Service later on.
-        //And for now, we assume there is only 1 remote listener to connect to.
-        private void GetRemoteSyncListenerInfo()
-        {
-            //For now, we assume there is only one remote listener to connect to. Later on, 
-            //we may need to modify the code to read in multiple listeners.
-            //string addr = m_sysConfig.GetString(Scene.RegionInfo.RegionName + "_SyncListenerIPAddress", IPAddrUnknown);
-            //int port = m_sysConfig.GetInt(Scene.RegionInfo.RegionName + "_SyncListenerPort", PortUnknown);
-            m_log.DebugFormat("{0}: GetRemoteSyncListenerInfo() START", LogHeader);
-
-            string addr;
-            int port;
-            try
-            {
-                addr = Scene.RegionInfo.GetOtherSetting("SyncServerAddress");
-                port = Int32.Parse(Scene.RegionInfo.GetOtherSetting("SyncServerPort"));
-            }
-            catch (Exception e)
-            {
-                m_log.Warn(LogHeader + " Could not read SyncServerAddress or SyncServerPort from region info. Using defaults.");
-                m_log.Warn(LogHeader + Scene.RegionInfo.GetOtherSetting("SyncServerAddress"));
-                m_log.Warn(LogHeader + Scene.RegionInfo.GetOtherSetting("SyncServerPort"));
-                addr = "127.0.0.1";
-                port = 13000;
-            }
-
-            // if the address is not specified in the region configuration file, get it from the grid service
-            if (addr.Equals(IPAddrUnknown))
-            {
-                /*
-                List<GridEndpointInfo> lgei = Scene.GridService.LookupQuark(
-                        Scene.RegionInfo.GetOtherSetting("SyncQuarkLocationX"), Scene.RegionInfo.GetOtherSetting("SyncQuarkLocationY"), "scene_persistence");
-                if (lgei == null || lgei.Count != 1)
-                {
-                    m_log.ErrorFormat("{0}: Failed to find quark persistence actor", LogHeader);
-                    addr = IPAddrUnknown;
-                    port = PortUnknown;
-                }
-                else
-                {
-                    GridEndpointInfo gei = lgei[0];
-                    addr = gei.address;
-                    port = (int)gei.port;
-                    m_log.WarnFormat("{0}: Found quark ({1}/{2}) persistence actor at {3}:{4}", LogHeader,
-                            Scene.RegionInfo.GetOtherSetting("SyncQuarkLocationX"), Scene.RegionInfo.GetOtherSetting("SyncQuarkLocationY"),
-                            addr, port.ToString());
-                }
-                 * */
-                throw (new NotImplementedException("Grid Quark Registration is not implemented. You MUST specify server IP addresses in your region.ini file"));
-            }
-
-            if (!addr.Equals(IPAddrUnknown) && port != PortUnknown)
-            {
-                RegionSyncListenerInfo info = new RegionSyncListenerInfo(addr, port);
-                m_remoteSyncListeners = new HashSet<RegionSyncListenerInfo>();
-                m_remoteSyncListeners.Add(info);
-            }
-        }
-
+        
         private void SyncStateDetailReport(Object[] args)
         {
             //Preliminary implementation
@@ -1470,9 +1397,10 @@ namespace DSG.RegionSync
         }
 
         //end of debug functions
-
+        
         //Start connections to each remote listener. 
         //For now, there is only one remote listener.
+        /* ??
         private bool StartSyncConnections()
         {
             if (m_remoteSyncListeners == null)
@@ -1502,17 +1430,48 @@ namespace DSG.RegionSync
 
             return connected;
         }
+        */
 
+        //Start connections to each remote listener. 
+        public SyncConnector StartNewSyncConnector(RegionSyncListenerInfo syncInfo)
+        {
+            lock (m_syncConnectorsLock)
+            {
+                SyncConnector syncConnector = null;
+                if (m_remoteSyncListeners.ContainsKey(syncInfo))
+                    return m_remoteSyncListeners[syncInfo];
+                syncConnector = new SyncConnector(m_syncConnectorNum++, syncInfo, this);
+                if (syncConnector.Connect())
+                {
+                    syncConnector.StartCommThreads();
+                    AddSyncConnector(syncConnector);
+                    m_remoteSyncListeners[syncInfo] = syncConnector;
+                    m_synced = true;
+                    return syncConnector;
+                }
+                else
+                {
+                    m_log.ErrorFormat("Failed to connect to {0}.",syncInfo.ToString());
+                    return null;
+                }
+            }
+        }
+        
         //To be called when a SyncConnector needs to be created by that the local listener receives a connection request
         public void AddNewSyncConnector(TcpClient tcpclient)
         {
             //Create a SynConnector due to an incoming request, and starts its communication threads
+            string ip = ((IPEndPoint)tcpclient.Client.RemoteEndPoint).Address.ToString();
+            int port = ((IPEndPoint)tcpclient.Client.RemoteEndPoint).Port;
+
+            RegionSyncListenerInfo syncInfo = new RegionSyncListenerInfo(ip,port);
             SyncConnector syncConnector = new SyncConnector(m_syncConnectorNum++, tcpclient, this);
             syncConnector.StartCommThreads();
             AddSyncConnector(syncConnector);
+            m_remoteSyncListeners[syncInfo] = syncConnector;
         }
 
-        private void AddSyncConnector(SyncConnector syncConnector)
+        public void AddSyncConnector(SyncConnector syncConnector)
         {
             lock (m_syncConnectorsLock)
             {
@@ -1523,6 +1482,7 @@ namespace DSG.RegionSync
                 HashSet<SyncConnector> currentlist = m_syncConnectors;
                 HashSet<SyncConnector> newlist = new HashSet<SyncConnector>(currentlist);
                 newlist.Add(syncConnector);
+                m_remoteSyncListeners[syncConnector.RemoteListenerInfo] = syncConnector;
 
                 m_syncConnectors = newlist;
             }
@@ -1565,7 +1525,7 @@ namespace DSG.RegionSync
             }
         }
 
-        private bool IsSyncingWithOtherSyncNodes()
+        public bool IsSyncingWithOtherSyncNodes()
         {
             return (m_syncConnectors.Count > 0);
         }
@@ -1588,6 +1548,17 @@ namespace DSG.RegionSync
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetTerrain);
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetPresences);
             SendSyncMessage(SymmetricSyncMessage.MsgType.GetObjects);
+
+            //Very first thing, send out our quark list to the node we just initialized connections,
+            //to notify it what we are covering. Note: this list could be different from what the 
+            //other side is operating on.
+            //---------------- NOTE: ----------------
+            //Our current implementation is creating one message for all quarks that need to receiving
+            //incoming updates, and send it to all parents; receiver should filter out quarks that
+            //is not in the receiver's regitration list -- not an optimized solution, which should
+            //customize the message for each parent. We may optimize it later, low priority for now though.
+            OSDMap quarkData = m_quarkManager.CreateQuarkSubscriptionMessageArgs();
+            SendSyncMessage(SymmetricSyncMessage.MsgType.SyncQuarksSubscription, OSDParser.SerializeJsonString(quarkData));
 
             //We'll deal with Event a bit later
 
@@ -1625,15 +1596,27 @@ namespace DSG.RegionSync
 
         private void ForEachSyncConnector(Action<SyncConnector> action)
         {
+            ForEachSyncConnector(action, null);
+        }
+
+        private void ForEachSyncConnector(Action<SyncConnector> action, string quarkName)
+        {
             List<SyncConnector> closed = null;
-            foreach (SyncConnector syncConnector in m_syncConnectors)
+            // If no quark name is provided, send to all synced connectors.
+            HashSet<SyncConnector> subscribers = null;
+            if (quarkName != null)
+                subscribers = m_quarkManager.GetQuarkSubscribers(quarkName);
+            else
+                subscribers = m_syncConnectors;
+
+            foreach (SyncConnector syncConnector in subscribers)
             {
                 // If connected, apply the action
                 if (syncConnector.connected)
                 {
                     action(syncConnector);
-                }                
-                    // Else, remove the SyncConnector from the list
+                }
+                // Else, remove the SyncConnector from the list
                 else
                 {
                     if (closed == null)
@@ -1641,15 +1624,16 @@ namespace DSG.RegionSync
                     closed.Add(syncConnector);
                 }
             }
-
             if (closed != null)
             {
                 foreach (SyncConnector connector in closed)
                 {
+                    m_quarkManager.RemoveSubscription(connector);
                     RemoveSyncConnector(connector);
                 }
             }
-        }
+          }
+            
 
         #region Sync message handlers
 
@@ -1665,6 +1649,33 @@ namespace DSG.RegionSync
             //Added senderActorID, so that we don't have to include actorID in sync messages -- TODO
             switch (msg.Type)
             {
+                case SymmetricSyncMessage.MsgType.SyncQuarksSubscription:
+                    {
+                        //The other side of the connection, who initiated the connection,
+                        //send us the set of quarks it covers.
+                        m_log.Warn(LogHeader + " Received subscription request");
+                        bool incomingNotification = true;
+                        HandleSyncQuarksExchange(msg, senderActorID, syncConnector, incomingNotification);
+                        break;
+                    }
+                case SymmetricSyncMessage.MsgType.SyncQuarksSubscriptionAck:
+                    {
+                        //The other side of the connection acks our SyncQuarksNotification and replies with its quark set.
+                        m_log.Warn(LogHeader + " Received ACK for quark subscription request");
+                        bool incomingNotification = false;
+                        HandleSyncQuarksExchange(msg, senderActorID, syncConnector, incomingNotification);
+                        break;
+                    }
+                case SymmetricSyncMessage.MsgType.QuarkCrossingFullUpdate:
+                    {
+                        m_quarkManager.HandleQuarkCrossingFullUpdate(msg, senderActorID);
+                        break;
+                    }
+                case SymmetricSyncMessage.MsgType.QuarkCrossingSPFullUpdate:
+                    {
+                        m_quarkManager.HandleQuarkCrossingSPFullUpdate(msg, senderActorID);
+                        break;
+                    }
                 case SymmetricSyncMessage.MsgType.UpdatedProperties:
                     HandleUpdatedProperties(msg, senderActorID);
                     break;
@@ -1732,6 +1743,12 @@ namespace DSG.RegionSync
             }
         }
 
+        private void HandleSyncQuarksExchange(SymmetricSyncMessage msg, string senderActorID, SyncConnector syncConnector, bool incomingNotification)
+        {
+            OSDMap data = DeserializeMessage(msg);
+            m_quarkManager.HandleSyncQuarksExchange(data, senderActorID, syncConnector, incomingNotification);
+        }
+
         private void HandleTerrainUpdateMessage(SymmetricSyncMessage msg, string senderActorID)
         {
             // Get the data from message and error check
@@ -1756,6 +1773,7 @@ namespace DSG.RegionSync
         ///////////////////////////////////////////////////////////////////////
         // Per property sync handlers
         ///////////////////////////////////////////////////////////////////////
+        // ?? How does quark handles this?
         void estate_OnRegionInfoChange(UUID regionID)
         {
             if (regionID != Scene.RegionInfo.RegionID)
@@ -1868,7 +1886,6 @@ namespace DSG.RegionSync
                 SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
                 return;
             }
-
             // Decode group and syncInfo from message data
             SceneObjectGroup group;
             Dictionary<UUID, SyncInfoBase> syncInfos;
@@ -1885,13 +1902,13 @@ namespace DSG.RegionSync
 
             DetailedUpdateWrite("RecNewObjj", group.UUID, 0, m_zeroUUID, senderActorID, msg.Length);
 
-            // If this is a relay node, forward the message
-            if (IsSyncRelay)
-                SendSpecialUpdateToRelevantSyncConnectors(senderActorID, "SndNewObjR", group.UUID, msg);
-
             //Add the list of PrimSyncInfo to SyncInfoManager
             foreach (SyncInfoBase syncInfo in syncInfos.Values)
                 m_SyncInfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
+
+            // If this is a relay node, forward the message
+            if (IsSyncRelay)
+                SendSpecialUpdateToRelevantSyncConnectors(senderActorID, "SndNewObjR", group.UUID, msg);
 
             // Add the decoded object to Scene
             // This will invoke OnObjectAddedToScene but the syncinfo has already been created so that's a NOP
@@ -1912,16 +1929,15 @@ namespace DSG.RegionSync
 
                     group.HasGroupChanged = true;
                 }
-                
+
             }
 
-            /* Uncomment when quarks exist
             //If we just keep a copy of the object in our local Scene,
             //and is not supposed to operation on it (e.g. object in 
             //passive quarks), then ignore the event.
-            if (!ToOperateOnObject(group))
+            SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(group.UUID);
+            if (!m_quarkManager.IsInActiveQuark(sib.CurQuark.QuarkName))
                 return;
-             */
 
             // Now that (if) the PhysActor of each part in sog has been created, set the PhysActor properties.
             if (group.RootPart.PhysActor != null)
@@ -1994,6 +2010,7 @@ namespace DSG.RegionSync
                 m_log.Error("HandleUpdatedProperties could not deserialize message!");
                 return;
             }
+
             UUID uuid = data["uuid"].AsUUID();
             if (uuid == null)
             {
@@ -2018,9 +2035,7 @@ namespace DSG.RegionSync
 
                 DetailedUpdateLogging(uuid, propertiesUpdated, syncedProperties, "RecUpdateN", senderActorID, msg.Data.Length);
 
-                // Relay the update properties
-                if (IsSyncRelay)
-                    EnqueueUpdatedProperty(uuid, propertiesUpdated);    
+                EnqueueUpdatedProperty(uuid, propertiesUpdated);
             }
         }
 
@@ -2197,12 +2212,12 @@ namespace DSG.RegionSync
             DecodeScenePresence(data, out syncInfo);
             DetailedUpdateWrite("RecNewPres", syncInfo.UUID, 0, m_zeroUUID, senderActorID, msg.Length);
 
+            //Add the SyncInfo to SyncInfoManager
+            m_SyncInfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
+
             // if this is a relay node, forward the message
             if (IsSyncRelay)
                 SendSpecialUpdateToRelevantSyncConnectors(senderActorID, "SndNewPreR", syncInfo.UUID, msg);
-
-            //Add the SyncInfo to SyncInfoManager
-            m_SyncInfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
 
             // Get ACD and PresenceType from decoded SyncInfoPresence
             // NASTY CASTS AHEAD!
@@ -2222,7 +2237,7 @@ namespace DSG.RegionSync
         }
 
         // Decodes scene presence data into sync info
-        private void DecodeScenePresence(OSDMap data, out SyncInfoBase syncInfo)
+        public void DecodeScenePresence(OSDMap data, out SyncInfoBase syncInfo)
         {
             syncInfo = null;
             if (!data.ContainsKey("ScenePresence"))
@@ -2532,7 +2547,7 @@ namespace DSG.RegionSync
 
         // Returns 'null' if the message cannot be deserialized
         private static HashSet<string> exceptions = new HashSet<string>();
-        private static OSDMap DeserializeMessage(SymmetricSyncMessage msg)
+        public static OSDMap DeserializeMessage(SymmetricSyncMessage msg)
         {
             OSDMap data = null;
             try
@@ -3672,6 +3687,10 @@ namespace DSG.RegionSync
         #endregion //Remote Event handlers
 
         private SyncInfoManager m_SyncInfoManager;
+        public SyncInfoManager SyncInfoManager
+        {
+            get { return m_SyncInfoManager; }
+        }
 
         #region Prim Property Sync management
         //private 
@@ -3848,10 +3867,24 @@ namespace DSG.RegionSync
                                         TimeSpan span = syncMsgendTime - startTime;
                                         m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
                                     }
-                                     * */ 
+                                     * */
 
-                                    HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
-                                    // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
+                                    // Returns false if not crossing
+                                    HashSet<SyncConnector> syncConnectors;
+                                    if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
+                                    {
+                                        SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                        syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
+                                        // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
+                                    }
+                                    else 
+                                    {
+                                        SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                        m_log.WarnFormat("Crossing from {0} to {1}", sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
+                                        m_quarkManager.QuarkCrossingUpdate(sib,updatedProperties);
+                                        syncConnectors = GetSyncConnectorsForUpdates(sib.PrevQuark.QuarkName,sib.CurQuark.QuarkName);
+                                    }
+
                                     foreach (SyncConnector connector in syncConnectors)
                                     {
                                         //If the updated properties are from the same actor, the no need to send this sync message to that actor
@@ -3927,7 +3960,7 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sog"></param>
         /// <returns></returns>
-        private OSDMap EncodeSceneObject(SceneObjectGroup sog)
+        public OSDMap EncodeSceneObject(SceneObjectGroup sog)
         {
             //This should not happen, but we deal with it by inserting a newly created PrimSynInfo
             if (!m_SyncInfoManager.SyncInfoExists(sog.RootPart.UUID))
@@ -3976,7 +4009,7 @@ namespace DSG.RegionSync
         /// <param name="sog"></param>
         /// <param name="syncInfos"></param>
         /// <returns>True of decoding sucessfully</returns>
-        private bool DecodeSceneObject(OSDMap data, out SceneObjectGroup sog, out Dictionary<UUID, SyncInfoBase> syncInfos)
+        public bool DecodeSceneObject(OSDMap data, out SceneObjectGroup sog, out Dictionary<UUID, SyncInfoBase> syncInfos)
         {
             sog = new SceneObjectGroup();
             syncInfos = new Dictionary<UUID, SyncInfoBase>();
@@ -4119,7 +4152,7 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sog"></param>
         /// <returns></returns>
-        private OSDMap EncodeScenePresence(ScenePresence sp)
+        public OSDMap EncodeScenePresence(ScenePresence sp)
         {
             //This should not happen, but we deal with it by inserting it now
             if (!m_SyncInfoManager.SyncInfoExists(sp.UUID))

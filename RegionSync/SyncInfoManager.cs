@@ -58,7 +58,7 @@ namespace DSG.RegionSync
 
     public class SyncInfoManager
     {
-        //private ILog DebugLog;
+        //private ILog m_log;
         public static ILog DebugLog;
 
         /// <summary>
@@ -128,10 +128,10 @@ namespace DSG.RegionSync
             lock(m_syncLock)
                 if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo))
                 {
-                    // DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} FOUND.", uuid);
+                    // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} FOUND.", uuid);
                     return thisSyncInfo.UpdatePropertiesByLocal(uuid, updatedProperties, DateTime.UtcNow.Ticks, m_regionSyncModule.SyncID);
                 }
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} NOT FOUND.", uuid);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} NOT FOUND.", uuid);
             return new HashSet<SyncableProperties.Type>();
         }
 
@@ -142,7 +142,7 @@ namespace DSG.RegionSync
                 //if (m_syncedUUIDs.ContainsKey(uuid))
                 if(m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo))
                 {
-                    //DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} FOUND.", uuid);
+                    //m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} FOUND.", uuid);
                     //return m_syncedUUIDs[uuid].UpdatePropertiesBySync(uuid, syncedProperties);
                     return thisSyncInfo.UpdatePropertiesBySync(uuid, syncedProperties);
                 }
@@ -159,20 +159,20 @@ namespace DSG.RegionSync
                 //if (m_syncedUUIDs.ContainsKey(uuid))
                 if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo)) 
                 {
-                    // DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} FOUND.", uuid);
+                    // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} FOUND.", uuid);
                     // Update properties listed in updatedSyncInfo
                     //return m_syncedUUIDs[uuid].UpdatePropertiesBySync(uuid, new HashSet<SyncedProperty>(updatedSyncInfo.CurrentlySyncedProperties.Values));
                     return thisSyncInfo.UpdatePropertiesBySync(uuid, new HashSet<SyncedProperty>(updatedSyncInfo.CurrentlySyncedProperties.Values));
                 }
 
             //This should not happen, as we should only receive UpdatedPrimProperties after receiving a NewObject message
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} NOT FOUND.", uuid);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} NOT FOUND.", uuid);
             return new HashSet<SyncableProperties.Type>();
         }
 
         public OSDMap EncodeProperties(UUID uuid, HashSet<SyncableProperties.Type> propertiesToEncode)
         {
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0}", uuid);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0}", uuid);
             SyncInfoBase thisSyncInfo = null;
             lock(m_syncLock)
                 //if (m_syncedUUIDs.ContainsKey(uuid))
@@ -186,7 +186,7 @@ namespace DSG.RegionSync
                     return data;
                 }
 
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0} not in m_syncedUUIDs.", uuid);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0} not in m_syncedUUIDs.", uuid);
             return new OSDMap();
         }
 
@@ -214,7 +214,7 @@ namespace DSG.RegionSync
         /// <param name="syncID"></param>
         public void InsertSyncInfo(UUID uuid, long syncInfoInitTime, string syncID)
         {
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfo: uuid={0}, syncID={1}", uuid, syncID);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfo: uuid={0}, syncID={1}", uuid, syncID);
             long lastUpdateTimeStamp = syncInfoInitTime - m_ageOutThreshold;
             SyncInfoBase sib = SyncInfoBase.SyncInfoFactory(uuid, Scene, lastUpdateTimeStamp, syncID);
             lock (m_syncLock)
@@ -225,22 +225,22 @@ namespace DSG.RegionSync
 
         public void InsertSyncInfo(UUID uuid, SyncInfoBase syncinfo)
         {
-            bool isPrim = syncinfo is SyncInfoPrim;
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfo for uuid {0}, type={1}", uuid, isPrim?"Prim":"Presence");
+            // bool isPrim = syncinfo is SyncInfoPrim;
+            // m_log.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfo for uuid {0}, type={1}", uuid, isPrim?"Prim":"Presence");
             lock (m_syncLock)
                 m_syncedUUIDs[uuid] = syncinfo;
         }
 
         public void RemoveSyncInfo(UUID uuid)
         {
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] RemoveSyncInfo for uuid {0}", uuid);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] RemoveSyncInfo for uuid {0}", uuid);
             lock (m_syncLock)
                 m_syncedUUIDs.Remove(uuid);
         }
 
         public SyncInfoBase GetSyncInfo(UUID uuid)
         {
-            // DebugLog.WarnFormat("[SYNC INFO MANAGER] GetSyncInfo for uuid {0}", uuid);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] GetSyncInfo for uuid {0}", uuid);
             // Should never be called unless SyncInfo has already been added
             lock (m_syncLock)
                 return m_syncedUUIDs[uuid];

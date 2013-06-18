@@ -64,5 +64,23 @@ namespace DSG.RegionSync
             Addr = IPAddress.Parse(addr);
             Port = port;
         }
+
+        public bool EqualTo(RegionSyncListenerInfo rsil)
+        {
+            if (Addr == rsil.Addr && Port == rsil.Port)
+                return true;
+            else
+                return false;
+        }
+
+        public override int GetHashCode()
+        {
+            return (Addr.ToString() + Port.ToString()).GetHashCode();
+        }
+
+        public override string ToString()
+        {
+            return Addr.ToString() + ":" + Port.ToString();
+        }
     }
 }

@@ -128,6 +128,12 @@ namespace DSG.RegionSync
             //control command
             SyncStateReport,
             TimeStamp,
+
+            //quarks related
+            SyncQuarksSubscription, //sent by a sync node who just connects to another
+            SyncQuarksSubscriptionAck, //reply to the sender of SyncQuarksNotification
+            QuarkCrossingFullUpdate,    // property changing and sog crossing quark boundry
+            QuarkCrossingSPFullUpdate   // scene presence crossing quarks
         }
         #endregion
 

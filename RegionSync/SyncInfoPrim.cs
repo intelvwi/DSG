@@ -71,8 +71,9 @@ namespace DSG.RegionSync
             UUID = sop.UUID;
             Scene = scene;
             SceneThing = sop;
+            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition(sop.AbsolutePosition));
 
-            //DebugLog.WarnFormat("{0}: Constructing SyncInfoPrim (from scene) for uuid {1}", LogHeader, UUID);
+            //m_log.WarnFormat("{0}: Constructing SyncInfoPrim (from scene) for uuid {1}", LogHeader, UUID);
 
             // If the part does not have a PhysActor then don't store physical property initial values
             HashSet<SyncableProperties.Type> initialProperties = sop.PhysActor == null ?
@@ -101,7 +102,7 @@ namespace DSG.RegionSync
             SceneThing = new SceneObjectPart();
             ((SceneObjectPart)SceneThing).UUID = UUID;
 
-            //DebugLog.WarnFormat("{0}: Constructing SyncInfoPrim (from map) for uuid {1}", LogHeader, UUID);
+            //m_log.WarnFormat("{0}: Constructing SyncInfoPrim (from map) for uuid {1}", LogHeader, UUID);
 
             lock (m_syncLock)
             {
@@ -109,16 +110,27 @@ namespace DSG.RegionSync
                 CurrentlySyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
                 HashSet<SyncableProperties.Type> full = SyncableProperties.FullUpdateProperties;
                 //if (!full.Contains(SyncableProperties.Type.Position))
-                //    DebugLog.ErrorFormat("{0} SyncableProperties.FullUpdateProperties missing Position!", LogHeader);
+                //    m_log.ErrorFormat("{0} SyncableProperties.FullUpdateProperties missing Position!", LogHeader);
+
+                // If prim has object group position, that supercedes the object part's position. Use Position otherwise
+                bool hasGroupPosition = false;
                 foreach (SyncableProperties.Type property in SyncableProperties.FullUpdateProperties)
                 {
                     //if(property == SyncableProperties.Type.Position)
-                    //    DebugLog.WarnFormat("{0} {1} {2} {3}", LogHeader, UUID, property, syncInfoData.ContainsKey(property.ToString()));
+                    //    m_log.WarnFormat("{0} {1} {2} {3}", LogHeader, UUID, property, syncInfoData.ContainsKey(property.ToString()));
+
                     if (syncInfoData.ContainsKey(property.ToString()))
                     {
                         SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)syncInfoData[property.ToString()]);
-                        //DebugLog.WarnFormat("{0}: Adding property {1} to CurrentlySyncedProperties", LogHeader, property);
+                        //m_log.WarnFormat("{0}: Adding property {1} to CurrentlySyncedProperties", LogHeader, property);
                         CurrentlySyncedProperties.Add(property, syncedProperty);
+                        
+                        // Initialize PrevQuark and CurQuark
+                        if (property == SyncableProperties.Type.GroupPosition)
+                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
+                        else if (property == SyncableProperties.Type.Position && hasGroupPosition == false)
+                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
+
                         try
                         {
                             SetPropertyValue((SceneObjectPart)SceneThing, property);
@@ -132,9 +144,18 @@ namespace DSG.RegionSync
                     {
                         // For Phantom prims, they don't have PhysActor properties. So this branch could happen. 
                         // Should ensure we're dealing with a phantom prim.
-                        //DebugLog.WarnFormat("{0}: Property {1} not included in OSDMap passed to constructor", LogHeader, property);
+                        //m_log.WarnFormat("{0}: Property {1} not included in OSDMap passed to constructor", LogHeader, property);
                     }
                 }
+                // ?? Should I really start as SyncQuark 0?
+                // There was no position information for prim. Start curquark and syncquark as 0.
+                /*
+                if (!(CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.GroupPosition) || 
+                    CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.Position)))
+                {
+                    PrevQuark = CurQuark = new SyncQuark(new Vector3(0,0,0));
+                }
+                 */
             }
         }
 
@@ -151,7 +172,7 @@ namespace DSG.RegionSync
         /// <param name="syncID"></param>
         public override HashSet<SyncableProperties.Type> UpdatePropertiesByLocal(UUID uuid, HashSet<SyncableProperties.Type> updatedProperties, long lastUpdateTS, string syncID)
         {
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] UpdatePropertiesByLocal uuid={0}, updatedProperties.Count={1}", uuid, updatedProperties.Count);
+            // m_log.WarnFormat("[SYNC INFO PRIM] UpdatePropertiesByLocal uuid={0}, updatedProperties.Count={1}", uuid, updatedProperties.Count);
             SceneObjectPart part = (SceneObjectPart)SceneThing;
 
             // For each updated property, find out which ones really differ from values in SyncedProperty
@@ -171,9 +192,9 @@ namespace DSG.RegionSync
             string debugprops = "";
             foreach (SyncableProperties.Type p in propertiesUpdatedByLocal)
                 debugprops += p.ToString() + ",";
-            DebugLog.DebugFormat("[PRIM SYNC INFO] UpdatePropertiesByLocal ended for {0}. propertiesUpdatedByLocal.Count = {1}: {2}", part.UUID, propertiesUpdatedByLocal.Count, debugprops);
+            m_log.DebugFormat("[PRIM SYNC INFO] UpdatePropertiesByLocal ended for {0}. propertiesUpdatedByLocal.Count = {1}: {2}", part.UUID, propertiesUpdatedByLocal.Count, debugprops);
             */
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] UpdatePropertiesByLocal uuid={0}, propertiesUpdatedByLocal.Count={1}", uuid, propertiesUpdatedByLocal.Count);
+            // m_log.WarnFormat("[SYNC INFO PRIM] UpdatePropertiesByLocal uuid={0}, propertiesUpdatedByLocal.Count={1}", uuid, propertiesUpdatedByLocal.Count);
             return propertiesUpdatedByLocal;
         }
 
@@ -203,7 +224,7 @@ namespace DSG.RegionSync
         /// <returns>Return true if the property's value maintained in this SyncInfoPrim is replaced by SOP's data.</returns>
         private bool CompareValue_UpdateByLocal(SceneObjectPart part, SyncableProperties.Type property, long lastUpdateByLocalTS, string syncID)
         {
-            //DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal: Updating property {0} on part {1}", property.ToString(), part.UUID);
+            //m_log.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal: Updating property {0} on part {1}", property.ToString(), part.UUID);
             if (!CurrentlySyncedProperties.ContainsKey(property))
             {
                 Object initValue = GetPropertyValue(part, property);
@@ -277,12 +298,12 @@ namespace DSG.RegionSync
                         }
                         if (property == SyncableProperties.Type.Shape)
                         {
-                            //DebugLog.WarnFormat("[SYNC INFO PRIM]: SHAPES DIFFER {0} {1}", (string)value, (string)syncedProperty.LastUpdateValue);
+                            //m_log.WarnFormat("[SYNC INFO PRIM]: SHAPES DIFFER {0} {1}", (string)value, (string)syncedProperty.LastUpdateValue);
                         }
-                        // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): value != syncedProperty.LastUpdateValue", property.ToString());
+                        // m_log.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): value != syncedProperty.LastUpdateValue", property.ToString());
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
-                            // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
+                            // m_log.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
                             CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
 
                             // Updating either absolute position or position also requires checking for updates to group position
@@ -291,7 +312,7 @@ namespace DSG.RegionSync
 
                             return true;
                         }
-                        // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): TS < lastTS (updating SOP)", property.ToString());
+                        // m_log.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): TS < lastTS (updating SOP)", property.ToString());
                         SetPropertyValue(property);
                     }
                     break;
@@ -329,7 +350,7 @@ namespace DSG.RegionSync
             string props = "";
             foreach (SyncableProperties.Type t in updatedProperties)
                 props += t.ToString() + ",";
-            DebugLog.WarnFormat("{0}: PostUpdateBySync: uuid={1}, allterse={2}, groupupates={3}, props={4}", LogHeader, uuid, allTerseUpdates, hasGroupUpdates, props);
+            m_log.WarnFormat("{0}: PostUpdateBySync: uuid={1}, allterse={2}, groupupates={3}, props={4}", LogHeader, uuid, allTerseUpdates, hasGroupUpdates, props);
             */
         }
 
@@ -535,14 +556,14 @@ namespace DSG.RegionSync
                     return part.ParentGroup.IsSelected;
             }
 
-            //DebugLog.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), part.UUID);
+            //m_log.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), part.UUID);
             return null;
         }
 
         public override void SetPropertyValue(SyncableProperties.Type property)
         {
             SceneObjectPart part = (SceneObjectPart)SceneThing;
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(property={0})", property.ToString());
+            // m_log.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(property={0})", property.ToString());
             SetPropertyValue(part, property);
             part.ParentGroup.HasGroupChanged = true;
         }
@@ -558,12 +579,12 @@ namespace DSG.RegionSync
         /// <param name="property"></param>
         private void SetPropertyValue(SceneObjectPart part, SyncableProperties.Type property)
         {
-            //DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(part={0}, property={1})", part.UUID, property.ToString());
+            //m_log.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(part={0}, property={1})", part.UUID, property.ToString());
 
             // If this is a physical property but the part's PhysActor is null, then we can't set it.
             if (SyncableProperties.PhysActorProperties.Contains(property) && !CurrentlySyncedProperties.ContainsKey(property) && part.PhysActor == null)
             {
-                // DebugLog.WarnFormat("{0}: SetPropertyValue: property {1} not in record.", LogHeader, property.ToString());
+                // m_log.WarnFormat("{0}: SetPropertyValue: property {1} not in record.", LogHeader, property.ToString());
                 //For phantom prims, they don't have physActor properties, so for those properties, simply return
                 return;
             }
@@ -583,7 +604,7 @@ namespace DSG.RegionSync
                 ///////////////////////
                 case SyncableProperties.Type.AggregateScriptEvents:
                     part.AggregateScriptEvents = (scriptEvents)(int)LastUpdateValue;
-                    //DebugLog.DebugFormat("set {0} value to be {1}", property.ToString(), part.AggregateScriptEvents);
+                    //m_log.DebugFormat("set {0} value to be {1}", property.ToString(), part.AggregateScriptEvents);
                     //DSL part.aggregateScriptEventSubscriptions();
                     break;
 
@@ -823,11 +844,11 @@ namespace DSG.RegionSync
                     //part.ParentGroup.UpdatePrimFlagsBySync(part.LocalId, part., IsTemporary, IsPhantom, part.VolumeDetectActive);
                     bool isVD = (bool)LastUpdateValue;
                     //VD DEBUG
-                    //DebugLog.DebugFormat("VolumeDetectActive updated on SOP {0}, to {1}", part.Name, isVD);
+                    //m_log.DebugFormat("VolumeDetectActive updated on SOP {0}, to {1}", part.Name, isVD);
                     if (part.ParentGroup != null)
                     {
                         //VD DEBUG
-                        //DebugLog.DebugFormat("calling ScriptSetVolumeDetectBySync");
+                        //m_log.DebugFormat("calling ScriptSetVolumeDetectBySync");
                         //DSL part.ParentGroup.ScriptSetVolumeDetectBySync(isVD);
                     }
                     part.VolumeDetectActive = isVD;
@@ -912,7 +933,7 @@ namespace DSG.RegionSync
 
         private void SetSOPAbsolutePosition(SceneObjectPart part, SyncedProperty pSyncInfo)
         {
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] SetSOPAbsolutePosition");
+            // m_log.WarnFormat("[SYNC INFO PRIM] SetSOPAbsolutePosition");
             if (part.ParentGroup != null)
             {
                 part.ParentGroup.AbsolutePosition = (Vector3)pSyncInfo.LastUpdateValue;
@@ -971,7 +992,7 @@ namespace DSG.RegionSync
         {
             //Do not set part.Flags yet, 
             //part.Flags = flags;
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] SetSOPFlags");
+            // m_log.WarnFormat("[SYNC INFO PRIM] SetSOPFlags");
 
             bool UsePhysics = (flags & PrimFlags.Physics) != 0;
             bool IsTemporary = (flags & PrimFlags.TemporaryOnRez) != 0;
@@ -996,7 +1017,7 @@ namespace DSG.RegionSync
             if (part.ParentGroup.IsAttachment)
                 return false;
 
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareAndUpdateSOPGroupPositionByLocal");
+            // m_log.WarnFormat("[SYNC INFO PRIM] CompareAndUpdateSOPGroupPositionByLocal");
             if (!part.GroupPosition.ApproxEquals((Vector3)CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateValue, (float)0.001))
             {
                 if (lastUpdateByLocalTS >= CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateTimeStamp)

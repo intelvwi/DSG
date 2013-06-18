@@ -94,7 +94,7 @@ namespace DSG.RegionSync
         // Constructor
         public SyncedProperty(SyncableProperties.Type property, Object initValue, long initTS, string syncID)
         {
-            //DebugLog.WarnFormat("[SYNCED PROPERTY]: Constructing SyncedProperty for {0}. initValue is {1}null", property, (initValue == null ? "" : "not "));
+            //m_log.WarnFormat("[SYNCED PROPERTY]: Constructing SyncedProperty for {0}. initValue is {1}null", property, (initValue == null ? "" : "not "));
             Property = property;
             LastUpdateValue = initValue;
             LastUpdateTimeStamp = initTS;
@@ -129,7 +129,7 @@ namespace DSG.RegionSync
         /// <param name="pValue"></param>
         public void UpdateSyncInfoByLocal(long ts, string syncID, Object pValue)
         {
-            // DebugLog.WarnFormat("[SYNCED PROPERTY] UpdateSyncInfoByLocal property={0}", Property.ToString());
+            // m_log.WarnFormat("[SYNCED PROPERTY] UpdateSyncInfoByLocal property={0}", Property.ToString());
             lock (m_lock)
             {
                 LastUpdateValue = pValue;
@@ -184,7 +184,7 @@ namespace DSG.RegionSync
         /// <returns></returns>
         public OSDMap ToOSDMap()
         {
-            //DebugLog.WarnFormat("[SYNCED PROPERTY] ToOSDMap called for property {0}", Property.ToString());
+            //m_log.WarnFormat("[SYNCED PROPERTY] ToOSDMap called for property {0}", Property.ToString());
             lock (m_lock)
             {
                 OSDMap propertyData = new OSDMap();

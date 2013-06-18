@@ -324,6 +324,8 @@ namespace DSG.RegionSync
         public event GodlikeMessage onGodlikeMessage;
         public event GodUpdateRegionInfoUpdate OnGodUpdateRegionInfoUpdate;
 
+        public event CachedTextureRequest OnCachedTextureRequest;
+
 #pragma warning restore 67
 
         private Scene m_scene;
@@ -1335,6 +1337,21 @@ namespace DSG.RegionSync
         }
 
         public void SendPlacesReply(UUID queryID, UUID transactionID, PlacesReplyData[] data)
+        {
+            throw new System.NotImplementedException();
+        }
+
+        public void SendKillObject(List<uint> localID)
+        {
+            throw new System.NotImplementedException();
+        }
+
+        public void SendCachedTextureResponse(ISceneEntity avatar, int serial, List<CachedTextureResponseArg> cachedTextures)
+        {
+            throw new System.NotImplementedException();
+        }
+
+        public void SendMoneyBalance(UUID transaction, bool success, byte[] description, int balance, int transactionType, UUID sourceID, bool sourceIsGroup, UUID destID, bool destIsGroup, int amount, string item)
         {
             throw new System.NotImplementedException();
         }
