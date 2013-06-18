@@ -261,6 +261,23 @@ namespace DSG.RegionSync
                                     if (syncedProperty.LastUpdateValue != null)
                                     {
                                         AnimationSet lastAnimations = new AnimationSet((OSDArray)syncedProperty.LastUpdateValue);
+
+                                        // Get the home region for this presence (the client manager the presence is connected to).
+                                        string cachedRealRegionName = (string)(CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
+                                        if (cachedRealRegionName != Scene.Name && sp.Animator.Animations.ToArray().Length == 0)
+                                        {
+                                            // If this is not the originating region for this presence or there is no additional
+                                            //   animations being added, this simulator does not change the animation.
+                                            // THIS IS A HORRIBLE KLUDGE. FIGURE OUT THE REAL SOLUTION!!
+                                            // The problem is that animations are changed by every simulator (setting default
+                                            //   sit and stand when parentID changes) and the updates conflict/override the real
+                                            //   settings (like a scripted sit animation).
+                                            // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal. Not home sim or no anim change. spID={1}, homeSim={2}, thisSim={3}, anims={4}",
+                                            //                     LogHeader, sp.LocalId, cachedRealRegionName, Scene.Name, sp.Animator.Animations.ToArray().Length); // DEBUG DEBUG
+
+                                            return false;
+                                        }
+
                                         if (lastAnimations.Equals(sp.Animator.Animations))
                                         {
                                             // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal. Equal anims. spID={1}, sp.Anim={2}, lastAnim={3}",
@@ -509,7 +526,7 @@ namespace DSG.RegionSync
                     uint localID = (uint)pValue;
                     if (localID == 0)
                     {
-                        DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. Standup. Input={1}", LogHeader, localID); // DEBUG DEBUG
+                        // DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. Standup. Input={1}", LogHeader, localID); // DEBUG DEBUG
                         sp.StandUp();
                     }
                     else
@@ -518,8 +535,8 @@ namespace DSG.RegionSync
                         if (parentPart != null) // TODO ??
                         {
                             sp.HandleAgentRequestSit(sp.ControllingClient, sp.ControllingClient.AgentId, parentPart.UUID, Vector3.Zero);
-                            DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. SitRequest. Input={1},sp={2},newParentID={3}",
-                                            LogHeader, localID, (string)(sp == null ? "NULL" : sp.Name), sp.ParentID); // DEBUG DEBUG
+                            // DebugLog.DebugFormat("{0}: SetPropertyValue:ParentID. SitRequest. Input={1},sp={2},newParentID={3}",
+                            //                 LogHeader, localID, (string)(sp == null ? "NULL" : sp.Name), sp.ParentID); // DEBUG DEBUG
                         }
                     }
                     //sp.ParentID = (uint)pValue;
@@ -577,12 +594,14 @@ namespace DSG.RegionSync
             AnimationSet currentSet = sp.Animator.Animations;
             if (!newSet.Equals(currentSet))
             {
-                // DebugLog.DebugFormat("{0} UpdateAvatarAnimations. spID={1},CurrAnims={2},NewAnims={3}", LogHeader, sp.LocalId, currentSet, newSet); // DEBUG DEBUG
+                // DebugLog.DebugFormat("{0} UpdateAvatarAnimations. spID={1},CurrAnims={2},NewAnims={3}",
+                //                          LogHeader, sp.LocalId, currentSet, newSet); // DEBUG DEBUG
+
                 // If something changed, stuff the new values in the existing animation collection.
                 sp.Animator.Animations.FromOSDArray(pPackedAnimations);
-                // Tell anyone listening that animations changed.
-                sp.Animator.SendAnimPack();
             }
+            // Doesn't matter if it changed or not. If someone sends us an animation update, tell any connected client.
+            sp.Animator.SendAnimPack();
         }
 
         // Some presence property has changed. Generate a call into the scene presence
