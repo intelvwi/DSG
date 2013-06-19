@@ -934,6 +934,8 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
             RegInfo.EstateSettings.FixedSun = DataMap["estateFixedSun"].AsBoolean();
             RegInfo.EstateSettings.PublicAccess = DataMap["publicAccess"].AsBoolean();
 
+            RegionContext.Scene.TriggerEstateSunUpdate();
+
             IEstateModule estate = pRegionContext.Scene.RequestModuleInterface<IEstateModule>();
             if (estate != null)
                 estate.sendRegionHandshakeToAll();
