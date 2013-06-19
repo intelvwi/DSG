@@ -129,7 +129,7 @@ namespace DSG.RegionSync
                 if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo))
                 {
                     // DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} FOUND.", uuid);
-                    return thisSyncInfo.UpdatePropertiesByLocal(uuid, updatedProperties, DateTime.UtcNow.Ticks, m_regionSyncModule.SyncID);
+                    return thisSyncInfo.UpdatePropertiesByLocal(uuid, updatedProperties, RegionSyncModule.NowTicks(), m_regionSyncModule.SyncID);
                 }
             // DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} NOT FOUND.", uuid);
             return new HashSet<SyncableProperties.Type>();
