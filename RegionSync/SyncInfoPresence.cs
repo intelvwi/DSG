@@ -286,8 +286,11 @@ namespace DSG.RegionSync
                                         }
                                         else
                                         {
+                                            // If locally storing a new value of the animation, don't check for the time.
                                             // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal. Not equal anims. spID={1}, sp.Anim={2}, lastAnim={3}",
                                             //                     LogHeader, sp.LocalId, sp.Animator.Animations, lastAnimations); // DEBUG DEBUG
+                                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
+                                            return true;
                                         }
                                     }
                                     break;
@@ -350,6 +353,8 @@ namespace DSG.RegionSync
                         LogHeader, this.UUID.ToString());
                 return;
             }
+
+            // If we received a change in animations, need to send out the change.
 
             // Here is where we may need to force sending of updated properties, appearance, etc
             sp.Updated = true;

@@ -95,6 +95,7 @@ namespace DSG.RegionSync
         private int m_statEventOut = 0;
 
         public static long UpdateTimeDisplacementFudgeTicks = 0;
+        public static bool ShouldUnconditionallyAcceptAnimationOverrides = true;
 
         public void Initialise(IConfigSource config)
         {
@@ -122,6 +123,10 @@ namespace DSG.RegionSync
 
             // Ticks are 100ns increments. Convert fudge seconds into ticks.
             UpdateTimeDisplacementFudgeTicks = m_sysConfig.GetLong("UpdateTimeDisplacementFudgeSeconds", 0) * 10000000L;
+
+            // Until timing is improved, so animations always are updated by scripts, if this flag is 'true', always
+            //     accept received updates to animation values if they are more than just default animations.
+            ShouldUnconditionallyAcceptAnimationOverrides = m_sysConfig.GetBoolean("ShouldUnconditionallyAcceptAnimationOverrides", true);
 
             // For now, the sync relay and sync listener are both the same (the hub)
             IsSyncRelay = m_isSyncListenerLocal = m_sysConfig.GetBoolean("IsHub", false);
