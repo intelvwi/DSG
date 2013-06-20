@@ -100,6 +100,11 @@ namespace DSG.RegionSync
             return m_quarkName;
         }
 
+        public override int GetHashCode()
+        {
+            return m_quarkName.GetHashCode();
+        }
+
         #region Util functions
         public static void SyncQuarkNameToLoc(string quarkName, out int quarkLocX, out int quarkLocY)
         {

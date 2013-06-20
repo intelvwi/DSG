@@ -9,7 +9,7 @@ using OpenSim.Framework;
 
 namespace DSG.RegionSync
 {
-    class RemotePassiveQuarkSubscription
+    public class RemotePassiveQuarkSubscription
     {
         private SyncQuark m_quark;
         public  SyncQuark Quark { get { return m_quark; } }
@@ -46,7 +46,7 @@ namespace DSG.RegionSync
     /// QuarkPublisher
     /// Description: Stores all SyncConnectors subscribed actively and passively to a quark. Only quarks that belong to this sync process.
         /// </summary>
-    class QuarkPublisher
+    public class QuarkPublisher
     {
         private SyncQuark m_quark;
         private string m_quarkName;
@@ -108,7 +108,7 @@ namespace DSG.RegionSync
         }
 
     }
-    class QuarkManager
+    public class QuarkManager
     {
         private static string LogHeader = "[QUARKMANAGER]";
         private Boolean m_detailUpdateDebugLog = false;
@@ -116,8 +116,6 @@ namespace DSG.RegionSync
 
         private int m_quarkSizeX;
         private int m_quarkSizeY;
-        HashSet<string> m_syncQuarksPassive = new HashSet<string>();
-        HashSet<string> m_syncQuarksActive = new HashSet<string>();
         private SyncInfoManager m_syncInfoManager;
 
         public static ILog m_log;
@@ -140,21 +138,26 @@ namespace DSG.RegionSync
         // Transformed strings into SyncQuark. 
         private Dictionary<string, SyncQuark> m_activeQuarkSet = new Dictionary<string, SyncQuark>();
         private Dictionary<string, SyncQuark> m_passiveQuarkSet = new Dictionary<string, SyncQuark>();
+        public Dictionary<string, SyncQuark> ActiveQuarkDictionary
+        {
+            get { return m_activeQuarkSet; }
+        }
+
+        public Dictionary<string, SyncQuark> PassiveQuarkDictionary
+        {
+            get { return m_passiveQuarkSet; }
+        }
+
+
 
         private Dictionary<string, QuarkPublisher> m_quarkSubscriptions = new Dictionary<string,QuarkPublisher>();
+        public Dictionary<string, QuarkPublisher> QuarkSubscriptions
+        {
+            get { return m_quarkSubscriptions; }
+        }
         private Dictionary<string, RemotePassiveQuarkSubscription> m_remoteQuarkPassiveSubscriptions = new Dictionary<string,RemotePassiveQuarkSubscription>();
 
         RegionSyncModule m_regionSyncModule;
-
-        public HashSet<string> ActiveQuarkStringSet
-        {
-            get { return m_syncQuarksActive; }
-        }
-
-        public HashSet<string> PassiveQuarkStringSet
-        {
-            get { return m_syncQuarksPassive; }
-        }
 
         #region QuarkRegistration
         
@@ -177,7 +180,7 @@ namespace DSG.RegionSync
             //initialize some static variables
             IConfig config = syncModule.SysConfig;
             m_regionSyncModule = syncModule;
-            m_syncInfoManager = m_regionSyncModule.SyncInfoManager;
+            m_syncInfoManager = m_regionSyncModule.InfoManager;
             //string regPolicy = config.GetString("QuarkRegistrationPolicy", "AllQuarks");
             
             // Size of quarks
@@ -369,130 +372,6 @@ namespace DSG.RegionSync
 
         #endregion // QuarkRegistration
 
-        #region InterQuarkCommunication
-
-        /// <summary>
-        /// Called in the initialization of a sync process, connecting to a parent process,
-        /// and is exchaning quark set information. The child process should send in both
-        /// its active and passve quarks, since all these quarks need to receive sync updates
-        /// from parents. The parent process, on the other hand, should only reply back the 
-        /// active quarks -- updates applied to passive quarks are retained locally and not 
-        /// for further propagating
-        /// </summary>
-        /// <returns></returns>
-        public OSDMap CreateQuarkSubscriptionMessageArgs()
-        {
-            OSDMap ret = new OSDMap();
-            ret = EncodeQuarkSubscriptionsForParent();
-            return ret;
-        }
-
-        /// <summary>
-        /// Encode quark subscriptions.
-        /// </summary>
-        /// <param name="ack">Indicate if the encoded message would be sent
-        /// back to a child process as an ACK. </param>
-        /// <returns></returns>
-        public OSDMap EncodeQuarkSubscriptionsForParent()
-        {
-            //Subscription sent to a parent node -- efficiently, it should be the
-            //set of quarks that this node wants to receive updates from the parent
-            //(e.g. the intersection of their quark sets). For now, we haven't 
-            //optimize the code for that customization yet -- the child simply sends
-            //out subscriptions for all quarks it covers, the parent will do an 
-            //intersection on the quarks.
-
-            OSDArray activeQuarks = new OSDArray();
-            OSDArray passiveQuarks = new OSDArray();
-            
-            foreach (string aQuark in m_activeQuarkSet.Keys)
-                activeQuarks.Add(aQuark);
-            foreach (string pQuark in m_passiveQuarkSet.Keys)
-                passiveQuarks.Add(pQuark);
-
-            OSDMap subscriptionEncoding = new OSDMap();
-            subscriptionEncoding["ActiveQuarks"] = activeQuarks;
-            subscriptionEncoding["PassiveQuarks"] = passiveQuarks;
-            return subscriptionEncoding;
-        }
-
-        /// <summary>
-        /// Encode subscription to updates in the quarks the child subscribed to.
-        /// Assertion: A parent node is interested in all updates from the quark 
-        /// in a child process, forwarded in at full speed.
-        /// Sending both passive and active. Doc says only active is necessary.
-        /// </summary>
-        /// <returns></returns>
-        public OSDMap EncodeQuarkSubscriptionsForChild()
-        {
-            OSDArray activeQuarks = new OSDArray();
-            OSDArray passiveQuarks = new OSDArray();
-
-            foreach (string aQuark in m_activeQuarkSet.Keys)
-                activeQuarks.Add(aQuark);
-            foreach (string pQuark in m_passiveQuarkSet.Keys)
-                passiveQuarks.Add(pQuark);
-
-            OSDMap subscriptionEncoding = new OSDMap();
-            subscriptionEncoding["ActiveQuarks"] = activeQuarks;
-            subscriptionEncoding["PassiveQuarks"] = passiveQuarks;
-
-            return subscriptionEncoding;
-        }
-
-        private Dictionary<string, List<SyncQuark>> DecodeQuarkSubscriptionsFromMsg(OSDMap data)
-        {
-            Dictionary<string, List<SyncQuark>> decodedSubscriptions = new Dictionary<string,List<SyncQuark>>();
-            OSDArray aQuarks = (OSDArray)data["ActiveQuarks"]; ;
-            OSDArray pQuarks = (OSDArray)data["PassiveQuarks"];;
-            List<SyncQuark> activeQuarks = new List<SyncQuark>();
-            List<SyncQuark> passiveQuarks = new List<SyncQuark>();
-
-            foreach (OSD quark in aQuarks)
-            {
-                activeQuarks.Add(new SyncQuark(quark.AsString()));
-            }
-
-            foreach (OSD quark in pQuarks)
-            {
-                passiveQuarks.Add(new SyncQuark(quark.AsString()));
-            }
-
-            decodedSubscriptions["Active"] = activeQuarks;
-            decodedSubscriptions["Passive"] = passiveQuarks;
-
-            return decodedSubscriptions;
-        }
-
-        public void HandleSyncQuarksExchange(OSDMap data, string senderActorID, SyncConnector syncConnector, bool incomingNotification)
-        {
-            m_log.WarnFormat("Received this data for HandleSyncQuarksExchange: {0}",data.ToString());
-            Dictionary<string, List<SyncQuark>> othersideQuarkSubs = DecodeQuarkSubscriptionsFromMsg(data);
-            foreach (SyncQuark quark in othersideQuarkSubs["Active"])
-            {
-                if (!m_quarkSubscriptions.ContainsKey(quark.QuarkName))
-                    m_quarkSubscriptions[quark.QuarkName] = new QuarkPublisher(quark);
-                m_quarkSubscriptions[quark.QuarkName].AddActiveSubscriber(syncConnector);
-            }
-            foreach (SyncQuark quark in othersideQuarkSubs["Passive"])
-            {
-                if (!m_quarkSubscriptions.ContainsKey(quark.QuarkName))
-                    m_quarkSubscriptions[quark.QuarkName] = new QuarkPublisher(quark);
-                m_quarkSubscriptions[quark.QuarkName].AddPassiveSubscriber(syncConnector);
-            }
-            if (incomingNotification)
-            {
-                m_regionSyncModule.AddSyncConnector(syncConnector);
-                OSDMap quarkData = EncodeQuarkSubscriptionsForChild();
-                string quarkDataString = OSDParser.SerializeJsonString(quarkData);
-                SymmetricSyncMessage reply = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.SyncQuarksSubscriptionAck, quarkDataString);
-                //m_regionSyncModule.DetailedUpdateWrite("SndSubrAck", m_zeroUUID, DateTime.Now.Ticks, quarkDataString, syncConnector.OtherSideActorID, reply.Length);
-                syncConnector.ImmediateOutgoingMsg(reply);
-            }
-        }
-
-        #endregion //InterQuarkCommunication
-
         #region QuarkObjects
 
         public bool IsInActiveQuark(string quarkName)
@@ -518,13 +397,21 @@ namespace DSG.RegionSync
             SceneObjectPart sop = m_regionSyncModule.Scene.GetSceneObjectPart(syncObjectID);
             if (sop != null)
             {
-                return UpdatePrimQuarkLocation(sop,ref sib, updatedProperties);
+                if (sop.GroupID != null)
+                {
+                    SceneObjectGroup sogFromSop = m_regionSyncModule.Scene.GetSceneObjectGroup(syncObjectID);
+                    return UpdatePrimQuarkLocation(sogFromSop, ref sib, updatedProperties);
+                }
+                else
+                {
+                    m_log.WarnFormat("{0}: Prim without group crossing borders. Ignoring.", LogHeader);
+                }
             }
 
             SceneObjectGroup sog = m_regionSyncModule.Scene.GetSceneObjectGroup(syncObjectID);
             if (sog != null)
             {
-                return UpdateSOGQuarkLocation(sog,ref sib);
+                return UpdatePrimQuarkLocation(sog,ref sib, updatedProperties);
             }
             // Was not a scene presence, SOP or SOG.
             return false;
@@ -548,44 +435,16 @@ namespace DSG.RegionSync
                 // Someday see if a better design is possible for spacialy large linksets.
                 Vector3 spLoc = sp.AbsolutePosition;
                 string currentQuarkName = SyncQuark.GetQuarkNameByPosition(spLoc);
-                if (currentQuarkName != sib.CurQuark.QuarkName)
+                if (sib != null)
                 {
-                    // If we are not in the same quark as we used to be, remember where we were
-                    SyncQuark currentQuark = new SyncQuark(spLoc);
-                    sib.PrevQuark = sib.CurQuark;
-                    sib.CurQuark = currentQuark;
-                    ret = true;
-                }
-            }
-            return ret;
-        }
-
-        /// <summary>
-        /// Compute whether the sop is changing quarks. Return true if crossing a quark boundry
-        /// and update the current and previous quarks in the PrimSyncInfo.
-        /// </summary>
-        /// <param name="sop"></param>
-        /// <param name="updatedProperties">The properties that were updated. Used to see if position
-        /// changed and if we should check whether quarks possibly changed</param>
-        /// <returns>true if the sop is a root prim and it is crossing a quark boundry</returns>
-        public bool UpdatePrimQuarkLocation(SceneObjectPart sop,
-                            ref SyncInfoBase sib, HashSet<SyncableProperties.Type> updatedProperties)
-        {
-            bool ret = false;
-            if (updatedProperties.Contains(SyncableProperties.Type.Position)
-                    || updatedProperties.Contains(SyncableProperties.Type.GroupPosition))
-            {
-                // Note that all SOPs in a linkset are in the quark of the root SOP (ie, always using GroupPosition).
-                // Someday see if a better design is possible for spacialy large linksets.
-                Vector3 groupLoc = sop.GroupPosition;
-                string currentQuarkName = SyncQuark.GetQuarkNameByPosition(groupLoc);
-                if (currentQuarkName != sib.CurQuark.QuarkName)
-                {
-                    // If we are not in the same quark as we used to be, remember where we were
-                    SyncQuark currentQuark = new SyncQuark(groupLoc);
-                    sib.PrevQuark = sib.CurQuark;
-                    sib.CurQuark = currentQuark;
-                    ret = true;
+                    if (currentQuarkName != sib.CurQuark.QuarkName)
+                    {
+                        // If we are not in the same quark as we used to be, remember where we were
+                        SyncQuark currentQuark = new SyncQuark(spLoc);
+                        sib.PrevQuark = sib.CurQuark;
+                        sib.CurQuark = currentQuark;
+                        ret = true;
+                    }
                 }
             }
             return ret;
@@ -593,42 +452,27 @@ namespace DSG.RegionSync
 
         // Check to see if current quark has changed (based on GroupPosition).
         // If changed, update the quarks in the PrimSyncInfo and return 'true'.
-        public bool UpdateSOGQuarkLocation(SceneObjectGroup sog, ref SyncInfoBase sib)
+        public bool UpdatePrimQuarkLocation(SceneObjectGroup sog, ref SyncInfoBase sib, HashSet<SyncableProperties.Type> updatedProperties)
         {
             bool ret = false;
-            if (sib != null)
+            if (updatedProperties.Contains(SyncableProperties.Type.AbsolutePosition) || updatedProperties.Contains(SyncableProperties.Type.Position)
+                || updatedProperties.Contains(SyncableProperties.Type.GroupPosition))
             {
-                SyncQuark currentQuark = new SyncQuark(sog.RootPart.GroupPosition);
-                if (!currentQuark.Equals(sib.CurQuark))
+                if (sib != null)
                 {
-                    // If we are not in the same quark as we used to be, remember where we were
-                    sib.PrevQuark = sib.CurQuark;
-                    sib.CurQuark = currentQuark;
-                    ret = true;
+                    SyncQuark currentQuark = new SyncQuark(sog.RootPart.GroupPosition);
+                    if (!currentQuark.Equals(sib.CurQuark))
+                    {
+                        // If we are not in the same quark as we used to be, remember where we were
+                        sib.PrevQuark = sib.CurQuark;
+                        sib.CurQuark = currentQuark;
+                        ret = true;
+                    }
                 }
             }
             return ret;
         }
 
-        public bool UpdateSOGQuarkLocation(SceneObjectGroup sog, ref SyncInfoBase sib, string preQuark, string curQuark)
-        {
-            bool ret = false;
-            if (sib != null)
-            {
-                SyncQuark currentQuark = new SyncQuark(curQuark);
-                if (!currentQuark.Equals(sib.CurQuark))
-                {
-                    // If we are not in the same quark as we used to be, remember where we were
-                    sib.PrevQuark = sib.CurQuark;
-                    sib.CurQuark = currentQuark;
-
-                    //m_log.DebugFormat("UpdatePrimQuarkLocation: {0} from quark {1} to {2}", sog.Name, psi.PrevQuark, psi.CurQuark);
-
-                    ret = true;
-                }
-            }
-            return ret;
-        }
         #endregion
 
         #region QuarkSubscriptions
@@ -682,48 +526,62 @@ namespace DSG.RegionSync
         #region QuarkCrossing
 
         // Called when a quark crossing was detected, either for a scene presence, SOP or SOG
-        public SymmetricSyncMessage QuarkCrossingUpdate(SyncInfoBase syncInfo, HashSet<SyncableProperties.Type> updatedProperties)
+        // Returns true if successfully created and fired a crossing message
+        public bool QuarkCrossingUpdate(SyncInfoBase syncInfo, HashSet<SyncableProperties.Type> updatedProperties)
         {
-            SymmetricSyncMessage ret = null;
+            bool ret = false;
             ScenePresence sp = m_regionSyncModule.Scene.GetScenePresence(syncInfo.UUID);
             if (sp != null)
             {
-                ret = QuarkCrossingSPUpdate(sp, (SyncInfoPresence)syncInfo, updatedProperties);
+                ret = QuarkCrossingPresenceUpdate(sp, (SyncInfoPresence)syncInfo, updatedProperties);
             }
             SceneObjectPart sop = m_regionSyncModule.Scene.GetSceneObjectPart(syncInfo.UUID);
             if (sop != null)
             {
-                ret = QuarkCrossingSOPUpdate(sop, (SyncInfoPrim)syncInfo, updatedProperties);
+                ret = QuarkCrossingPrimUpdate(sop, (SyncInfoPrim)syncInfo, updatedProperties);
             }
             SceneObjectGroup sog = m_regionSyncModule.Scene.GetSceneObjectGroup(syncInfo.UUID);
             if (sog != null)
             {
-                ret = QuarkCrossingSOGUpdate(sog, (SyncInfoPrim)syncInfo, updatedProperties);
+                ret = QuarkCrossingPrimUpdate(sog.RootPart, (SyncInfoPrim)syncInfo, updatedProperties);
+            }
+            m_log.ErrorFormat("{0}: Something should have crossed, but it was not found as a ScenePresence or SOG. UUID: {1}", LogHeader, syncInfo.UUID);
+            return ret;
+        }
+
+        private bool QuarkCrossingPresenceUpdate(ScenePresence sp, SyncInfoPresence sip, HashSet<SyncableProperties.Type> updatedProperties)
+        {
+            bool ret = false;
+            bool leavingMyQuarks = !(IsInActiveQuark(sip.CurQuark.QuarkName) || IsInPassiveQuark(sip.CurQuark.QuarkName));
+            SyncMsgPresenceQuarkCrossing syncMsg = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties);
+            if (syncMsg != null)
+            {
+                ret = true;
+                m_regionSyncModule.SendSyncMessage(syncMsg, sip.CurQuark.QuarkName);
+            }
+            TriggerPresenceQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sp);
+            // if the presence is not in the quarks I manage, remove it from the scenegraph
+            if (leavingMyQuarks)
+            {
+                if (sp != null)
+                {
+                    m_syncInfoManager.RemoveSyncInfo(sp.UUID);
+                    try
+                    {
+                        m_regionSyncModule.Scene.RemoveClient(sp.UUID, false);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.WarnFormat("{0}: No client to remove from here. {1}", LogHeader, e);
+                    }
+                }
             }
             return ret;
         }
 
-        private SymmetricSyncMessage QuarkCrossingSPUpdate(ScenePresence sp, SyncInfoPresence sip, HashSet<SyncableProperties.Type> updatedProperties)
+        private bool QuarkCrossingPrimUpdate(SceneObjectPart sop, SyncInfoPrim sip, HashSet<SyncableProperties.Type> updatedProperties)
         {
-            bool leavingMyQuarks = !IsInActiveQuark(sip.CurQuark.QuarkName);
-            SymmetricSyncMessage syncMsg = null;
-            OSDMap syncData = CreateSPQuarkCrossingMessage(sp, sip, updatedProperties);
-            if (syncData != null && syncData.Count > 0)
-            {
-                // Send the update message to all the connectors to the quarks
-                syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.QuarkCrossingSPFullUpdate, OSDParser.SerializeJsonString(syncData));
-            }
-            return syncMsg;
-        }
-
-        private SymmetricSyncMessage QuarkCrossingSOPUpdate(SceneObjectPart sop, SyncInfoPrim sip, HashSet<SyncableProperties.Type> updatedProperties)
-        {
-            m_log.Warn("SOP ATTEMPTING TO CROSS WITHOUT SOG");
-            return null;
-        }
-
-        private SymmetricSyncMessage QuarkCrossingSOGUpdate(SceneObjectGroup sog, SyncInfoPrim sip, HashSet<SyncableProperties.Type> updatedProperties)
-        {
+            bool ret = false;
             // The sop is a root prim and is changing quarks (curQuark != prevQuark)
             // This sends the information necessary to create the whole SOG in the target quark.
             // The individual child SOPs will never send out a quark crossing message.
@@ -732,81 +590,46 @@ namespace DSG.RegionSync
             //                 LogHeader, psi.CurQuark.QuarkName, psi.PrevQuark.QuarkName, 
             //                 sog == null ? "sog is null" : sog.UUID.ToString());
             
-            bool leavingMyQuarks = !IsInActiveQuark(sip.CurQuark.QuarkName);
-            //string updateCode = leavingMyQuarks ? "SendUpdatD" : "SendUpdatX";
-            SymmetricSyncMessage syncMsg = null;
-            OSDMap syncData = CreateSOGQuarkCrossingMessage(sog, sip, updatedProperties);
-            if (syncData != null && syncData.Count > 0)
+            // If not in my active or passive quarks, delete all reference to it from scene and sync info.
+            bool leavingMyQuarks = !(IsInActiveQuark(sip.CurQuark.QuarkName) || IsInPassiveQuark(sip.CurQuark.QuarkName));
+            SyncMsgPrimQuarkCrossing syncMsg = new SyncMsgPrimQuarkCrossing(m_regionSyncModule, sop, updatedProperties);
+            if (syncMsg != null)
             {
-                // Send the update message to all the connectors to the quarks
-                syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.QuarkCrossingFullUpdate, OSDParser.SerializeJsonString(syncData));
+                m_regionSyncModule.SendSyncMessage(syncMsg, sip.CurQuark.QuarkName);
             }
 
-            TriggerSOGQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sog);
+            TriggerPrimQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sop);
 
             // if the prim is not in the quarks I manage, remove it from the scenegraph
             if (leavingMyQuarks)
             {
                 // m_log.DebugFormat("{0}: SendPrimPropertyUpdates: not in my quark. Deleting object. sog={1}, sop={2}", LogHeader, sog.UUID, sop.UUID);
                 // ?? How do I delete scene object? Is there more I need to do?
-                // DeleteSceneObjectBySync(sog);
-                m_regionSyncModule.Scene.DeleteSceneObject(sog, false);
-            }
-            return syncMsg;
-        }
-
-        // Given an SOG and sync information, create a QuarkCrossing message
-        private OSDMap CreateSPQuarkCrossingMessage(ScenePresence sp, SyncInfoPresence sip, HashSet<SyncableProperties.Type> updatedProperties)
-        {
-            OSDMap ret = null;
-
-            try
-            {
-                // If moving across quark boundries we pack both the sop update and the
-                // full sog just in case the receiver has to create a new object (moving into a quark)
-                ret = m_syncInfoManager.EncodeProperties(sp.UUID, updatedProperties);
-                ret["FULL-SP"] = m_regionSyncModule.EncodeScenePresence(sp);
-                // pass the quark names so the receiver can decide what to do with this update
-                ret["curQuark"] = OSD.FromString(sip.CurQuark.QuarkName);
-                ret["prevQuark"] = OSD.FromString(sip.PrevQuark.QuarkName);
-            }
-            catch (Exception e)
-            {
-                m_log.ErrorFormat("{0}: CreateSPQuarkCrossingMessage: Error in encoding SOG {1}, {2}: {3}", LogHeader, sp.Name, sp.UUID, e);
-                ret = null;
+                SceneObjectGroup sog = sop.ParentGroup;
+                if (sog != null)
+                {
+                    // ?? This has the potential to fail, if only some of the parts are in the quark.
+                    foreach(SceneObjectPart part in sog.Parts)
+                    {
+                        try
+                        {
+                            m_syncInfoManager.RemoveSyncInfo(part.UUID);
+                        }
+                        catch (KeyNotFoundException)
+                        {
+                            m_log.WarnFormat("{0}: Object part {1} did not have a SyncInfoprim.", LogHeader, part.UUID);
+                        }
+                    }
+                    m_regionSyncModule.Scene.DeleteSceneObject(sog, false);
+                }
             }
             return ret;
         }
 
-        // Given an SOG and sync information, create a QuarkCrossing message
-        private OSDMap CreateSOGQuarkCrossingMessage(SceneObjectGroup sog, SyncInfoPrim sip, HashSet<SyncableProperties.Type> updatedProperties)
-        {
-            OSDMap ret = null;
-
-            try
-            {
-                // If moving across quark boundries we pack both the sop update and the
-                // full sog just in case the receiver has to create a new object (moving into a quark)
-                ret = m_syncInfoManager.EncodeProperties(sog.RootPart.UUID, updatedProperties);
-                ret["FULL-SOG"] = m_regionSyncModule.EncodeSceneObject(sog);
-                // pass the quark names so the receiver can decide what to do with this update
-                ret["curQuark"] = OSD.FromString(sip.CurQuark.QuarkName);
-                ret["prevQuark"] = OSD.FromString(sip.PrevQuark.QuarkName);
-            }
-            catch (Exception e)
-            {
-                m_log.ErrorFormat("{0}: CreateQuarkSOGCrossingMessage: Error in encoding SOG {1}, {2}: {3}", LogHeader, sog.Name, sog.UUID, e);
-                ret = null;
-            }
-            return ret;
-        }
-
-        private void TriggerSPQuarkCrossingEvent(string curQuark, string preQuark, ScenePresence sp)
+        public void TriggerPresenceQuarkCrossingEvent(string curQuark, string preQuark, ScenePresence sp)
         {
             //Trigger the quark-crossing event, so that local modules can get it 
             EventManager.QuarkCrossingType crossingType = EventManager.QuarkCrossingType.Unknown;
-            //string curQuark = primSyncInfo.CurQuark.QuarkName;
-            //string preQuark = primSyncInfo.PrevQuark.QuarkName;
             bool curQuarkIsActive = IsInActiveQuark(curQuark);
             bool preQuarkIsActive = IsInActiveQuark(preQuark);
 
@@ -819,15 +642,13 @@ namespace DSG.RegionSync
             else if (!preQuarkIsActive && !curQuarkIsActive)
                 crossingType = EventManager.QuarkCrossingType.PassiveToPassive;
 
-            m_regionSyncModule.Scene.EventManager.TriggerSPQuarkCrossing(curQuark, preQuark, sp, crossingType);
+            m_regionSyncModule.Scene.EventManager.TriggerPresenceQuarkCrossing(curQuark, preQuark, sp, crossingType);
         }
 
-        private void TriggerSOGQuarkCrossingEvent(string curQuark, string preQuark, SceneObjectGroup sog)
+        public void TriggerPrimQuarkCrossingEvent(string curQuark, string preQuark, SceneObjectPart sop)
         {
             //Trigger the quark-crossing event, so that local modules can get it 
             EventManager.QuarkCrossingType crossingType = EventManager.QuarkCrossingType.Unknown;
-            //string curQuark = primSyncInfo.CurQuark.QuarkName;
-            //string preQuark = primSyncInfo.PrevQuark.QuarkName;
             bool curQuarkIsActive = IsInActiveQuark(curQuark);
             bool preQuarkIsActive = IsInActiveQuark(preQuark);
 
@@ -840,247 +661,9 @@ namespace DSG.RegionSync
             else if (!preQuarkIsActive && !curQuarkIsActive)
                 crossingType = EventManager.QuarkCrossingType.PassiveToPassive;
 
-            m_regionSyncModule.Scene.EventManager.TriggerSOGQuarkCrossing(curQuark, preQuark, sog, crossingType);
+            m_regionSyncModule.Scene.EventManager.TriggerPrimQuarkCrossing(curQuark, preQuark, sop, crossingType);
         }
         
         #endregion //QuarkCrossing
-
-        #region EventHandlingQuark
-        /// <summary>
-        /// The prim properties changed and it has moved across quark boundries. There are several
-        /// conditions:
-        /// <ol>
-        /// <li>both current and prev quarks are active. Just update the changed properties</li>
-        /// <li>the current quark is not managed by me. Delete the sog from the scenegraph</li>
-        /// <li>the current quark is not managed by me. Delete the sog from the scenegraph</li>
-        /// </ol>
-        /// </summary>
-        /// <param name="msg"></param>
-        /// <param name="senderActorID"></param>
-        public void HandleQuarkCrossingFullUpdate(SymmetricSyncMessage msg, string senderActorID)
-        {
-            OSDMap data = RegionSyncModule.DeserializeMessage(msg);
-
-            UUID primUUID = data["primUUID"].AsUUID();
-            SceneObjectPart sop = m_regionSyncModule.Scene.GetSceneObjectPart(primUUID);
-            SceneObjectGroup sog = null;
-
-            string currentQuarkName = data["curQuark"].AsString();
-            string previousQuarkName = data["prevQuark"].AsString();
-            HashSet<SyncableProperties.Type> propertiesUpdated = new HashSet<SyncableProperties.Type>();
-            Dictionary<UUID,SyncInfoBase> propertiesSyncInfo = null;
-
-            bool toDeleteDueToQuarkCrossing = false;
-
-            int bgnTime = Util.EnvironmentTickCount();
-
-            int casecode = sop == null ? 0 : 1;
-            casecode += IsInActiveQuark(currentQuarkName) ? 2 : 0;
-            switch (casecode)
-            {
-                case 0: // current is not our quark and we don't know about the object
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 0", LogHeader);
-                    // Can happen when linksets are deleted. Just ignore it.
-                    // m_log.DebugFormat("{0}: HandleQuarkCrossingFullUpdate({1}): not our current and object not in scenegraph: c/p={2}/{3}, obj={4}", 
-                    //                 LogHeader, senderActorID, currentQuarkName, previousQuarkName, primUUID);
-                    // DSG DEBUG
-                    m_regionSyncModule.DetailedUpdateWrite("RecUpdate0", primUUID, DateTime.Now.Ticks, m_zeroUUID, senderActorID, msg.Data.Length);
-                    // END DSG DEBUG
-                    break;
-                case 1: // current is not our quark and we know about the object
-                    // Remove the object from the scenegraph
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 1", LogHeader);
-                    sog = sop.ParentGroup;
-                    if (sog == null)
-                    {
-                        m_log.ErrorFormat("{0}: HandleQuarkCrossingFullUpdate({1}): Trying to remove from scenegraph. Got SOP but SOG not found. : c/p={2}/{3}, obj={4}",
-                                    LogHeader, senderActorID, currentQuarkName, previousQuarkName, sop.UUID);
-                        break;
-                    }
-                    if (m_detailUpdateDebugLog)
-                        m_log.DebugFormat("{0}: HandleQuarkCrossingFullUpdate({1}): removing sog from scenegraph: c/p={2}/{3}, obj={4}",
-                                    LogHeader, senderActorID, currentQuarkName, previousQuarkName, sog.UUID);
-
-                    // Before deleting it, flush out any updates that may have been queued on this object
-                    // Have to send updates for all the children of this SOG
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: TODO: Force all SOPs to be pushed", LogHeader);                    /*
-                    sog.ForEachPart(delegate(SceneObjectPart sopp)
-                    {
-                        // if there are updates for this prim, send them out right now
-                        if (!sopp.IsRoot)
-                            ForcePropertyUpdateSend(sopp);
-                            // ?? Fix this
-                    });
-                     * */
-
-                    //m_regionSyncModule.HandleUpdatedProperties(data, senderActorID, SymmetricSyncMessage.MsgType.UpdatedProperties);
-
-                    /*
-                    // Apply the received property updates
-                    SceneObjectGroup decodedsog;
-                    m_regionSyncModule.DecodeSceneObject(data, out decodedsog, out propertiesSyncInfo);
-                    if (propertiesSyncInfo.Count > 0)
-                    {
-                        //Add the list of SyncInfo to SyncInfoManager
-                        foreach (KeyValuePair<UUID, SyncInfoBase> kvp in propertiesSyncInfo)
-                            m_syncInfoManager.InsertSyncInfo(kvp.Key, kvp.Value);
-                        // DSG DEBUG
-                        // m_regionSyncModule.DetailedUpdateLogging(sop.UUID, propertiesUpdated, propertiesSyncInfo, "RecUpdate1", senderActorID, msg.Data.Length);
-                        // END DSG DEBUG
-                    }
-
-                    // relay the border crossing message to connectors to the previous quark if not a leaf node
-                    //ForwardQuarkCrossingPropertyUpdateMessage(sog);
-                    ForwardQuarkCrossingPropertyUpdateMessage(sog, senderActorID);
-                    */
-
-                    // Remove the scene object group
-                    //this.DeleteSceneObjectBySync(sog);
-                    
-
-                    //We need to remove the SOG, but let's remove at the end of this 
-                    //function call, after we have triggered quark-crossing event,
-                    //and whoever subscribe to the event has got a chance to operate 
-                    //on the object before it is deleted
-                    // ?? How do I make this work?
-                    toDeleteDueToQuarkCrossing = true;
-                    break;
-                case 2: // current is one of our quarks and we don't know about the object
-                    // The object is not in our scenegraph. We need to add it but this is not like a new object.
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 2", LogHeader);
-                    if (m_detailUpdateDebugLog)
-                        m_log.DebugFormat("{0}: HandleQuarkCrossingFullUpdate({1}): adding new object to scenegraph: c/p={2}/{3}, obj={4}",
-                                    LogHeader, senderActorID, currentQuarkName, previousQuarkName, primUUID);
-                    m_regionSyncModule.DetailedUpdateWrite("RecUpdate2", primUUID, DateTime.Now.Ticks, m_zeroUUID, senderActorID, msg.Length);
-
-                    // ??
-                    //m_regionSyncModule.HandleSyncNewObject((OSDMap)data["FULL-SOG"], senderActorID);
-                    // int endTime2 = Util.EnvironmentTickCountSubtract(bgnTime);
-                    // DetailedUpdateWrite("TimeUpdat2", primUUID, DateTime.Now.Ticks, "", senderActorID, endTime2);
-                    break;
-                case 3: // current is one of our quarks and we know about the object
-                    // This is just an update
-                    // This happens when an object moves across a border and we have both quarks in our set. It just moves.
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 3", LogHeader);
-                    if (m_detailUpdateDebugLog)
-                        m_log.DebugFormat("{0}: HandleQuarkCrossingFullUpdate({1}): just an update: c/p={2}/{3}, obj={4}",
-                                    LogHeader, senderActorID, currentQuarkName, previousQuarkName, sop.UUID);
-                    /*
-                    propertiesSyncInfo = m_syncInfoManager.DecodeProperties(data);
-
-                    if (propertiesSyncInfo.Count > 0)
-                    {
-                        propertiesUpdated = m_primSyncInfoManager.UpdatePrimSyncInfoBySync(sop, propertiesSyncInfo);
-                    }
-                    */
-                    // m_regionSyncModule.DetailedUpdateLogging(sop.UUID, propertiesUpdated, propertiesSyncInfo, "RecUpdate3", senderActorID, msg.Data.Length);
-
-                    // Pass the quark crossing event down the chain
-                    sog = sop.ParentGroup;
-                    if (sog != null)
-                    {
-                        SyncInfoBase sib = m_syncInfoManager.GetSyncInfo(sog.UUID);
-                        // make sure the current quarks for the group are correct
-                        UpdateSOGQuarkLocation(sog, ref sib, previousQuarkName, currentQuarkName);
-                        // send the quark crossing message to downstream systems
-                        if (m_regionSyncModule.IsSyncRelay)
-                            ForwardQuarkCrossingPropertyUpdateMessage(sog, senderActorID);
-                    }
-                    break;
-            }
-
-            if (sop != null && sop.ParentGroup != null)
-            {
-                if (propertiesUpdated.Count > 0 &&
-                        (propertiesUpdated.Contains(SyncableProperties.Type.Position) ||
-                        propertiesUpdated.Contains(SyncableProperties.Type.GroupPosition)))
-                    TriggerSOGQuarkCrossingEvent(currentQuarkName, previousQuarkName, sop.ParentGroup);
-            }
-
-            if (toDeleteDueToQuarkCrossing && sog != null)
-            {
-                //DeleteSceneObjectBySync(sog);
-                int endTime1 = Util.EnvironmentTickCountSubtract(bgnTime);
-                m_regionSyncModule.DetailedUpdateWrite("TimeUpdat1", primUUID, DateTime.Now.Ticks, "", senderActorID, endTime1);
-            }
-
-            return;
-        }
-
-        public void HandleQuarkCrossingSPFullUpdate(SymmetricSyncMessage msg, string senderActorID)
-        {
-            OSDMap data = RegionSyncModule.DeserializeMessage(msg);
-            UUID primUUID = data["presenceUUID"].AsUUID();
-            m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: NOT YET IMPLEMENTED", LogHeader);
-            ScenePresence sp = m_regionSyncModule.Scene.GetScenePresence(primUUID);
-
-            string currentQuarkName = data["curQuark"].AsString();
-            string previousQuarkName = data["prevQuark"].AsString();
-            HashSet<SyncableProperties.Type> propertiesUpdated = new HashSet<SyncableProperties.Type>();
-            //Dictionary<UUID,SyncInfoBase> propertiesSyncInfo = null;
-
-            //bool toDeleteDueToQuarkCrossing = false;
-
-            int bgnTime = Util.EnvironmentTickCount();
-
-            int casecode = sp == null ? 0 : 1;
-            casecode += IsInActiveQuark(currentQuarkName) ? 2 : 0;
-            switch (casecode)
-            {
-                case 0:
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 0", LogHeader);
-                    break;
-                case 1:
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 1", LogHeader);
-                    break;
-                case 2:
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 2", LogHeader);
-                    break;
-                case 3:
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 3", LogHeader);
-                    break;
-
-            }
-        }
-
-        // create and send a quark crossing event for the passed sog is we are a relay node
-        //private void ForwardQuarkCrossingPropertyUpdateMessage(SceneObjectGroup sog)
-        private void ForwardQuarkCrossingPropertyUpdateMessage(SceneObjectGroup sog, string senderActorID)
-        {
-            m_log.WarnFormat("{0}: ForwardQuarkCrossingPropertyUpdateMessage", LogHeader);
-            /*
-            HashSet<SyncableProperties.Type> propertiesUpdated;
-            if (m_regionSyncModule.IsSyncRelay)
-            {
-                lock (m_primPropertyUpdateLock)
-                {
-                    // snatch the list of updated properties for this SOG. Remove from list so won't be sent later.
-                    if (m_primPropertyUpdates.TryGetValue(sog.UUID, out propertiesUpdated))
-                    {
-                        m_primPropertyUpdates.Remove(sog.UUID);
-                    }
-                    else
-                    {
-                        propertiesUpdated = new HashSet<SceneObjectPartSyncProperties>();
-                    }
-                }
-                PrimSyncInfo psi = m_primSyncInfoManager.GetPrimSyncInfo(sog.RootPart.UUID);
-                if (psi != null)
-                {
-                    OSDMap syncData = CreateQuarkCrossingMessage(sog, psi, propertiesUpdated);
-
-                    // Send the update message to all the connectors to the quarks
-                    if (syncData != null && syncData.Count > 0)
-                    {
-                        SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.QuarkCrossingFullUpdate, OSDParser.SerializeJsonString(syncData));
-                        m_syncManager.ForwardQuarkCrossingPrimUpdates(sog, syncMsg, "SendUpdat2", propertiesUpdated, senderActorID);
-                    }
-                }
-            }
-             * */
-        }
-        #endregion //EventHandlingQuark
-
-
     }
 }

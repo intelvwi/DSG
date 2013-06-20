@@ -93,8 +93,7 @@ namespace DSG.RegionSync
         private int m_statMsgsOut = 0;
         private int m_statEventIn = 0;
         private int m_statEventOut = 0;
-        private QuarkManager m_quarkManager;
-
+        
         public void Initialise(IConfigSource config)
         {
             m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
@@ -552,7 +551,7 @@ namespace DSG.RegionSync
             {
                 SyncMsgNewPresence msg = new SyncMsgNewPresence(this, sp);
                 m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
             }
         }
 
@@ -565,7 +564,7 @@ namespace DSG.RegionSync
             SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RemovedPresence, data);
 
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
-            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
+            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
             // Now, remove from SyncInfoManager's record.
             m_SyncInfoManager.RemoveSyncInfo(uuid);
         }
@@ -604,7 +603,7 @@ namespace DSG.RegionSync
                 // if we're syncing with other nodes, send out the message
                 SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
                 // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
             }
         }
 
@@ -623,7 +622,7 @@ namespace DSG.RegionSync
                 SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
                 msg.ConvertOut(this);
                 //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
             }
 
             //Now, remove from SyncInfoManager's record.
@@ -653,7 +652,7 @@ namespace DSG.RegionSync
                     childrenIDs.Add(sop.UUID);
                 }
                 SyncMsgLinkObject msg = new SyncMsgLinkObject(this, linkedGroup, root.UUID, childrenIDs, ActorID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(linkedGroup.RootPart.UUID).CurQuark.QuarkName);
             }
         }
 
@@ -876,6 +875,20 @@ namespace DSG.RegionSync
             }
         }
 
+        // If quark name is not known.. Not to be used lightly, as it ignores quark existence.
+        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg)
+        {
+            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
+            foreach (SyncConnector connector in syncConnectors)
+            {
+                if (!connector.otherSideActorID.Equals(init_actorID))
+                {
+                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
+                    connector.ImmediateOutgoingMsg(syncMsg);
+                }
+            }
+        }
+
         /// <summary>
         /// Send some special updates to other sync nodes, including: 
         /// NewObject, RemoveObject, LinkObject, NewPresence. The sync messages are sent out right
@@ -883,9 +896,9 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sog"></param>
         /// <param name="syncMsg"></param>
-        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg)
+        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg, string quarkName)
         {
-            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
+            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(quarkName);
             foreach (SyncConnector connector in syncConnectors)
             {
                 if (!connector.otherSideActorID.Equals(init_actorID))
@@ -972,6 +985,23 @@ namespace DSG.RegionSync
         private List<SyncConnector> GetSyncConnectorsForSceneEvents(string init_actorID, SyncMsg rsm, SceneObjectGroup sog)
         {
             List<SyncConnector> syncConnectors = new List<SyncConnector>();
+            string quarkName;
+            // If no SOG is specified, send event to all sync handlers. Should be careful with this mechanism.
+            if (sog == null)
+            {
+                quarkName = null;
+            }
+            else
+            {
+                if (InfoManager.SyncInfoExists(sog.UUID))
+                    quarkName = InfoManager.GetSyncInfo(sog.UUID).CurQuark.QuarkName;
+                else
+                {
+                    // No sync info for this scene object was created yet. Use the SOG position to determine what connectors should receive
+                    // its scene events.
+                    quarkName = SyncQuark.GetQuarkNameByPosition(sog.AbsolutePosition);
+                }
+            }
             if (IsSyncRelay)
             {
                 //This is a relay node in the synchronization overlay, forward it to all connectors, except the one that sends in the event
@@ -981,7 +1011,7 @@ namespace DSG.RegionSync
                     {
                         syncConnectors.Add(connector);
                     }
-                });
+                }, quarkName);
             }
             else
             {
@@ -991,7 +1021,7 @@ namespace DSG.RegionSync
                 ForEachSyncConnector(delegate(SyncConnector connector)
                 {
                     syncConnectors.Add(connector);
-                });
+                }, quarkName);
             }
 
             return syncConnectors;
@@ -1138,7 +1168,7 @@ namespace DSG.RegionSync
             if (IsSyncRelay)
             {
                 SyncMsg msg = new SyncMsgRegionStatus(this);
-                ForEachSyncConnector(delegate(SyncConnector connector)
+                ForAllSyncConnectors(delegate(SyncConnector connector)
                 {
                     connector.ImmediateOutgoingMsg(msg);
                 });
@@ -1436,7 +1466,7 @@ namespace DSG.RegionSync
 
         }
 
-        private bool IsSyncingWithOtherSyncNodes()
+        public bool IsSyncingWithOtherSyncNodes()
         {
             return (m_syncConnectors.Count > 0);
         }
@@ -1445,20 +1475,20 @@ namespace DSG.RegionSync
         {
             Scene.DeleteAllSceneObjects();
             
-            SendSyncMessage(new SyncMsgActorID(this, ActorID));
+            SendSyncMessageAll(new SyncMsgActorID(this, ActorID));
             // SendSyncMessage(new SyncMsgActorType(ActorType.ToString());
             // SendSyncMessage(new SyncMsgSyncID(m_syncID));
 
             // message sent to help calculating the difference in the clocks
-            SendSyncMessage(new SyncMsgTimeStamp(this, DateTime.UtcNow.Ticks));
+            SendSyncMessageAll(new SyncMsgTimeStamp(this, DateTime.UtcNow.Ticks));
 
-            SendSyncMessage(new SyncMsgRegionName(this, Scene.RegionInfo.RegionName));
+            SendSyncMessageAll(new SyncMsgRegionName(this, Scene.RegionInfo.RegionName));
             m_log.WarnFormat("{0}: Sending region name: \"{0}\"", LogHeader, Scene.RegionInfo.RegionName);
 
-            SendSyncMessage(new SyncMsgGetRegionInfo(this));
-            SendSyncMessage(new SyncMsgGetTerrain(this));
-            SendSyncMessage(new SyncMsgGetPresences(this));
-            SendSyncMessage(new SyncMsgGetObjects(this));
+            SendSyncMessageAll(new SyncMsgGetRegionInfo(this));
+            SendSyncMessageAll(new SyncMsgGetTerrain(this));
+            SendSyncMessageAll(new SyncMsgGetPresences(this));
+            SendSyncMessageAll(new SyncMsgGetObjects(this));
 
             //Very first thing, send out our quark list to the node we just initialized connections,
             //to notify it what we are covering. Note: this list could be different from what the 
@@ -1468,8 +1498,8 @@ namespace DSG.RegionSync
             //incoming updates, and send it to all parents; receiver should filter out quarks that
             //is not in the receiver's regitration list -- not an optimized solution, which should
             //customize the message for each parent. We may optimize it later, low priority for now though.
-            OSDMap quarkData = m_quarkManager.CreateQuarkSubscriptionMessageArgs();
-            SendSyncMessage(SymmetricSyncMessage.MsgType.SyncQuarksSubscription, OSDParser.SerializeJsonString(quarkData));
+            //OSDMap quarkData = m_quarkManager.CreateQuarkSubscriptionMessageArgs();
+            SendSyncMessageAll(new SyncMsgQuarkSubscription(this,true));
 
             //We'll deal with Event a bit later
 
@@ -1483,17 +1513,31 @@ namespace DSG.RegionSync
         /// <summary>
         /// This function will send out the sync message right away, without putting it into the SyncConnector's queue.
         /// Should only be called for infrequent or high prority messages.
+        /// This version is for updates that are quark dependent.
         /// </summary>
         /// <param name="msg"></param>
-        private void SendSyncMessage(SyncMsg msg)
+        public void SendSyncMessage(SyncMsg msg, string quarkName)
         {
             ForEachSyncConnector(delegate(SyncConnector syncConnector)
             {
                 syncConnector.ImmediateOutgoingMsg(msg);
-            });
+            }, quarkName);
         }
 
-        private void ForEachSyncConnector(Action<SyncConnector> action)
+        /// <summary>
+        /// This function will send out the sync message right away, without putting it into the SyncConnector's queue.
+        /// Should only be called for infrequent or high prority messages.
+        /// </summary>
+        /// <param name="msg"></param>
+        public void SendSyncMessageAll(SyncMsg msg)
+        {
+            ForEachSyncConnector(delegate(SyncConnector syncConnector)
+            {
+                syncConnector.ImmediateOutgoingMsg(msg);
+            }, null);
+        }
+
+        private void ForAllSyncConnectors(Action<SyncConnector> action)
         {
             ForEachSyncConnector(action, null);
         }
@@ -1561,7 +1605,7 @@ namespace DSG.RegionSync
         public void CleanupAvatars()
         {
             // Force a loop through each of the sync connectors which will clean up any disconnected connectors.
-            ForEachSyncConnector(delegate(SyncConnector sc){ ; });
+            ForAllSyncConnectors(delegate(SyncConnector sc){ ; });
         }
 
         #region Sync message handlers
@@ -1575,138 +1619,12 @@ namespace DSG.RegionSync
         {
             // m_log.WarnFormat("{0} HandleIncomingMessage: {1}", LogHeader, msg.ToString());
             lock (m_stats) m_statMsgsIn++;
-<<<<<<< HEAD
-            //Added senderActorID, so that we don't have to include actorID in sync messages -- TODO
-            switch (msg.Type)
-            {
-                case SymmetricSyncMessage.MsgType.SyncQuarksSubscription:
-                    {
-                        //The other side of the connection, who initiated the connection,
-                        //send us the set of quarks it covers.
-                        m_log.Warn(LogHeader + " Received subscription request");
-                        bool incomingNotification = true;
-                        HandleSyncQuarksExchange(msg, senderActorID, syncConnector, incomingNotification);
-                        break;
-                    }
-                case SymmetricSyncMessage.MsgType.SyncQuarksSubscriptionAck:
-                    {
-                        //The other side of the connection acks our SyncQuarksNotification and replies with its quark set.
-                        m_log.Warn(LogHeader + " Received ACK for quark subscription request");
-                        bool incomingNotification = false;
-                        HandleSyncQuarksExchange(msg, senderActorID, syncConnector, incomingNotification);
-                        break;
-                    }
-                case SymmetricSyncMessage.MsgType.QuarkCrossingFullUpdate:
-                    {
-                        m_quarkManager.HandleQuarkCrossingFullUpdate(msg, senderActorID);
-                        break;
-                    }
-                case SymmetricSyncMessage.MsgType.QuarkCrossingSPFullUpdate:
-                    {
-                        m_quarkManager.HandleQuarkCrossingSPFullUpdate(msg, senderActorID);
-                        break;
-                    }
-                case SymmetricSyncMessage.MsgType.UpdatedProperties:
-                    HandleUpdatedProperties(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.GetRegionInfo:
-                    HandleGetRegionInfo(syncConnector);
-                    break;
-                case SymmetricSyncMessage.MsgType.RegionInfo:
-                    HandleRegionInfoMessage(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.GetTerrain:
-                    HandleGetTerrainRequest(syncConnector);
-                    break;
-                case SymmetricSyncMessage.MsgType.Terrain:
-                    HandleTerrainUpdateMessage(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.GetObjects:
-                    HandleGetObjectsRequest(syncConnector);
-                    break;
-                case SymmetricSyncMessage.MsgType.GetPresences:
-                    HandleGetPresencesRequest(syncConnector);
-                    break;
-                case SymmetricSyncMessage.MsgType.NewObject:
-                    HandleSyncNewObject(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.RemovedObject:
-                    HandleRemovedObject(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.LinkObject:
-                    HandleSyncLinkObject(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.DelinkObject:
-                    HandleSyncDelinkObject(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.NewPresence:
-                    HandleSyncNewPresence(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.RemovedPresence:
-                    HandleRemovedPresence(msg, senderActorID);
-                    break;
-                    //EVENTS PROCESSING
-                case SymmetricSyncMessage.MsgType.NewScript:
-                case SymmetricSyncMessage.MsgType.UpdateScript:
-                case SymmetricSyncMessage.MsgType.ScriptReset:
-                case SymmetricSyncMessage.MsgType.ChatFromClient:
-                case SymmetricSyncMessage.MsgType.ChatFromWorld:
-                case SymmetricSyncMessage.MsgType.ChatBroadcast:
-                case SymmetricSyncMessage.MsgType.ObjectGrab:
-                case SymmetricSyncMessage.MsgType.ObjectGrabbing:
-                case SymmetricSyncMessage.MsgType.ObjectDeGrab:
-                case SymmetricSyncMessage.MsgType.Attach:
-                case SymmetricSyncMessage.MsgType.PhysicsCollision:
-                case SymmetricSyncMessage.MsgType.ScriptCollidingStart:
-                case SymmetricSyncMessage.MsgType.ScriptColliding:
-                case SymmetricSyncMessage.MsgType.ScriptCollidingEnd:
-                case SymmetricSyncMessage.MsgType.ScriptLandCollidingStart:
-                case SymmetricSyncMessage.MsgType.ScriptLandColliding:
-                case SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd:
-                    HandleRemoteEvent(msg, senderActorID);
-                    break;
-                case SymmetricSyncMessage.MsgType.SyncStateReport:
-                    SyncStateDetailReport(null);
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        private void HandleSyncQuarksExchange(SymmetricSyncMessage msg, string senderActorID, SyncConnector syncConnector, bool incomingNotification)
-        {
-            OSDMap data = DeserializeMessage(msg);
-            m_quarkManager.HandleSyncQuarksExchange(data, senderActorID, syncConnector, incomingNotification);
-        }
-
-        private void HandleTerrainUpdateMessage(SymmetricSyncMessage msg, string senderActorID)
-        {
-            // Get the data from message and error check
-            OSDMap data = DeserializeMessage(msg);
-
-            if (data == null)
-            {
-                SymmetricSyncMessage.HandleError(LogHeader, msg, "Could not deserialize " + msg.Type.ToString());
-                return;
-            }
-
-            string terrain = data["terrain"].AsString();
-            long lastUpdateTimeStamp = data["timeStamp"].AsLong();
-            string lastUpdateActorID = data["actorID"].AsString();
-
-            DetailedUpdateWrite("RcvTerrain", m_zeroUUID, lastUpdateTimeStamp, m_zeroUUID, senderActorID, msg.Length);
-
-            //update the terrain if the incoming terrain data has a more recent timestamp
-            TerrainSyncInfo.UpdateTerrianBySync(lastUpdateTimeStamp, lastUpdateActorID, terrain);
-=======
             msg.HandleIn(this);
->>>>>>> master
         }
 
         ///////////////////////////////////////////////////////////////////////
         // Per property sync handlers
         ///////////////////////////////////////////////////////////////////////
-        // ?? How does quark handles this?
         void estate_OnRegionInfoChange(UUID regionID)
         {
             if (regionID != Scene.RegionInfo.RegionID)
@@ -2415,6 +2333,12 @@ namespace DSG.RegionSync
         private SyncInfoManager m_SyncInfoManager;
         public SyncInfoManager InfoManager { get { return m_SyncInfoManager; } }
 
+        private QuarkManager m_quarkManager;
+        public QuarkManager QuarkManager
+        {
+            get { return m_quarkManager; }
+        }
+
         #region Prim Property Sync management
         //private 
         
@@ -2578,7 +2502,9 @@ namespace DSG.RegionSync
                                     SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(uuid);
                                     m_log.WarnFormat("Crossing from {0} to {1}", sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
                                     m_quarkManager.QuarkCrossingUpdate(sib,updatedProperties);
-                                    syncConnectors = GetSyncConnectorsForUpdates(sib.PrevQuark.QuarkName,sib.CurQuark.QuarkName);
+                                    // QuarkCrossingUpdate will send a full update of the object being crossed, so don't sync these updated properties
+                                    // ?? Right?
+                                    syncConnectors = new HashSet<SyncConnector>();
                                 }
 
                                 // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
