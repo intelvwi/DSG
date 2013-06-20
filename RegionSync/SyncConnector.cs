@@ -228,6 +228,7 @@ namespace DSG.RegionSync
                 m_send_loop.Join();
 
                 m_syncState = SyncConnectorState.Idle;
+                m_tcpConnection = null;
             });
         }
 
