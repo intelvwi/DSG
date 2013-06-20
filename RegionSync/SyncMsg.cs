@@ -128,7 +128,7 @@ public abstract class SyncMsg
     ///              msg.HandleIn(pRegionContext, pConnectorContext);
     /// The processing progression on sending is:
     ///       Someone creates a message of the desired type. For instance:
-    ///              msg = new SyncMsgTimeStamp(DateTime.UtcNow.Ticks);
+    ///              msg = new SyncMsgTimeStamp(RegionSyncModule.NowTicks());
     ///       The message can be operated on as its methods allow (like adding updates, for instance).
     ///       Before sending, the local variables are converted into binary for sending via:
     ///              msg.ConvertOut(pRegionContext)
@@ -500,7 +500,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         if (!pRegionContext.InfoManager.SyncInfoExists(sog.RootPart.UUID))
         {
             m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sog.RootPart.Name, sog.RootPart.UUID);
-            pRegionContext.InfoManager.InsertSyncInfo(sog.RootPart.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+            pRegionContext.InfoManager.InsertSyncInfo(sog.RootPart.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
         }
 
         OSDMap data = new OSDMap();
@@ -518,7 +518,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet", 
                                 LogHeader, part.Name, part.UUID);
                     //This should not happen, but we deal with it by inserting a newly created PrimSynInfo
-                    pRegionContext.InfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+                    pRegionContext.InfoManager.InsertSyncInfo(part.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
                 }
                 OSDMap partData = pRegionContext.InfoManager.EncodeProperties(part.UUID, part.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
                 otherPartsArray.Add(partData);
@@ -544,7 +544,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         if (!pRegionContext.InfoManager.SyncInfoExists(sp.UUID))
         {
             m_log.ErrorFormat("{0}: ERROR: EncodeScenePresence -- SP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sp.Name, sp.UUID);
-            pRegionContext.InfoManager.InsertSyncInfo(sp.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+            pRegionContext.InfoManager.InsertSyncInfo(sp.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
         }
 
         OSDMap data = new OSDMap();
@@ -933,6 +933,8 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
             RegInfo.EstateSettings.EstateSkipScripts = DataMap["estateSkipScripts"].AsBoolean();
             RegInfo.EstateSettings.FixedSun = DataMap["estateFixedSun"].AsBoolean();
             RegInfo.EstateSettings.PublicAccess = DataMap["publicAccess"].AsBoolean();
+
+            RegionContext.Scene.TriggerEstateSunUpdate();
 
             IEstateModule estate = pRegionContext.Scene.RequestModuleInterface<IEstateModule>();
             if (estate != null)
