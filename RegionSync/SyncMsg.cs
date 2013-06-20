@@ -1788,8 +1788,9 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             // Add the decoded circuit to local scene
             pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
 
-            // Create a client and add it to the local scene
-            IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
+            // Create a client and add it to the local scene at the position of the last update from sync cache
+            Vector3 currentPos = (Vector3)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
+            IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
             SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
             // Might need to trigger something here to send new client messages to connected clients
         }
