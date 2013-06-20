@@ -94,6 +94,9 @@ namespace DSG.RegionSync
         private int m_statEventIn = 0;
         private int m_statEventOut = 0;
 
+        public static long UpdateTimeDisplacementFudgeTicks = 0;
+        public static bool ShouldUnconditionallyAcceptAnimationOverrides = true;
+
         public void Initialise(IConfigSource config)
         {
             m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
@@ -117,6 +120,13 @@ namespace DSG.RegionSync
                 m_log.Error("ActorID not defined in [RegionSyncModule] section in config file. Shutting down.");
                 return;
             }
+
+            // Ticks are 100ns increments. Convert fudge seconds into ticks.
+            UpdateTimeDisplacementFudgeTicks = m_sysConfig.GetLong("UpdateTimeDisplacementFudgeSeconds", 0) * 10000000L;
+
+            // Until timing is improved, so animations always are updated by scripts, if this flag is 'true', always
+            //     accept received updates to animation values if they are more than just default animations.
+            ShouldUnconditionallyAcceptAnimationOverrides = m_sysConfig.GetBoolean("ShouldUnconditionallyAcceptAnimationOverrides", true);
 
             // For now, the sync relay and sync listener are both the same (the hub)
             IsSyncRelay = m_isSyncListenerLocal = m_sysConfig.GetBoolean("IsHub", false);
@@ -508,7 +518,7 @@ namespace DSG.RegionSync
 
             TerrainSyncInfo.LastUpdateValue = terrain;
             TerrainSyncInfo.LastUpdateActorID = GetSyncID();
-            TerrainSyncInfo.LastUpdateTimeStamp = DateTime.UtcNow.Ticks;
+            TerrainSyncInfo.LastUpdateTimeStamp = RegionSyncModule.NowTicks();
 
             SyncMsgTerrain msg = new SyncMsgTerrain(this, TerrainSyncInfo);
 
@@ -528,7 +538,7 @@ namespace DSG.RegionSync
             }
 
             // Add SP to SyncInfoManager
-            m_SyncInfoManager.InsertSyncInfo(uuid, DateTime.UtcNow.Ticks, SyncID);
+            m_SyncInfoManager.InsertSyncInfo(uuid, RegionSyncModule.NowTicks(), SyncID);
 
             if (IsSyncingWithOtherSyncNodes())
             {
@@ -574,7 +584,7 @@ namespace DSG.RegionSync
             // Add each SOP in SOG to SyncInfoManager
             foreach (SceneObjectPart part in sog.Parts)
             {
-                m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, SyncID);
+                m_SyncInfoManager.InsertSyncInfo(part.UUID, RegionSyncModule.NowTicks(), SyncID);
             }
 
             if (IsSyncingWithOtherSyncNodes())
@@ -687,10 +697,21 @@ namespace DSG.RegionSync
             cmdSyncDumpUUID.AddArgument("uuid", "The uuid to print values for", "UUID");
             cmdSyncDumpUUID.AddArgument("full", "Print all values, not just differences", "String");
 
+                        // For handling and debugging disconnection, reconnection trial, etc
+            Command cmdSyncConnMgmt = new Command("conn", CommandIntentions.COMMAND_HAZARDOUS, SyncConnMgmt, "Manage and debug sync connections");
+            cmdSyncConnMgmt.AddArgument("mgmtCmd", "command for managing connections", "String");
+            cmdSyncConnMgmt.AddArgument("otherSideRegionName/remoteListenerAddr:Port", 
+                "regionName of the actor/sim on the other side of the sync connection, if 'all', then all syncconnectors are included; or addr:port for reconn", "String");
+
+            Command cmdSyncTimeFudge = new Command("timeFudge", CommandIntentions.COMMAND_HAZARDOUS, SyncTimeFudge, "Adjust a base time fudge factor for timestamps");
+            cmdSyncTimeFudge.AddArgument("fudge", "Signed seconds to adjust from system time. 'list' will just display the current value.", "String");
+
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
             m_commander.RegisterCommand("uuid", cmdSyncDumpUUID);
+            m_commander.RegisterCommand("conn", cmdSyncConnMgmt);
+            m_commander.RegisterCommand("timeFudge", cmdSyncTimeFudge);
 
             lock (Scene)
             {
@@ -1208,6 +1229,28 @@ namespace DSG.RegionSync
         }
 
 
+        private void SyncTimeFudge(Object[] args)
+        {
+            try
+            {
+                string theArg = (string)args[0];
+                if (!String.IsNullOrEmpty(theArg))
+                {
+                    Double fudgeFactorFraction = Double.Parse(theArg);
+                    // Convert seconds into ticks.
+                    UpdateTimeDisplacementFudgeTicks = (long)(fudgeFactorFraction * 10000000L);
+                }
+            }
+            catch (Exception e)
+            {
+                // m_log.WarnFormat("Parsing of arguement didn't work: {0}", e);
+                // If it can't be parsed, ignore the parameter and return the value.
+            }
+
+            m_log.WarnFormat("Update time offset fudge factor = {0}", ((double)UpdateTimeDisplacementFudgeTicks) / 10000000.0D);
+        }
+
+
         private void SyncStateReport(Object[] args)
         {
             //Preliminary implementation
@@ -1230,6 +1273,48 @@ namespace DSG.RegionSync
 
             m_log.WarnFormat("SyncStateReport {0} -- Object count: {1}, Prim Count {2}, Av Count {3} ", Scene.RegionInfo.RegionName, sogList.Count, primCount, avatarCount);
             m_log.WarnFormat("Estimated size of SyncInfoManager is {0}", m_SyncInfoManager.Size);
+        }
+
+
+        private void SyncConnMgmt(Object[] args)
+        {
+            string mgmtCmd = (string)args[0];
+            string otherSideRegionName = (string)args[1];
+
+            SyncConnector syncConnector = null;
+            if (otherSideRegionName != "all")
+            {
+                foreach (SyncConnector connector in m_syncConnectors)
+                {
+                    if (connector.otherSideRegionName == otherSideRegionName)
+                    {
+                        syncConnector = connector;
+                        break;
+                    }
+                }
+            }
+            switch (mgmtCmd)
+            {
+                case "close":
+                case "reconn":
+                case "rmavatar":
+                    Console.WriteLine(mgmtCmd + " NOT implemented yet");
+                    break;
+                case "show":
+                    if (otherSideRegionName == "all")
+                    {
+                        foreach (SyncConnector connector in m_syncConnectors)
+                        {
+                            Console.WriteLine("SyncConnector " + connector.ConnectorNum + ", connected to " + connector.otherSideActorID + "/" + connector.otherSideRegionName);
+                        }
+                    }
+                    else
+                    {
+                        if (syncConnector != null)
+                            Console.WriteLine("SyncConnector " + syncConnector.ConnectorNum + ", connected to " + syncConnector.otherSideActorID + "/" + syncConnector.otherSideRegionName);
+                    }
+                    break;
+            }
         }
 
         private void SyncDebug(Object[] args)
@@ -1291,8 +1376,8 @@ namespace DSG.RegionSync
                     data["seqNum"] = OSD.FromULong(evSeq);
                     SymmetricSyncMessage rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ScriptCollidingStart, data);
 
-                    //HandleRemoteEvent_ScriptCollidingStart(ActorID, evSeq, data, DateTime.UtcNow.Ticks);
-                    HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType.ScriptCollidingStart, ActorID, evSeq, data, DateTime.UtcNow.Ticks);
+                    //HandleRemoteEvent_ScriptCollidingStart(ActorID, evSeq, data, RegionSyncModule.NowTicks());
+                    HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType.ScriptCollidingStart, ActorID, evSeq, data, RegionSyncModule.NowTicks());
                 }
             }
             */
@@ -1315,7 +1400,7 @@ namespace DSG.RegionSync
                         //into the local record
                         foreach (SceneObjectPart part in sog.Parts)
                         {
-                            m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, SyncID);
+                            m_SyncInfoManager.InsertSyncInfo(part.UUID, RegionSyncModule.NowTicks(), SyncID);
                         }
 
                         //Next test serialization
@@ -1452,7 +1537,7 @@ namespace DSG.RegionSync
             // SendSyncMessage(new SyncMsgSyncID(m_syncID));
 
             // message sent to help calculating the difference in the clocks
-            SendSyncMessage(new SyncMsgTimeStamp(this, DateTime.UtcNow.Ticks));
+            SendSyncMessage(new SyncMsgTimeStamp(this, RegionSyncModule.NowTicks()));
 
             SendSyncMessage(new SyncMsgRegionName(this, Scene.RegionInfo.RegionName));
             m_log.WarnFormat("{0}: Sending region name: \"{0}\"", LogHeader, Scene.RegionInfo.RegionName);
@@ -1506,6 +1591,7 @@ namespace DSG.RegionSync
                     if (closed == null)
                         closed = new List<SyncConnector>();
                     closed.Add(syncConnector);
+                    m_log.WarnFormat("{0}: SyncConnector {1} connection closed", LogHeader, syncConnector.otherSideActorID); 
                 }
             }
 
@@ -2372,9 +2458,9 @@ namespace DSG.RegionSync
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
                     // If syncing with other nodes, send updates
-                    if(IsSyncingWithOtherSyncNodes())
+                    if (IsSyncingWithOtherSyncNodes())
                     {
-            			int updateIndex = 0;
+                        int updateIndex = 0;
                         foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
                         {
                             UUID uuid = update.Key;
@@ -2413,7 +2499,7 @@ namespace DSG.RegionSync
                                     TimeSpan span = syncMsgendTime - startTime;
                                     m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
                                 }
-                                 * */ 
+                                 * */
 
                                 HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
                                 // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
@@ -2462,9 +2548,9 @@ namespace DSG.RegionSync
                             {
                                 m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e);
                             }
-                            
+
                             updateIndex++;
-                            
+
                         }
 
                         //If no updates to send out, see if SyncConnectors need to send KeeyAlive
@@ -2473,10 +2559,15 @@ namespace DSG.RegionSync
 
                             //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
                             //sent is longer than SyncConnector.KeeyAliveMaxInterval)
-                            foreach (SyncConnector syncConnector in m_syncConnectors)
+                            //foreach (SyncConnector syncConnector in m_syncConnectors)
+                            //{
+                            //    syncConnector.KeepAlive(m_syncMsgKeepAlive);
+                            //}
+                            ForEachSyncConnector(delegate(SyncConnector connector)
                             {
-                                syncConnector.KeepAlive(m_syncMsgKeepAlive);
-                            }
+                                connector.KeepAlive(m_syncMsgKeepAlive);
+
+                            });
                         }
                     }
 
@@ -2567,6 +2658,13 @@ namespace DSG.RegionSync
                     m_propertyUpdates[uuid].UnionWith(updatedProperties);
             }
         }
+
+        // Return the current time in system ticks.
+        public static long NowTicks()
+        {
+            return DateTime.UtcNow.Ticks + RegionSyncModule.UpdateTimeDisplacementFudgeTicks;
+        }
+
     }
 
     ///////////////////////////////////////////////////////////////////////////
