@@ -526,7 +526,8 @@ namespace DSG.RegionSync
                     foreach (PresenceInfo p in presences)
                     {
                         m_log.DebugFormat("{0} SendGridInstMsgViaXMLRPCAsync: got presences. p.RegionID={1}", LogHeader, p.RegionID);
-                        if (p.RegionID != UUID.Zero)
+                        // Sometimes we get more than 1 session querying a single agent ID! Filter for the correct agent ID.
+                        if (p.UserID == toAgentID.ToString() && p.RegionID != UUID.Zero)
                         {
                             upd = p;
                             break;
