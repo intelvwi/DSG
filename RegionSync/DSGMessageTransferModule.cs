@@ -68,6 +68,7 @@ namespace DSG.RegionSync
     public class DSGMessageTransferModule : ISharedRegionModule, IMessageTransferModule
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+        private static string LogHeader = "[DSG MESSAGE TRANSFER]";
 
         private bool m_Enabled = false;
         protected List<Scene> m_Scenes = new List<Scene>();
@@ -233,6 +234,7 @@ namespace DSG.RegionSync
         /// <returns>Nothing much</returns>
         protected virtual XmlRpcResponse processXMLRPCGridInstantMessage(XmlRpcRequest request, IPEndPoint remoteClient)
         {
+            m_log.DebugFormat("{0} processXMLRPCGridInstantMsg: ENTER", LogHeader);
             bool successful = false;
             
             // TODO: For now, as IMs seem to be a bit unreliable on OSGrid, catch all exception that
@@ -412,6 +414,7 @@ namespace DSG.RegionSync
                         ScenePresence sp = scene.GetScenePresence(toAgentID);
                         if (sp != null && !sp.IsChildAgent && !(sp.ControllingClient is RegionSyncAvatar))
                         {
+                            m_log.DebugFormat("{0} processXMLRPCGridInstantMsg: delivering locally to {1}", LogHeader, sp.ControllingClient.AgentId);
                             scene.EventManager.TriggerIncomingInstantMessage(gim);
                             successful = true;
                         }
@@ -425,6 +428,7 @@ namespace DSG.RegionSync
                         // a chance to pick it up. We raise that in a random
                         // scene, since the groups module is shared.
                         //
+                        m_log.DebugFormat("{0} processXMLRPCGridInstantMsg: unable to deliver", LogHeader);
                         m_Scenes[0].EventManager.TriggerUnhandledInstantMessage(gim);
                     }
                 }
@@ -498,11 +502,14 @@ namespace DSG.RegionSync
                     // or the recursive loop will never end because it will never try to lookup the agent again
                     if (prevRegionID == upd.RegionID)
                     {
+                        m_log.DebugFormat("{0} SendGridInstMsgViaXMLRPCAsync: agentInRegionMap. prevRegion==upd.Region settingLookupAgentTrue, agentID={1}, regionID={2}",
+                                                    LogHeader, toAgentID, prevRegionID);
                         lookupAgent = true;
                     }
                 }
                 else
                 {
+                    m_log.DebugFormat("{0} SendGridInstMsgViaXMLRPCAsync: agentNOTInRegionMap. setting LookupAgentTrue", LogHeader);
                     lookupAgent = true;
                 }
             }
@@ -511,12 +518,14 @@ namespace DSG.RegionSync
             // Are we needing to look-up an agent?
             if (lookupAgent)
             {
+                m_log.DebugFormat("{0} SendGridInstMsgViaXMLRPCAsync: lookupAgent IS TRUE", LogHeader);
                 // Non-cached user agent lookup.
                 PresenceInfo[] presences = PresenceService.GetAgents(new string[] { toAgentID.ToString() }); 
                 if (presences != null && presences.Length > 0)
                 {
                     foreach (PresenceInfo p in presences)
                     {
+                        m_log.DebugFormat("{0} SendGridInstMsgViaXMLRPCAsync: got presences. p.RegionID={1}", LogHeader, p.RegionID);
                         if (p.RegionID != UUID.Zero)
                         {
                             upd = p;
@@ -533,6 +542,7 @@ namespace DSG.RegionSync
                     if (upd.RegionID == prevRegionID)
                     {
                         // m_log.Error("[GRID INSTANT MESSAGE]: Unable to deliver an instant message");
+                        m_log.DebugFormat("{0} Unable to deliver instant message: regionID==prevRegionID: regionID={1}, agentID={2}", LogHeader, prevRegionID, toAgentID);
                         HandleUndeliveredMessage(im, result);
                         return;
                     }
@@ -540,6 +550,7 @@ namespace DSG.RegionSync
                 else
                 {
                     // m_log.Error("[GRID INSTANT MESSAGE]: Unable to deliver an instant message");
+                    m_log.DebugFormat("{0} Unable to deliver instant message: lookupAgent=true, upd==null, agentID={1}", LogHeader, toAgentID);
                     HandleUndeliveredMessage(im, result);
                     return;
                 }
@@ -550,6 +561,8 @@ namespace DSG.RegionSync
                 GridRegion reginfo = m_Scenes[0].GridService.GetRegionByUUID(m_Scenes[0].RegionInfo.ScopeID, upd.RegionID);
                 if (reginfo != null)
                 {
+                    m_log.DebugFormat("{0} SendGridInstMsgViaXMLRPCAsync: regInfoNotNull, regID={1}, regNam={2}, regURI={3}, regPort={4}",
+                        LogHeader, reginfo.RegionID, reginfo.RegionName, reginfo.ServerURI, reginfo.HttpPort);
                     Hashtable msgdata = ConvertGridInstantMessageToXMLRPC(im);
                     // Not actually used anymore, left in for compatibility
                     // Remove at next interface change
@@ -563,10 +576,12 @@ namespace DSG.RegionSync
                         {
                             if (m_UserRegionMap.ContainsKey(toAgentID))
                             {
+                                m_log.DebugFormat("{0} SendGridInstMgsViaXMLRPCAsync: Updating RegionMap: agent={1}, reg={2}", LogHeader, toAgentID, upd.RegionID);
                                 m_UserRegionMap[toAgentID] = upd.RegionID;
                             }
                             else
                             {
+                                m_log.DebugFormat("{0} SendGridInstMgsViaXMLRPCAsync: Add RegionMap: agent={1}, reg={2}", LogHeader, toAgentID, upd.RegionID);
                                 m_UserRegionMap.Add(toAgentID, upd.RegionID);
                             }
                         }
@@ -581,17 +596,20 @@ namespace DSG.RegionSync
                         // The version that spawns the thread is SendGridInstantMessageViaXMLRPC
 
                         // This is recursive!!!!!
+                        m_log.DebugFormat("{0} SendGridInstMgsViaXMLRPCAsync: Calling me recursively. region={1}", LogHeader, upd.RegionID);
                         SendGridInstantMessageViaXMLRPCAsync(im, result, upd.RegionID);
                     }
                 }
                 else
                 {
                     m_log.WarnFormat("[GRID INSTANT MESSAGE]: Unable to find region {0}", upd.RegionID);
+                    m_log.DebugFormat("{0} Unable to deliver instant message: regionInfo==null, lookupAgent={1}, agentid={2}, region={3}", LogHeader, lookupAgent, toAgentID, upd.RegionID);
                     HandleUndeliveredMessage(im, result);
                 }
             }
             else
             {
+                m_log.DebugFormat("{0} Unable to deliver instant message: upd==null, lookupAgent={1}, agentid={2}", LogHeader, lookupAgent, toAgentID);
                 HandleUndeliveredMessage(im, result);
             }
         }
