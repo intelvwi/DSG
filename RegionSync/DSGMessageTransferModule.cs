@@ -410,7 +410,7 @@ namespace DSG.RegionSync
                     foreach (Scene scene in m_Scenes)
                     {
                         ScenePresence sp = scene.GetScenePresence(toAgentID);
-                        if (sp != null && !sp.IsChildAgent)
+                        if (sp != null && !sp.IsChildAgent && !(sp.ControllingClient is RegionSyncAvatar))
                         {
                             scene.EventManager.TriggerIncomingInstantMessage(gim);
                             successful = true;
@@ -547,8 +547,7 @@ namespace DSG.RegionSync
 
             if (upd != null)
             {
-                GridRegion reginfo = m_Scenes[0].GridService.GetRegionByUUID(m_Scenes[0].RegionInfo.ScopeID,
-                    upd.RegionID);
+                GridRegion reginfo = m_Scenes[0].GridService.GetRegionByUUID(m_Scenes[0].RegionInfo.ScopeID, upd.RegionID);
                 if (reginfo != null)
                 {
                     Hashtable msgdata = ConvertGridInstantMessageToXMLRPC(im);
@@ -582,8 +581,7 @@ namespace DSG.RegionSync
                         // The version that spawns the thread is SendGridInstantMessageViaXMLRPC
 
                         // This is recursive!!!!!
-                        SendGridInstantMessageViaXMLRPCAsync(im, result,
-                                upd.RegionID);
+                        SendGridInstantMessageViaXMLRPCAsync(im, result, upd.RegionID);
                     }
                 }
                 else

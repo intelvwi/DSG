@@ -541,7 +541,7 @@ namespace DSG.RegionSync
 
             if (msgTransferModule != null)
             {
-                msgTransferModule.SendInstantMessage(im, delegate(bool success) { if (!success) m_log.Warn("SendInstanceMessage unsuccessful"); });
+                msgTransferModule.SendInstantMessage(im, delegate(bool success) { if (!success) m_log.Warn("SendInstantMessage unsuccessful"); });
             }
         }
 
