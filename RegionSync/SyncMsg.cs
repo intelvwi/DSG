@@ -1146,6 +1146,10 @@ public class SyncMsgTerrain : SyncMsgOSDMapData
         {
             //update the terrain if the incoming terrain data has a more recent timestamp
             pRegionContext.TerrainSyncInfo.UpdateTerrianBySync(LastUpdateTimeStamp, LastUpdateActorID, TerrainData);
+            if (pRegionContext.IsSyncRelay)
+            {
+                pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
+            }
         }
         return true;
     }
@@ -1436,9 +1440,7 @@ public class SyncMsgRemovedObject : SyncMsgOSDMapData
             }
             else 
             {
-                m_log.WarnFormat("{0}: Got a RemoveObject but I have no Quarkinfo! Forwarding to all my connectors.",LogHeader);
-                if (pRegionContext.IsSyncRelay)
-                    pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
+                m_log.WarnFormat("{0}: Got a RemoveObject but I have no Scene Object Group!",LogHeader);
             }
         }
         return true;
@@ -1875,6 +1877,9 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
             }
 
             // This limits synced avatars to real clients (no npcs) until we sync PresenceType field
+
+            // Event issue: Calling RemoveClient starts a Remove Object event to remove the attachments, which
+            // eventually become a remove object sync message. We need to remember this.
             pRegionContext.Scene.RemoveClient(Uuid, false);
         }
         return true;
@@ -3385,6 +3390,10 @@ public class SyncMsgQuarkSubscription : SyncMsgOSDMapData
 }
 
     // ====================================================================================================
+    /// <summary>
+    /// Creates a message informing that a prim is crossing quark boundaries
+    /// Pre-condition: The prim crossing is a root prim of a scene object group.
+    /// </summary>
 public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
 {
     public override string DetailLogTagRcv { get { return "RcvQuaPCrs"; } }
@@ -3408,8 +3417,10 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
     {
         m_quarkManager = pRegionContext.QuarkManager;
         m_sop = sop;
-        if (pRegionContext.InfoManager.SyncInfoExists(m_sop.UUID))
-            m_sip = (SyncInfoPrim) pRegionContext.InfoManager.GetSyncInfo(m_sop.UUID);
+        m_primUUID = sop.UUID;
+        m_sog = m_sop.ParentGroup;
+        if (pRegionContext.InfoManager.SyncInfoExists(m_primUUID))
+            m_sip = (SyncInfoPrim)pRegionContext.InfoManager.GetSyncInfo(m_primUUID);
         else
             m_log.ErrorFormat("{0}: SyncMsgPrimQuarkCrossing: No Sync info for the Prim {1}", LogHeader, m_sop.UUID);
         m_properties = updatedProperties;
@@ -3432,9 +3443,14 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
             {
                 m_sog = m_sop.ParentGroup;
             }
-            
-            DecodeSceneObject((OSDMap)DataMap["FULL-SOG"], out m_sog, out m_parts, pRegionContext.Scene);
 
+            if (DataMap.ContainsKey("FULL-SOG"))
+                DecodeSceneObject((OSDMap)DataMap["FULL-SOG"], out m_sog, out m_parts, pRegionContext.Scene);
+            if (m_sog == null || m_parts == null)
+            {
+                m_log.ErrorFormat("{0}: Could not decode scene object for prim {1}", LogHeader, m_primUUID);
+                return false;
+            }
             currentQuarkName = DataMap["curQuark"].AsString();
             previousQuarkName = DataMap["prevQuark"].AsString();
             ret = true;
@@ -3487,14 +3503,16 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
             // Trigger QuarkCrossing so other modules knows about it. ??
             if (m_sop != null && m_sop.ParentGroup != null)
             {
+                /*
                 if (SyncedProperties.Count > 0)
                     m_quarkManager.TriggerPrimQuarkCrossingEvent(currentQuarkName, previousQuarkName, m_sop);
+                 * */
             }
 
             if (pRegionContext.IsSyncRelay)
             {
                 // Sending immediately, this is important!
-                pRegionContext.SendSyncMessage(this, m_sip.CurQuark.QuarkName);
+                pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, m_sip.CurQuark.QuarkName);
             }
         }
         return ret;
@@ -3514,13 +3532,15 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
         {
             // If moving across quark boundries we pack both the sop update and the
             // full sog just in case the receiver has to create a new object (moving into a quark)
-            if (m_sog != null)
+            if (m_sog == null)
             {
-                ret = pRegionContext.InfoManager.EncodeProperties(m_sog.RootPart.UUID, m_properties);
-                ret["primUUID"] = m_primUUID;
-                ret["FULL-SOG"] = EncodeSceneObject(m_sog, pRegionContext);
+                m_log.ErrorFormat("{0}: SOG was null, could not create a PrimQuarkCrossingMessage", LogHeader);
+                return null;
             }
+            ret = pRegionContext.InfoManager.EncodeProperties(m_sog.RootPart.UUID, m_properties);
+            ret["FULL-SOG"] = EncodeSceneObject(m_sog, pRegionContext);
             // pass the quark names so the receiver can decide what to do with this update
+            ret["primUUID"] = m_primUUID;            
             ret["curQuark"] = OSD.FromString(m_sip.CurQuark.QuarkName);
             ret["prevQuark"] = OSD.FromString(m_sip.PrevQuark.QuarkName);
         }
@@ -3553,8 +3573,9 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
         : base(MsgType.QuarkPresenceCrossing, pRegionContext)
     {
         m_sp = sp;
-        if (pRegionContext.InfoManager.SyncInfoExists(m_sp.UUID))
-            m_sip = (SyncInfoPresence)pRegionContext.InfoManager.GetSyncInfo(m_sp.UUID);
+        m_presenceUUID = sp.UUID;
+        if (pRegionContext.InfoManager.SyncInfoExists(m_presenceUUID))
+            m_sip = (SyncInfoPresence)pRegionContext.InfoManager.GetSyncInfo(m_presenceUUID);
         else
             m_log.ErrorFormat("{0}: SyncMsgPresenceQuarkCrossing: No Sync info for the Scene Presence {1}", LogHeader, m_sp.UUID);
 
@@ -3576,13 +3597,9 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
             // Updated SP properties
             SyncedProperties = SyncedProperty.DecodeProperties(DataMap);
 
-            SyncInfoBase sib;
-            // Entire SP, just in case.
-            DecodeScenePresence((OSDMap)DataMap["FULL-SP"], out sib, pRegionContext.Scene);
-            m_sip = (SyncInfoPresence)sib;
-
             currentQuarkName = DataMap["curQuark"].AsString();
             previousQuarkName = DataMap["prevQuark"].AsString();
+            
             ret = true;
         }
         return ret;
@@ -3597,13 +3614,20 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
             {
                 // I already know about this Scene Presence. Just need to get its last updated properties and apply.
                 m_sip = (SyncInfoPresence)pRegionContext.InfoManager.GetSyncInfo(m_presenceUUID);
+                m_sip.CurQuark = new SyncQuark(currentQuarkName);
+                m_sip.PrevQuark = new SyncQuark(previousQuarkName);
                 pRegionContext.RememberLocallyGeneratedEvent(MType);
                 m_properties = pRegionContext.InfoManager.UpdateSyncInfoBySync(m_presenceUUID, SyncedProperties);
                 pRegionContext.ForgetLocallyGeneratedEvent();
             }
             else
             {
-                // Did not know about this Scene Presence. Inser the newly created sync info.
+                // Do not know about this Scene Presence. Create it from fully encoded SP.
+                SyncInfoBase sib;
+                DecodeScenePresence((OSDMap)DataMap["FULL-SP"], out sib, pRegionContext.Scene);
+                m_sip = (SyncInfoPresence)sib;
+                m_sip.CurQuark = new SyncQuark(currentQuarkName);
+                m_sip.PrevQuark = new SyncQuark(previousQuarkName);
                 pRegionContext.InfoManager.InsertSyncInfo(m_presenceUUID, (SyncInfoBase)m_sip);
             }            
 
@@ -3612,10 +3636,10 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
             switch (casecode)
             {
                 case 0:
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 0", LogHeader);
+                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 0. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
                     break;
                 case 1:
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 1", LogHeader);
+                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 1. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
                     break;
                 case 2:
                     // Stolen from NewPresence handle
@@ -3634,26 +3658,29 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                     IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
                     m_sip.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
                     // Might need to trigger something here to send new client messages to connected clients
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 2", LogHeader);
+                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 2. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
                     break;
                 case 3:
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 3", LogHeader);
+                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 3. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
                     break;
 
             }
-            ret = false;
             // Trigger QuarkCrossing so other modules knows about it. ??
             if (m_sp != null)
             {
+                /*
                 if (SyncedProperties.Count > 0)
                     m_quarkManager.TriggerPresenceQuarkCrossingEvent(currentQuarkName, previousQuarkName, m_sp);
+                 * */
             }
 
             if (pRegionContext.IsSyncRelay)
             {
                 // Sending immediately, this is important!
-                pRegionContext.SendSyncMessage(this, m_sip.CurQuark.QuarkName);
+                // m_log.WarnFormat("{0}: Relaying QuarkCrossing to all other actors, except {1}", LogHeader, ConnectorContext.otherSideActorID);
+                pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, m_sip.CurQuark.QuarkName);
             }
+            ret = true;
         }
         return ret;
     }

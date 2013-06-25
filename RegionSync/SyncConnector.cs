@@ -410,7 +410,7 @@ namespace DSG.RegionSync
         private void HandleMessage(SyncMsg msg)
         {
 
-            // m_log.DebugFormat("{0} Recv msg: {1}: {2}", LogHeader, this.Description, msg.ToString());
+            //m_log.WarnFormat("{0} Recv msg: {1}: {2}", LogHeader, msg.MType, msg.ToString());
             CollectReceiveStat(msg.MType.ToString(), msg.DataLength);
 
             // TODO: Consider doing the data unpacking on a different thread than the input reader thread

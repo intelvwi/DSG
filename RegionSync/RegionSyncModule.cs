@@ -558,11 +558,10 @@ namespace DSG.RegionSync
         private void OnRemovePresence(UUID uuid)
         {
             // m_log.WarnFormat("{0} OnRemovePresence called for {1}", LogHeader, uuid);
-            
-            OSDMap data = new OSDMap();
-            data["uuid"] = OSD.FromUUID(uuid);
-            SymmetricSyncMessage syncMsg = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.RemovedPresence, data);
 
+            // Note: I need to remember I am removing a presence. Removing a presence fires a OnObjectBeingRemoved for the attachments
+            // that lead to another sync message. Only one sync message should be sent about this event, to avoid cascading updates.
+            RememberLocallyGeneratedEvent(SyncMsg.MsgType.RemovedPresence, uuid);
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
             // Now, remove from SyncInfoManager's record.
@@ -611,18 +610,26 @@ namespace DSG.RegionSync
         {
             if (IsSyncingWithOtherSyncNodes())
             {
-                OSDMap data = new OSDMap();
-                data["uuid"] = OSD.FromUUID(sog.UUID);
-                //TODO: need to put in SyncID instead of ActorID here. 
-                //For now, keep it the same for simple debugging
-                data["actorID"] = OSD.FromString(ActorID);
-                data["softDelete"] = OSD.FromBoolean(false); // softDelete
-
-                //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-                SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
-                msg.ConvertOut(this);
-                //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
+                if (IsLocallyGeneratedEvent(SyncMsg.MsgType.RemovedPresence, sog.AttachedAvatar))
+                {
+                    // This object has already been removed from scene. One case where this happens:
+                    // 1) In CM: User disconnects. Client manager sends RemoveScene presence sync message and locally, delete attachments.
+                    // 2) In CM: Deleting attachments generates a removeobject sync message
+                    // 3) In PA: he remove scene presence sync calls pRegionContext.Scene.RemoveClient(Uuid, false), which
+                    // generates a delete attachments.
+                    // 4) In PA: Simultaneously, the removeobject sync message is treated for the same attachments
+                    // Don't just return, I still need to remove the sync infos!
+                    ForgetLocallyGeneratedEvent();
+                }
+                else if (InfoManager.SyncInfoExists(sog.RootPart.UUID))
+                {
+                    SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
+                    msg.ConvertOut(this);
+                    //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
+                    SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
+                }
+                else
+                    return;
             }
 
             //Now, remove from SyncInfoManager's record.
@@ -2490,21 +2497,24 @@ namespace DSG.RegionSync
                                  * */ 
 
                                 // Returns false if not crossing
-                                HashSet<SyncConnector> syncConnectors;
-                                if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
+                                HashSet<SyncConnector> syncConnectors = new HashSet<SyncConnector>();
+                                SyncInfoBase sib;
+                                if (InfoManager.SyncInfoExists(uuid))
                                 {
-                                    SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(uuid);
-                                    syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
-                                    // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
-                                }
-                                else 
-                                {
-                                    SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(uuid);
-                                    m_log.WarnFormat("Crossing from {0} to {1}", sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
-                                    m_quarkManager.QuarkCrossingUpdate(sib,updatedProperties);
-                                    // QuarkCrossingUpdate will send a full update of the object being crossed, so don't sync these updated properties
-                                    // ?? Right?
-                                    syncConnectors = new HashSet<SyncConnector>();
+                                    if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
+                                    {
+                                        // Quarks have not changed
+                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                        syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
+                                        // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
+                                    }
+                                    else 
+                                    {
+                                        // Crossed quarks
+                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                        m_log.WarnFormat("Crossing from {0} to {1}", sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
+                                        m_quarkManager.QuarkCrossingUpdate(sib,updatedProperties);
+                                    }
                                 }
 
                                 // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
@@ -2616,6 +2626,9 @@ namespace DSG.RegionSync
             // If the scene presence update event was triggered by a call from RegionSyncModule, then we don't need to handle it.
             // Changes to scene presence that are actually local will not have originated from this module or thread.
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.UpdatedProperties))
+                return;
+
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPresenceCrossing))
                 return;
 
             UUID uuid = sp.UUID;

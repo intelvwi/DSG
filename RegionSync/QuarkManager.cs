@@ -387,6 +387,11 @@ namespace DSG.RegionSync
         // If presence or prim is crossing boundaries, returns true. Otherwise, just updates the SyncInfo for the UUID
         public bool UpdateQuarkLocation(UUID syncObjectID, HashSet<SyncableProperties.Type> updatedProperties)
         {
+            if (!m_syncInfoManager.SyncInfoExists(syncObjectID))
+            {
+                m_log.DebugFormat("{0}: UpdateQuarkLocation could not find sync info for object {1}. It might be gone.", LogHeader, syncObjectID);
+                return false;
+            }
             SyncInfoBase sib = m_syncInfoManager.GetSyncInfo(syncObjectID);
             ScenePresence sp = m_regionSyncModule.Scene.GetScenePresence(syncObjectID);
             if (sp != null)
@@ -397,15 +402,12 @@ namespace DSG.RegionSync
             SceneObjectPart sop = m_regionSyncModule.Scene.GetSceneObjectPart(syncObjectID);
             if (sop != null)
             {
-                if (sop.GroupID != null)
-                {
-                    SceneObjectGroup sogFromSop = m_regionSyncModule.Scene.GetSceneObjectGroup(syncObjectID);
+                SceneObjectGroup sogFromSop = m_regionSyncModule.Scene.GetSceneObjectGroup(syncObjectID);
+                // Check to see if the crossing prim is a root object. We don't care for non-root prim crossings (for now)
+                if (sogFromSop != null && sogFromSop.RootPart.UUID == syncObjectID)
                     return UpdatePrimQuarkLocation(sogFromSop, ref sib, updatedProperties);
-                }
                 else
-                {
-                    m_log.WarnFormat("{0}: Prim without group crossing borders. Ignoring.", LogHeader);
-                }
+                    return false;
             }
 
             SceneObjectGroup sog = m_regionSyncModule.Scene.GetSceneObjectGroup(syncObjectID);
@@ -460,6 +462,8 @@ namespace DSG.RegionSync
             {
                 if (sib != null)
                 {
+                    // Note that all SOPs in a linkset are in the quark of the root SOP (ie, always using GroupPosition).
+                    // Someday see if a better design is possible for spacialy large linksets.
                     SyncQuark currentQuark = new SyncQuark(sog.RootPart.GroupPosition);
                     if (!currentQuark.Equals(sib.CurQuark))
                     {
@@ -536,27 +540,26 @@ namespace DSG.RegionSync
                 ret = QuarkCrossingPresenceUpdate(sp, (SyncInfoPresence)syncInfo, updatedProperties);
             }
             SceneObjectPart sop = m_regionSyncModule.Scene.GetSceneObjectPart(syncInfo.UUID);
-            if (sop != null)
+            if (!ret && sop != null)
             {
                 ret = QuarkCrossingPrimUpdate(sop, (SyncInfoPrim)syncInfo, updatedProperties);
             }
             SceneObjectGroup sog = m_regionSyncModule.Scene.GetSceneObjectGroup(syncInfo.UUID);
-            if (sog != null)
+            if (!ret && sog != null)
             {
                 ret = QuarkCrossingPrimUpdate(sog.RootPart, (SyncInfoPrim)syncInfo, updatedProperties);
             }
-            m_log.ErrorFormat("{0}: Something should have crossed, but it was not found as a ScenePresence or SOG. UUID: {1}", LogHeader, syncInfo.UUID);
+            if (!ret)
+                m_log.ErrorFormat("{0}: Something should have crossed, but it was not found as a ScenePresence or SOG. UUID: {1}", LogHeader, syncInfo.UUID);
             return ret;
         }
 
         private bool QuarkCrossingPresenceUpdate(ScenePresence sp, SyncInfoPresence sip, HashSet<SyncableProperties.Type> updatedProperties)
         {
-            bool ret = false;
             bool leavingMyQuarks = !(IsInActiveQuark(sip.CurQuark.QuarkName) || IsInPassiveQuark(sip.CurQuark.QuarkName));
             SyncMsgPresenceQuarkCrossing syncMsg = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties);
             if (syncMsg != null)
             {
-                ret = true;
                 m_regionSyncModule.SendSyncMessage(syncMsg, sip.CurQuark.QuarkName);
             }
             TriggerPresenceQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sp);
@@ -576,12 +579,11 @@ namespace DSG.RegionSync
                     }
                 }
             }
-            return ret;
+            return true;
         }
 
         private bool QuarkCrossingPrimUpdate(SceneObjectPart sop, SyncInfoPrim sip, HashSet<SyncableProperties.Type> updatedProperties)
         {
-            bool ret = false;
             // The sop is a root prim and is changing quarks (curQuark != prevQuark)
             // This sends the information necessary to create the whole SOG in the target quark.
             // The individual child SOPs will never send out a quark crossing message.
@@ -623,7 +625,7 @@ namespace DSG.RegionSync
                     m_regionSyncModule.Scene.DeleteSceneObject(sog, false);
                 }
             }
-            return ret;
+            return true;
         }
 
         public void TriggerPresenceQuarkCrossingEvent(string curQuark, string preQuark, ScenePresence sp)
