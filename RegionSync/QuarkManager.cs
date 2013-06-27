@@ -9,6 +9,7 @@ using OpenSim.Framework;
 
 namespace DSG.RegionSync
 {
+    /* TO BE REMOVED
     public class RemotePassiveQuarkSubscription
     {
         private SyncQuark m_quark;
@@ -42,6 +43,7 @@ namespace DSG.RegionSync
                 return false;
         }
     }
+     * */
     /// <summary>
     /// QuarkPublisher
     /// Description: Stores all SyncConnectors subscribed actively and passively to a quark. Only quarks that belong to this sync process.
@@ -97,7 +99,7 @@ namespace DSG.RegionSync
         }
 
         /// <summary>
-        /// Returns all subscribers with quarkName (both active and passive)
+        /// Returns all subscribers with QuarkName (both active and passive)
         /// </summary>
         /// <returns>Union of the active and passive syncconnectors subscribed to this quark</returns>
         public HashSet<SyncConnector> GetAllQuarkSubscribers()
@@ -113,6 +115,12 @@ namespace DSG.RegionSync
         private static string LogHeader = "[QUARKMANAGER]";
         private Boolean m_detailUpdateDebugLog = false;
         private string m_zeroUUID = UUID.Zero.ToString();
+
+        private Dictionary<UUID,bool> m_leftQuarks = new Dictionary<UUID,bool>();
+        public Dictionary<UUID,bool> LeftQuarks
+        {
+            get { return m_leftQuarks; }
+        }
 
         private int m_quarkSizeX;
         private int m_quarkSizeY;
@@ -155,8 +163,6 @@ namespace DSG.RegionSync
         {
             get { return m_quarkSubscriptions; }
         }
-        private Dictionary<string, RemotePassiveQuarkSubscription> m_remoteQuarkPassiveSubscriptions = new Dictionary<string,RemotePassiveQuarkSubscription>();
-
         RegionSyncModule m_regionSyncModule;
 
         #region QuarkRegistration
@@ -193,8 +199,23 @@ namespace DSG.RegionSync
 
             // Read string from config file
             ActiveQuarkSubscription = config.GetString("SyncActiveQuarks", String.Empty);
+            // If its not in the Simulator settings, look for it in the Region settings
+            if (ActiveQuarkSubscription == String.Empty)
+            {
+                ActiveQuarkSubscription = m_regionSyncModule.Scene.RegionInfo.GetOtherSetting("SyncActiveQuarks");
+                if (ActiveQuarkSubscription == null)
+                    ActiveQuarkSubscription = String.Empty;
+            }
             ActiveQuarkSubscription = ActiveQuarkSubscription.Trim();
+
             PassiveQuarkSubscription = config.GetString("SyncPassiveQuarks", String.Empty);
+            // If its not in the Simulator settings, look for it in the Region settings
+            if (PassiveQuarkSubscription == String.Empty)
+            {
+                PassiveQuarkSubscription = m_regionSyncModule.Scene.RegionInfo.GetOtherSetting("SyncPassiveQuarks");
+                if (PassiveQuarkSubscription == null)
+                    PassiveQuarkSubscription = String.Empty;
+            }
             PassiveQuarkSubscription = PassiveQuarkSubscription.Trim();
 
             // Parse into hashsets
@@ -226,7 +247,7 @@ namespace DSG.RegionSync
 
             // Register my active quarks with grid service.
             // TODO: Send the coded version, instead of reading one by one and making multiple HTTP requests.
-            RegisterSyncQuarksWithGridService();
+            // RegisterSyncQuarksWithGridService();
 
             // TODO: There should be a Register Passive and Active quarks.
             // Grid Service returns the union of quarks that form a superset of my quark subscription. 
@@ -372,6 +393,47 @@ namespace DSG.RegionSync
 
         #endregion // QuarkRegistration
 
+        #region QuarkSubscriptions
+        public void AddPassiveSubscription(SyncConnector connector, string quarkName)
+        {
+
+            m_quarkSubscriptions[quarkName].AddPassiveSubscriber(connector);
+        }
+
+        public void AddActiveSubscription(SyncConnector connector, string quarkName)
+        {
+            m_quarkSubscriptions[quarkName].AddActiveSubscriber(connector);
+        }
+
+        // Iterates over every quark subscription and deletes the connector reference from it. 
+        // Homework: Is there a better way to do this?
+        public void RemoveSubscription(SyncConnector connector)
+        {
+            foreach (KeyValuePair<string, QuarkPublisher> subscription in m_quarkSubscriptions)
+            {
+                subscription.Value.RemoveSubscriber(connector);
+            }
+        }
+
+        // Removes the connector from the quark subscription list of name QuarkName
+        public void RemoveSubscription(SyncConnector connector, string quarkName)
+        {
+            m_quarkSubscriptions[quarkName].RemoveSubscriber(connector);
+        }
+
+        // Returns the hashset of all syncconnectors subscribed to this Quark
+        public HashSet<SyncConnector> GetQuarkSubscribers(string quarkName)
+        {
+            if (m_quarkSubscriptions.ContainsKey(quarkName))
+                return m_quarkSubscriptions[quarkName].GetAllQuarkSubscribers();
+            else
+            {
+                m_log.WarnFormat("GetQuarkSubscribers: There should be at least one subscription (parent) here");
+                return new HashSet<SyncConnector>();
+            }
+        }
+        #endregion // QuarkSubscriptions
+
         #region QuarkObjects
 
         public bool IsInActiveQuark(string quarkName)
@@ -434,8 +496,9 @@ namespace DSG.RegionSync
             if (updatedProperties.Contains(SyncableProperties.Type.AbsolutePosition))
             {
                 // Note that all SOPs in a linkset are in the quark of the root SOP (ie, always using GroupPosition).
-                // Someday see if a better design is possible for spacialy large linksets.
+                // Someday see if a better design is possible for spatially large linksets.
                 Vector3 spLoc = sp.AbsolutePosition;
+                // m_log.WarnFormat("{0}: Absolute Position after updated properties: {1}", LogHeader, spLoc);
                 string currentQuarkName = SyncQuark.GetQuarkNameByPosition(spLoc);
                 if (sib != null)
                 {
@@ -478,47 +541,6 @@ namespace DSG.RegionSync
         }
 
         #endregion
-
-        #region QuarkSubscriptions
-        public void AddPassiveSubscription(SyncConnector connector, string quarkName) 
-        {
-
-            m_quarkSubscriptions[quarkName].AddPassiveSubscriber(connector);
-        }
-
-        public void AddActiveSubscription(SyncConnector connector, string quarkName)
-        {
-            m_quarkSubscriptions[quarkName].AddActiveSubscriber(connector);
-        }
-
-        // Iterates over every quark subscription and deletes the connector reference from it. 
-        // Homework: Is there a better way to do this?
-        public void RemoveSubscription(SyncConnector connector)
-        {
-            foreach (KeyValuePair<string,QuarkPublisher> subscription in m_quarkSubscriptions)
-            {
-                subscription.Value.RemoveSubscriber(connector);
-            }
-        }
-
-        // Removes the connector from the quark subscription list of name quarkName
-        public void RemoveSubscription(SyncConnector connector,string quarkName) 
-        {
-            m_quarkSubscriptions[quarkName].RemoveSubscriber(connector);
-        }
-
-        // Returns the hashset of all syncconnectors subscribed to this Quark
-        public HashSet<SyncConnector> GetQuarkSubscribers(string quarkName)
-        {
-            if (m_quarkSubscriptions.ContainsKey(quarkName))
-                return m_quarkSubscriptions[quarkName].GetAllQuarkSubscribers();
-            else
-            {
-                m_log.WarnFormat("GetQuarkSubscribers: There should be at least one subscription (parent) here");
-                return new HashSet<SyncConnector>();
-            }
-        }
-        #endregion // QuarkSubscriptions
         
         /// <summary>
         /// Decode the set of quarks under the same subscription. 
@@ -557,6 +579,8 @@ namespace DSG.RegionSync
         private bool QuarkCrossingPresenceUpdate(ScenePresence sp, SyncInfoPresence sip, HashSet<SyncableProperties.Type> updatedProperties)
         {
             bool leavingMyQuarks = !(IsInActiveQuark(sip.CurQuark.QuarkName) || IsInPassiveQuark(sip.CurQuark.QuarkName));
+            if (leavingMyQuarks)
+                LeftQuarks[sp.UUID] = true;
             SyncMsgPresenceQuarkCrossing syncMsg = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties);
             if (syncMsg != null)
             {
@@ -566,12 +590,16 @@ namespace DSG.RegionSync
             // if the presence is not in the quarks I manage, remove it from the scenegraph
             if (leavingMyQuarks)
             {
+                m_log.WarnFormat("{0}: User {1} is leaving quark {2} to quark {3}. Deleting him.", LogHeader, sp.Firstname, sip.PrevQuark.QuarkName, sip.CurQuark.QuarkName);
                 if (sp != null)
                 {
                     m_syncInfoManager.RemoveSyncInfo(sp.UUID);
                     try
                     {
+                        // Removing a client triggers OnRemovePresence. I should only remove the client from this actor, not propagate it.
+                        m_regionSyncModule.RememberLocallyGeneratedEvent(syncMsg.MType);
                         m_regionSyncModule.Scene.RemoveClient(sp.UUID, false);
+                        m_regionSyncModule.ForgetLocallyGeneratedEvent();
                     }
                     catch (Exception e)
                     {

@@ -508,7 +508,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         if (!pRegionContext.InfoManager.SyncInfoExists(sog.RootPart.UUID))
         {
             m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sog.RootPart.Name, sog.RootPart.UUID);
-            pRegionContext.InfoManager.InsertSyncInfo(sog.RootPart.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+            pRegionContext.InfoManager.InsertSyncInfoLocal(sog.RootPart.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
         }
 
         OSDMap data = new OSDMap();
@@ -526,7 +526,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet", 
                                 LogHeader, part.Name, part.UUID);
                     //This should not happen, but we deal with it by inserting a newly created PrimSynInfo
-                    pRegionContext.InfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+                    pRegionContext.InfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
                 }
                 OSDMap partData = pRegionContext.InfoManager.EncodeProperties(part.UUID, part.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
                 otherPartsArray.Add(partData);
@@ -552,7 +552,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         if (!pRegionContext.InfoManager.SyncInfoExists(sp.UUID))
         {
             m_log.ErrorFormat("{0}: ERROR: EncodeScenePresence -- SP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sp.Name, sp.UUID);
-            pRegionContext.InfoManager.InsertSyncInfo(sp.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+            pRegionContext.InfoManager.InsertSyncInfoLocal(sp.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
         }
 
         OSDMap data = new OSDMap();
@@ -1299,7 +1299,7 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
 
             //Add the list of PrimSyncInfo to SyncInfoManager
             foreach (SyncInfoBase syncInfo in SyncInfos.Values)
-                pRegionContext.InfoManager.InsertSyncInfo(syncInfo.UUID, syncInfo);
+                pRegionContext.InfoManager.InsertSyncInfoRemote(syncInfo.UUID, syncInfo);
 
             // Add the decoded object to Scene
             // This will invoke OnObjectAddedToScene but the syncinfo has already been created so that's a NOP
@@ -1793,7 +1793,7 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, SyncInfo.CurQuark.QuarkName);
 
             //Add the SyncInfo to SyncInfoManager
-            pRegionContext.InfoManager.InsertSyncInfo(SyncInfo.UUID, SyncInfo);
+            pRegionContext.InfoManager.InsertSyncInfoRemote(SyncInfo.UUID, SyncInfo);
 
             // Get ACD and PresenceType from decoded SyncInfoPresence
             // NASTY CASTS AHEAD!
@@ -2071,20 +2071,42 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     public override string DetailLogTagSnd { get { return "SndEventtt"; } }
 
     public string SyncID { get; set; }
+    public string QuarkName { get; set; }
     public ulong SequenceNum { get; set; }
 
-    public SyncMsgEvent(MsgType pMType, RegionSyncModule pRegionContext)
+    public SyncMsgEvent(MsgType pMType, RegionSyncModule pRegionContext, UUID quarkUUID)
         : base(pMType, pRegionContext)
     {
         SyncID = "UNKNOWN";
         SequenceNum = 1;
+        if (pRegionContext.InfoManager.SyncInfoExists(quarkUUID))
+            QuarkName = pRegionContext.InfoManager.GetSyncInfo(quarkUUID).CurQuark.QuarkName;
+        else
+        {
+            SceneObjectPart part = pRegionContext.Scene.GetSceneObjectPart(quarkUUID);
+            if (part == null)
+                QuarkName = null;
+            else
+                QuarkName = SyncQuark.GetQuarkNameByPosition(part.AbsolutePosition);
+        }
     }
-    public SyncMsgEvent(MsgType pMType, RegionSyncModule pRegionContext, string pSyncID, ulong pSeqNum)
+
+    public SyncMsgEvent(MsgType pMType, RegionSyncModule pRegionContext, Vector3 position)
+        : base(pMType, pRegionContext)
+    {
+        SyncID = "UNKNOWN";
+        SequenceNum = 1;
+        QuarkName = SyncQuark.GetQuarkNameByPosition(position);
+    }
+
+    public SyncMsgEvent(MsgType pMType, RegionSyncModule pRegionContext, string pSyncID, ulong pSeqNum, UUID quarkUUID)
         : base(pMType, pRegionContext)
     {
         SyncID = pSyncID;
         SequenceNum = pSeqNum;
+        QuarkName = pRegionContext.InfoManager.GetSyncInfo(quarkUUID).CurQuark.QuarkName;
     }
+
     public SyncMsgEvent(MsgType pMsgType, int pLength, byte[] pData)
         : base(pMsgType, pLength, pData)
     {
@@ -2093,7 +2115,7 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     {
         bool ret = false;
         if (base.ConvertIn(pRegionContext))
-        {
+        {   
             SyncID = DataMap["syncID"].AsString();
             SequenceNum = DataMap["seqNum"].AsULong();
             ret = true;
@@ -2119,7 +2141,9 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
             // if this is a relay node, forward the message
             if (pRegionContext.IsSyncRelay)
             {
-                pRegionContext.SendSceneEventToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, null);
+                if (QuarkName == null)
+                    m_log.WarnFormat("{0}: Quark name is null. Event is being forwarded to all actors",LogHeader);
+                pRegionContext.SendSceneEventToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, null, QuarkName);
             }
             ret = true;
         }
@@ -2229,7 +2253,7 @@ public class SyncMsgNewScript : SyncMsgEvent
     public HashSet<SyncedProperty> UpdatedProperties;
 
     public SyncMsgNewScript(RegionSyncModule pRegionContext, UUID pUuid, UUID pAgentID, UUID pItemID, HashSet<SyncableProperties.Type> pSyncableProperties)
-        : base(MsgType.NewScript, pRegionContext)
+        : base(MsgType.NewScript, pRegionContext, pUuid)
     {
         Uuid = pUuid;
         AgentID = pAgentID;
@@ -2248,6 +2272,8 @@ public class SyncMsgNewScript : SyncMsgEvent
             AgentID = DataMap["agentID"].AsUUID();
             Uuid = DataMap["uuid"].AsUUID();
             ItemID = DataMap["itemID"].AsUUID();
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = pRegionContext.InfoManager.GetSyncInfo(Uuid).CurQuark.QuarkName;
             UpdatedProperties = SyncedProperty.DecodeProperties(DataMap);
             ret = true;
         }
@@ -2307,7 +2333,7 @@ public class SyncMsgUpdateScript : SyncMsgEvent
     public UUID AssetID { get; set; }
 
     public SyncMsgUpdateScript(RegionSyncModule pRegionContext, UUID pAgentID, UUID pItemID, UUID pPrimID, bool pIsRunning, UUID pAssetID)
-        : base(MsgType.UpdateScript, pRegionContext)
+        : base(MsgType.UpdateScript, pRegionContext, pPrimID)
     {
         AgentID = pAgentID;
         ItemID = pItemID;
@@ -2327,6 +2353,8 @@ public class SyncMsgUpdateScript : SyncMsgEvent
             AgentID = DataMap["agentID"].AsUUID();
             ItemID = DataMap["itemID"].AsUUID();
             PrimID = DataMap["primID"].AsUUID();
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = pRegionContext.InfoManager.GetSyncInfo(PrimID).CurQuark.QuarkName;
             IsRunning = DataMap["running"].AsBoolean();
             AssetID = DataMap["assetID"].AsUUID();
             ret = true;
@@ -2372,7 +2400,7 @@ public class SyncMsgScriptReset : SyncMsgEvent
     public UUID PrimID { get; set; }
 
     public SyncMsgScriptReset(RegionSyncModule pRegionContext, UUID pItemID, UUID pPrimID)
-        : base(MsgType.ScriptReset, pRegionContext)
+        : base(MsgType.ScriptReset, pRegionContext, pPrimID)
     {
         ItemID = pItemID;
         PrimID = pPrimID;
@@ -2388,6 +2416,8 @@ public class SyncMsgScriptReset : SyncMsgEvent
         {
             ItemID = DataMap["itemID"].AsUUID();
             PrimID = DataMap["primID"].AsUUID();
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = pRegionContext.InfoManager.GetSyncInfo(PrimID).CurQuark.QuarkName;
             ret = true;
         }
         return ret;
@@ -2432,7 +2462,7 @@ public class SyncMsgChatFromClient : SyncMsgEvent
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatFromClient(RegionSyncModule pRegionContext, OSChatMessage pChatMessage)
-        : base(MsgType.ChatFromClient, pRegionContext)
+        : base(MsgType.ChatFromClient, pRegionContext, pChatMessage.Position)
     {
         ChatMessage = pChatMessage;
     }
@@ -2446,6 +2476,8 @@ public class SyncMsgChatFromClient : SyncMsgEvent
         if (base.ConvertIn(pRegionContext))
         {
             ChatMessage = PrepareOnChatArgs(DataMap, pRegionContext);
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = SyncQuark.GetQuarkNameByPosition(ChatMessage.Position);
             ret = true;
         }
         return ret;
@@ -2483,7 +2515,7 @@ public class SyncMsgChatFromWorld : SyncMsgEvent
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatFromWorld(RegionSyncModule pRegionContext, OSChatMessage pChatMessage)
-        : base(MsgType.ChatFromWorld, pRegionContext)
+        : base(MsgType.ChatFromWorld, pRegionContext,pChatMessage.Position)
     {
         ChatMessage = pChatMessage;
     }
@@ -2497,6 +2529,8 @@ public class SyncMsgChatFromWorld : SyncMsgEvent
         if (base.ConvertIn(pRegionContext))
         {
             ChatMessage = PrepareOnChatArgs(DataMap, pRegionContext);
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = SyncQuark.GetQuarkNameByPosition(ChatMessage.Position);
             ret = true;
         }
         return ret;
@@ -2534,7 +2568,7 @@ public class SyncMsgChatBroadcast : SyncMsgEvent
     public OSChatMessage ChatMessage { get; set; }
 
     public SyncMsgChatBroadcast(RegionSyncModule pRegionContext, OSChatMessage pChatMessage)
-        : base(MsgType.ChatBroadcast, pRegionContext)
+        : base(MsgType.ChatBroadcast, pRegionContext,pChatMessage.Position)
     {
         ChatMessage = pChatMessage;
     }
@@ -2548,6 +2582,8 @@ public class SyncMsgChatBroadcast : SyncMsgEvent
         if (base.ConvertIn(pRegionContext))
         {
             ChatMessage = PrepareOnChatArgs(DataMap, pRegionContext);
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = SyncQuark.GetQuarkNameByPosition(ChatMessage.Position);
             ret = true;
         }
         return ret;
@@ -2589,7 +2625,7 @@ public abstract class SyncMsgEventGrabber : SyncMsgEvent
     public ScenePresence SP;
     
     public SyncMsgEventGrabber(MsgType pMType, RegionSyncModule pRegionContext, UUID pAgentID, UUID pPrimID, UUID pOrigPrimID, Vector3 pOffset, SurfaceTouchEventArgs pTouchArgs)
-        : base(pMType, pRegionContext)
+        : base(pMType, pRegionContext, pPrimID)
     {
         AgentID = pAgentID;
         PrimID = pPrimID;
@@ -2608,6 +2644,8 @@ public abstract class SyncMsgEventGrabber : SyncMsgEvent
         {
             AgentID = DataMap["agentID"].AsUUID();
             PrimID = DataMap["primID"].AsUUID();
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = pRegionContext.InfoManager.GetSyncInfo(PrimID).CurQuark.QuarkName;
             OriginalPrimID = DataMap["originalPrimID"].AsUUID();
             OffsetPos = DataMap["offsetPos"].AsVector3();
             SurfaceArgs = new SurfaceTouchEventArgs();
@@ -2782,7 +2820,7 @@ public class SyncMsgAttach : SyncMsgEvent
     public UUID AvatarID { get; set; }
 
     public SyncMsgAttach(RegionSyncModule pRegionContext, UUID pPrimID, UUID pItemID, UUID pAvatarID)
-        : base(MsgType.Attach, pRegionContext)
+        : base(MsgType.Attach, pRegionContext, pAvatarID)
     {
         PrimID = pPrimID;
         ItemID = pItemID;
@@ -2800,6 +2838,8 @@ public class SyncMsgAttach : SyncMsgEvent
             PrimID = DataMap["primID"].AsUUID();
             ItemID = DataMap["itemID"].AsUUID();
             AvatarID = DataMap["avatarID"].AsUUID();
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = pRegionContext.InfoManager.GetSyncInfo(AvatarID).CurQuark.QuarkName;
             ret = true;
         }
         return ret;
@@ -2857,7 +2897,7 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
     protected List<UUID> CollidersNotFound;
 
     public SyncMsgEventCollision(MsgType pMType, RegionSyncModule pRegionContext, UUID pCollidee, uint pCollideeID, List<DetectedObject> pColliders)
-        : base(pMType, pRegionContext)
+        : base(pMType, pRegionContext, pCollidee)
     {
         CollideeUUID = pCollidee;
         CollideeID = pCollideeID;
@@ -2880,6 +2920,9 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
                                 LogHeader, MType.ToString(), CollideeUUID, pRegionContext.SyncID);
                 return false;
             }
+            if (pRegionContext.IsSyncRelay)
+                QuarkName = pRegionContext.InfoManager.GetSyncInfo(CollideeUUID).CurQuark.QuarkName;
+            
             CollideeID = collisionPart.LocalId;
 
             // Loop through all the passed UUIDs and build DetectedObject's for the collided with objects
@@ -3473,7 +3516,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
             {
                 foreach(KeyValuePair<UUID,SyncInfoBase> part in m_parts)
                 {
-                    pRegionContext.InfoManager.InsertSyncInfo(part.Key, part.Value);
+                    pRegionContext.InfoManager.InsertSyncInfoRemote(part.Key, part.Value);
                 }
                 m_sip = (SyncInfoPrim)pRegionContext.InfoManager.GetSyncInfo(m_primUUID);
             }
@@ -3496,6 +3539,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                 case 3:// current is one of our quarks and we know about the object
                     // This is just an update
                     // This happens when an object moves across a border and we have both quarks in our set. It just moves.
+                    m_quarkManager.LeftQuarks[m_primUUID] = false;
                     m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 3", LogHeader);
                     break;
             }
@@ -3568,7 +3612,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
     HashSet<SyncableProperties.Type> m_properties;
     HashSet<SyncedProperty> SyncedProperties;
 
-    // Assumption: SyncInfo for presence exists.
+    // Assumption: SyncInfo for presence exists. Current Quark and Previous Quark have already been updated somewhere else.
     public SyncMsgPresenceQuarkCrossing(RegionSyncModule pRegionContext, ScenePresence sp, HashSet<SyncableProperties.Type> updatedProperties)
         : base(MsgType.QuarkPresenceCrossing, pRegionContext)
     {
@@ -3581,6 +3625,9 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
 
         m_properties = updatedProperties;
         m_quarkManager = pRegionContext.QuarkManager;
+        currentQuarkName = m_sip.CurQuark.QuarkName;
+        previousQuarkName = m_sip.PrevQuark.QuarkName;
+        // Need to store it now, if I wait until ConvertOut the ScenePresence is already removed.
     }
     public SyncMsgPresenceQuarkCrossing(int pLength, byte[] pData)
         : base(MsgType.QuarkPresenceCrossing, pLength, pData)
@@ -3628,8 +3675,8 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                 m_sip = (SyncInfoPresence)sib;
                 m_sip.CurQuark = new SyncQuark(currentQuarkName);
                 m_sip.PrevQuark = new SyncQuark(previousQuarkName);
-                pRegionContext.InfoManager.InsertSyncInfo(m_presenceUUID, (SyncInfoBase)m_sip);
-            }            
+                pRegionContext.InfoManager.InsertSyncInfoRemote(m_presenceUUID, (SyncInfoBase)m_sip);
+            }
 
             int casecode = m_sp == null ? 0 : 1;
             casecode += m_quarkManager.IsInActiveQuark(currentQuarkName) ? 2 : 0;
@@ -3645,6 +3692,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                     // Stolen from NewPresence handle
                     // Get ACD and PresenceType from decoded SyncInfoPresence
                     // NASTY CASTS AHEAD!
+                    m_quarkManager.LeftQuarks[m_presenceUUID] = false;
                     AgentCircuitData acd = new AgentCircuitData();
                     acd.UnpackAgentCircuitData((OSDMap)((m_sip).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
                     // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
@@ -3655,25 +3703,33 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                     pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
 
                     // Create a client and add it to the local scene
-                    IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
+                    Vector3 startPos = (Vector3)m_sip.CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue;
+
+                    // ?? BUG here. Need to orient the avatar correctly after crossing. Current symptom is the character starts moving sideways after
+                    // crossing.
+                    IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, startPos);
                     m_sip.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
                     // Might need to trigger something here to send new client messages to connected clients
+                    
                     m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 2. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
+                    m_sp = pRegionContext.Scene.GetScenePresence(m_presenceUUID);
                     break;
                 case 3:
+                    m_quarkManager.LeftQuarks[m_presenceUUID] = false;
                     m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 3. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
                     break;
 
             }
             // Trigger QuarkCrossing so other modules knows about it. ??
+            /*
             if (m_sp != null)
             {
-                /*
+                
                 if (SyncedProperties.Count > 0)
                     m_quarkManager.TriggerPresenceQuarkCrossingEvent(currentQuarkName, previousQuarkName, m_sp);
-                 * */
+                 
             }
-
+            * */
             if (pRegionContext.IsSyncRelay)
             {
                 // Sending immediately, this is important!
@@ -3687,10 +3743,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
 
     public override bool ConvertOut(RegionSyncModule pRegionContext)
     {
-        if (m_sp != null)
-        {
-            DataMap = CreatePresenceQuarkCrossingMessage(pRegionContext);
-        }
+        DataMap = CreatePresenceQuarkCrossingMessage(pRegionContext);      
         return base.ConvertOut(pRegionContext);
     }
 
@@ -3703,15 +3756,20 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
         {
             // If moving across quark boundries we pack both the sop update and the
             // full sog just in case the receiver has to create a new object (moving into a quark)
-            if (m_sp != null)
+            if (m_sp == null)
             {
-                ret = pRegionContext.InfoManager.EncodeProperties(m_sp.UUID, m_properties);
-                ret["presenceUUID"] = m_sp.UUID;
-                ret["FULL-SP"] = EncodeScenePresence(m_sp, pRegionContext);
+                m_log.ErrorFormat("{0}: Attempting to inform a quark crossing without having a valid Scene Presence", LogHeader);
+                return null;
             }
+
+            ret = pRegionContext.InfoManager.EncodeProperties(m_sp.UUID, m_properties);
+            ret["presenceUUID"] = m_sp.UUID;
+            ret["FULL-SP"] = EncodeScenePresence(m_sp, pRegionContext);
+            
             // pass the quark names so the receiver can decide what to do with this update
-            ret["curQuark"] = OSD.FromString(m_sip.CurQuark.QuarkName);
-            ret["prevQuark"] = OSD.FromString(m_sip.PrevQuark.QuarkName);
+            ret["curQuark"] = currentQuarkName;
+            ret["prevQuark"] = previousQuarkName;
+            m_log.WarnFormat("{0}: Creating PresenceQuarkCrossingMessage. From quark {1} to quark {2}", LogHeader, previousQuarkName, currentQuarkName);
         }
         catch (Exception e)
         {

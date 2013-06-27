@@ -128,8 +128,11 @@ namespace DSG.RegionSync
             lock(m_syncLock)
                 if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo))
                 {
-                    // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} FOUND.", uuid);
-                    return thisSyncInfo.UpdatePropertiesByLocal(uuid, updatedProperties, DateTime.UtcNow.Ticks, m_regionSyncModule.SyncID);
+                    if (UpdateInActiveQuark(thisSyncInfo))
+                    {
+                        // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} FOUND.", uuid);
+                        return thisSyncInfo.UpdatePropertiesByLocal(uuid, updatedProperties, DateTime.UtcNow.Ticks, m_regionSyncModule.SyncID);
+                    }
                 }
             // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} NOT FOUND.", uuid);
             return new HashSet<SyncableProperties.Type>();
@@ -212,21 +215,28 @@ namespace DSG.RegionSync
         /// <param name="uuid"></param>
         /// <param name="syncInfoInitTime"></param>
         /// <param name="syncID"></param>
-        public void InsertSyncInfo(UUID uuid, long syncInfoInitTime, string syncID)
+        public void InsertSyncInfoLocal(UUID uuid, long syncInfoInitTime, string syncID)
         {
-            // m_log.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfo: uuid={0}, syncID={1}", uuid, syncID);
+            // m_log.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfoLocal: uuid={0}, syncID={1}", uuid, syncID);
             long lastUpdateTimeStamp = syncInfoInitTime - m_ageOutThreshold;
             SyncInfoBase sib = SyncInfoBase.SyncInfoFactory(uuid, Scene, lastUpdateTimeStamp, syncID);
             lock (m_syncLock)
             {
-                m_syncedUUIDs[uuid] = sib;
+                if (UpdateInActiveQuark(sib))
+                    m_syncedUUIDs[uuid] = sib;
             }
         }
 
-        public void InsertSyncInfo(UUID uuid, SyncInfoBase syncinfo)
+        /// <summary>
+        /// Insert a new SyncInfoBase based on information from a remote actor. 
+        /// Assumes source is an active quark.
+        /// </summary>
+        /// <param name="uuid"></param>
+        /// <param name="syncInfo"></param>
+        public void InsertSyncInfoRemote(UUID uuid, SyncInfoBase syncinfo)
         {
             // bool isPrim = syncinfo is SyncInfoPrim;
-            // m_log.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfo for uuid {0}, type={1}", uuid, isPrim?"Prim":"Presence");
+            // m_log.WarnFormat("[SYNC INFO MANAGER] InsertSyncInfoLocal for uuid {0}, type={1}", uuid, isPrim?"Prim":"Presence");
             lock (m_syncLock)
                 m_syncedUUIDs[uuid] = syncinfo;
         }
@@ -244,6 +254,14 @@ namespace DSG.RegionSync
             // Should never be called unless SyncInfo has already been added
             lock (m_syncLock)
                 return m_syncedUUIDs[uuid];
+        }
+
+        public bool UpdateInActiveQuark(SyncInfoBase syncInfo)
+        {
+            if (m_regionSyncModule.QuarkManager.IsInActiveQuark(syncInfo.CurQuark.QuarkName))
+                return true;
+            else
+                return false;
         }
     }
 }

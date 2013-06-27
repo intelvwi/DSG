@@ -545,7 +545,7 @@ namespace DSG.RegionSync
             }
 
             // Add SP to SyncInfoManager
-            m_SyncInfoManager.InsertSyncInfo(uuid, DateTime.UtcNow.Ticks, SyncID);
+            m_SyncInfoManager.InsertSyncInfoLocal(uuid, DateTime.UtcNow.Ticks, SyncID);
 
             if (IsSyncingWithOtherSyncNodes())
             {
@@ -559,8 +559,15 @@ namespace DSG.RegionSync
         {
             // m_log.WarnFormat("{0} OnRemovePresence called for {1}", LogHeader, uuid);
 
-            // Note: I need to remember I am removing a presence. Removing a presence fires a OnObjectBeingRemoved for the attachments
+            // Note: There are two scenarios of OnRemovePresence being called. 
+            // 1) Presence is being removed because client viewer. 
+            // I need to remember I am removing a presence. Removing a presence fires a OnObjectBeingRemoved for the attachments
             // that lead to another sync message. Only one sync message should be sent about this event, to avoid cascading updates.
+            //
+            // 2) Presence is being removed because object is crossing
+            // We check for it with the IsLocallyGeneratedEvent. If it is local, just return, no need to propagate
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPresenceCrossing))
+                return;
             RememberLocallyGeneratedEvent(SyncMsg.MsgType.RemovedPresence, uuid);
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
@@ -594,7 +601,7 @@ namespace DSG.RegionSync
             // Add each SOP in SOG to SyncInfoManager
             foreach (SceneObjectPart part in sog.Parts)
             {
-                m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, SyncID);
+                m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, SyncID);
             }
 
             if (IsSyncingWithOtherSyncNodes())
@@ -852,7 +859,7 @@ namespace DSG.RegionSync
 
         private void SendTerrainUpdateToRelevantSyncConnectors(SyncMsg syncMsg, string lastUpdateActorID)
         {
-            List<SyncConnector> syncConnectors = GetSyncConnectorsForSceneEvents(lastUpdateActorID, syncMsg, null);
+            List<SyncConnector> syncConnectors = GetSyncConnectorsForSceneEvents(lastUpdateActorID, syncMsg, null,null);
 
             foreach (SyncConnector connector in syncConnectors)
             {
@@ -861,6 +868,7 @@ namespace DSG.RegionSync
             }
         }
 
+        // ?? Needs to check for quark name to send only to interested actors.
         public void SendDelinkObjectToRelevantSyncConnectors(string senderActorID, List<SceneObjectGroup> beforeDelinkGroups, SyncMsg syncMsg)
         {
             HashSet<int> syncConnectorsSent = new HashSet<int>();
@@ -882,7 +890,7 @@ namespace DSG.RegionSync
             }
         }
 
-        // If quark name is not known.. Not to be used lightly, as it ignores quark existence.
+        // If quark name is not known.. Not to be used lightly, as it ignores quark existence. Terrain uses this, for example
         public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
@@ -908,7 +916,7 @@ namespace DSG.RegionSync
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(quarkName);
             foreach (SyncConnector connector in syncConnectors)
             {
-                if (!connector.otherSideActorID.Equals(init_actorID))
+                if (!connector.otherSideActorID.Equals(init_actorID) && QuarkManager.IsInActiveQuark(quarkName))
                 {
                     // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
                     connector.ImmediateOutgoingMsg(syncMsg);
@@ -918,38 +926,41 @@ namespace DSG.RegionSync
 
         //Events are send out right away, without being put into the connector's outQueue first. 
         //May need a better method for managing the outgoing messages (i.e. prioritizing object updates and events)
-        public void SendSceneEventToRelevantSyncConnectors(string init_actorID, SyncMsg rsm, SceneObjectGroup sog)
+        public void SendSceneEventToRelevantSyncConnectors(string init_actorID, SyncMsg rsm, SceneObjectGroup sog, string quarkName)
         {
-            // Convert the message from data fields to a block of data to send.
-            rsm.ConvertOut(this);
-
-            //TODO: need to pick connectors based on sog position (quark it resides in)
-            List<SyncConnector> syncConnectors = GetSyncConnectorsForSceneEvents(init_actorID, rsm, sog);
-            // m_log.DebugFormat("{0}: SendSyncEventToRelevantSyncConnectors. numConnectors={1}", LogHeader, syncConnectors.Count);
-
-            foreach (SyncConnector connector in syncConnectors)
+            if (QuarkManager.IsInActiveQuark(quarkName))
             {
-                /*
-                //special fix for R@I demo, need better optimization later
-                if ((rsm.Type == SymmetricSyncMessage.MsgType.PhysicsCollision || rsm.Type == SymmetricSyncMessage.MsgType.ScriptCollidingStart
-                    || rsm.Type == SymmetricSyncMessage.MsgType.ScriptColliding || rsm.Type == SymmetricSyncMessage.MsgType.ScriptCollidingEnd
-                    || rsm.Type == SymmetricSyncMessage.MsgType.ScriptLandCollidingStart
-                    || rsm.Type == SymmetricSyncMessage.MsgType.ScriptLandColliding || rsm.Type == SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd)
-                    && IsSyncRelay)
+                // Convert the message from data fields to a block of data to send.
+                rsm.ConvertOut(this);
+
+                //TODO: need to pick connectors based on sog position (quark it resides in)
+                List<SyncConnector> syncConnectors = GetSyncConnectorsForSceneEvents(init_actorID, rsm, sog, quarkName);
+                // m_log.DebugFormat("{0}: SendSyncEventToRelevantSyncConnectors. numConnectors={1}", LogHeader, syncConnectors.Count);
+
+                foreach (SyncConnector connector in syncConnectors)
                 {
-                    //for persistence actor, only forward collision events to script engines
-                    if (connector.OtherSideActorType == ScriptEngineSyncModule.ActorTypeString)
+                    /*
+                    //special fix for R@I demo, need better optimization later
+                    if ((rsm.Type == SymmetricSyncMessage.MsgType.PhysicsCollision || rsm.Type == SymmetricSyncMessage.MsgType.ScriptCollidingStart
+                        || rsm.Type == SymmetricSyncMessage.MsgType.ScriptColliding || rsm.Type == SymmetricSyncMessage.MsgType.ScriptCollidingEnd
+                        || rsm.Type == SymmetricSyncMessage.MsgType.ScriptLandCollidingStart
+                        || rsm.Type == SymmetricSyncMessage.MsgType.ScriptLandColliding || rsm.Type == SymmetricSyncMessage.MsgType.ScriptLandCollidingEnd)
+                        && IsSyncRelay)
+                    {
+                        //for persistence actor, only forward collision events to script engines
+                        if (connector.OtherSideActorType == ScriptEngineSyncModule.ActorTypeString)
+                        {
+                            lock (m_stats) m_statEventOut++;
+                            connector.Send(rsm);
+                        }
+                    }
+                    else
+                     * */
                     {
                         lock (m_stats) m_statEventOut++;
-                        connector.Send(rsm);
+                        DetailedUpdateWrite("SndEventtt", sog == null ? m_zeroUUID : sog.UUID.ToString(), 0, rsm.MType.ToString(), connector.otherSideActorID, rsm.DataLength);
+                        connector.ImmediateOutgoingMsg(rsm);
                     }
-                }
-                else
-                 * */
-                {
-                    lock (m_stats) m_statEventOut++;
-                    DetailedUpdateWrite("SndEventtt", sog == null ? m_zeroUUID : sog.UUID.ToString(), 0, rsm.MType.ToString(), connector.otherSideActorID, rsm.DataLength);
-                    connector.ImmediateOutgoingMsg(rsm);
                 }
             }
         }
@@ -957,7 +968,7 @@ namespace DSG.RegionSync
         /// <summary>
         /// Return Sync Connectors subscribed to a particular quark. Returning both active and passive quarks.
         /// </summary>
-        /// <param name="quarkName"></param>
+        /// <param name="QuarkName"></param>
         /// <returns></returns>
         private HashSet<SyncConnector> GetSyncConnectorsForUpdates(string quarkName)
         {
@@ -968,7 +979,7 @@ namespace DSG.RegionSync
         /// Return Sync Connectors subscribed to previous and current quark. Creates the union of all sync connectors
         /// connected to 
         /// </summary>
-        /// <param name="quarkName"></param>
+        /// <param name="QuarkName"></param>
         /// <returns></returns>
         private HashSet<SyncConnector> GetSyncConnectorsForUpdates(string prevQuark, string curQuark)
         {
@@ -989,24 +1000,26 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sog"></param>
         /// <returns></returns>
-        private List<SyncConnector> GetSyncConnectorsForSceneEvents(string init_actorID, SyncMsg rsm, SceneObjectGroup sog)
+        private List<SyncConnector> GetSyncConnectorsForSceneEvents(string init_actorID, SyncMsg rsm, SceneObjectGroup sog, string quarkName)
         {
             List<SyncConnector> syncConnectors = new List<SyncConnector>();
-            string quarkName;
-            // If no SOG is specified, send event to all sync handlers. Should be careful with this mechanism.
-            if (sog == null)
+            if (quarkName == null)
             {
-                quarkName = null;
-            }
-            else
-            {
-                if (InfoManager.SyncInfoExists(sog.UUID))
-                    quarkName = InfoManager.GetSyncInfo(sog.UUID).CurQuark.QuarkName;
+                // If no SOG is specified, send event to all sync handlers. Should be careful with this mechanism.
+                if (sog == null)
+                {
+                    m_log.WarnFormat("{0}: Sending to all quarks, since no quark information was provided", LogHeader);
+                }
                 else
                 {
-                    // No sync info for this scene object was created yet. Use the SOG position to determine what connectors should receive
-                    // its scene events.
-                    quarkName = SyncQuark.GetQuarkNameByPosition(sog.AbsolutePosition);
+                    if (InfoManager.SyncInfoExists(sog.UUID))
+                        quarkName = InfoManager.GetSyncInfo(sog.UUID).CurQuark.QuarkName;
+                    else
+                    {
+                        // No sync info for this scene object was created yet. Use the SOG position to determine what connectors should receive
+                        // its scene events.
+                        quarkName = SyncQuark.GetQuarkNameByPosition(sog.AbsolutePosition);
+                    }
                 }
             }
             if (IsSyncRelay)
@@ -1317,7 +1330,7 @@ namespace DSG.RegionSync
                         //into the local record
                         foreach (SceneObjectPart part in sog.Parts)
                         {
-                            m_SyncInfoManager.InsertSyncInfo(part.UUID, DateTime.UtcNow.Ticks, SyncID);
+                            m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, SyncID);
                         }
 
                         //Next test serialization
@@ -1332,7 +1345,7 @@ namespace DSG.RegionSync
 
                         //Add the list of PrimSyncInfo to SyncInfoManager
                         foreach (KeyValuePair<UUID, SyncInfoBase> kvp in primsSyncInfo)
-                            m_SyncInfoManager.InsertSyncInfo(kvp.Key, kvp.Value);
+                            m_SyncInfoManager.InsertSyncInfoLocal(kvp.Key, kvp.Value);
 
                         //Change each part's UUID so that we can add them to Scene and test the steps in AddNewSceneObjectByDecoding 
                         foreach (SceneObjectPart part in group.Parts)
@@ -2050,7 +2063,7 @@ namespace DSG.RegionSync
 
             SyncMsgNewScript msg = new SyncMsgNewScript(this, part.UUID, clientID, itemID, updatedProperties);
 
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(part.UUID).CurQuark.QuarkName);
         }
 
         /// <summary>
@@ -2068,7 +2081,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgUpdateScript msg = new SyncMsgUpdateScript(this, agentID, itemId, primId, isScriptRunning, newAssetID);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(primId).CurQuark.QuarkName);
         }
 
         private void OnLocalScriptReset(uint localID, UUID itemID)
@@ -2084,8 +2097,8 @@ namespace DSG.RegionSync
                 m_log.Warn(LogHeader + ": part with localID " + localID + " not exist");
                 return;
             }
-            SyncMsgScriptReset msg = new SyncMsgScriptReset(this, part.UUID, itemID);
-            SendSceneEvent(msg);
+            SyncMsgScriptReset msg = new SyncMsgScriptReset(this, itemID, part.UUID);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(part.UUID).CurQuark.QuarkName);
         }
 
         private void OnLocalChatBroadcast(Object sender, OSChatMessage chat)
@@ -2095,7 +2108,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgChatBroadcast msg = new SyncMsgChatBroadcast(this, chat);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, SyncQuark.GetQuarkNameByPosition(chat.Position));
         }
 
         private void OnLocalChatFromClient(Object sender, OSChatMessage chat)
@@ -2106,7 +2119,7 @@ namespace DSG.RegionSync
             //    return;
 
             SyncMsgChatFromClient msg = new SyncMsgChatFromClient(this, chat);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, SyncQuark.GetQuarkNameByPosition(chat.Position));
         }
 
         private void OnLocalChatFromWorld(Object sender, OSChatMessage chat)
@@ -2116,7 +2129,7 @@ namespace DSG.RegionSync
 
             //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromWorld {0}:{1}", chat.From, chat.Message);
             SyncMsgChatFromWorld msg = new SyncMsgChatFromWorld(this, chat);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, SyncQuark.GetQuarkNameByPosition(chat.Position));
         }
 
         private void OnLocalAttach(uint localID, UUID itemID, UUID avatarID)
@@ -2132,7 +2145,7 @@ namespace DSG.RegionSync
                 return;
             }
             SyncMsgAttach msg = new SyncMsgAttach(this, part.UUID, itemID, avatarID);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(avatarID).CurQuark.QuarkName);
         }
 
         /* UNUSED??
@@ -2180,7 +2193,7 @@ namespace DSG.RegionSync
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
             SyncMsgObjectGrab msg = new SyncMsgObjectGrab(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(originalUUID).CurQuark.QuarkName);
         }
 
         private void OnLocalObjectGrabbing(uint localID, uint originalID, Vector3 offsetPos, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
@@ -2191,7 +2204,7 @@ namespace DSG.RegionSync
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
             SyncMsgObjectGrabbing msg = new SyncMsgObjectGrabbing(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(originalUUID).CurQuark.QuarkName);
         }
 
         private void OnLocalDeGrabObject(uint localID, uint originalID, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
@@ -2203,7 +2216,7 @@ namespace DSG.RegionSync
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
             SyncMsgObjectDeGrab msg = new SyncMsgObjectDeGrab(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(originalUUID).CurQuark.QuarkName);
         }
 
 
@@ -2241,7 +2254,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptCollidingStart msg = new SyncMsgScriptCollidingStart(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg,m_SyncInfoManager.GetSyncInfo(GetSOPUUID(localID)).CurQuark.QuarkName);
         }
 
         private void OnLocalScriptColliding(uint localID, ColliderArgs colliders)
@@ -2250,7 +2263,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptColliding msg = new SyncMsgScriptColliding(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(GetSOPUUID(localID)).CurQuark.QuarkName);
         }
 
         private void OnLocalScriptCollidingEnd(uint localID, ColliderArgs colliders)
@@ -2260,7 +2273,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptCollidingEnd msg = new SyncMsgScriptCollidingEnd(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(GetSOPUUID(localID)).CurQuark.QuarkName);
         }
 
         private void OnLocalScriptLandCollidingStart(uint localID, ColliderArgs colliders)
@@ -2269,7 +2282,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptLandCollidingStart msg = new SyncMsgScriptLandCollidingStart(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(GetSOPUUID(localID)).CurQuark.QuarkName);
         }
 
         private void OnLocalScriptLandColliding(uint localID, ColliderArgs colliders)
@@ -2278,7 +2291,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptLandColliding msg = new SyncMsgScriptLandColliding(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(GetSOPUUID(localID)).CurQuark.QuarkName);
         }
 
         private void OnLocalScriptLandCollidingEnd(uint localID, ColliderArgs colliders)
@@ -2287,7 +2300,7 @@ namespace DSG.RegionSync
                 return;
 
             SyncMsgScriptLandCollidingEnd msg = new SyncMsgScriptLandCollidingEnd(this, GetSOPUUID(localID), localID, colliders.Colliders);
-            SendSceneEvent(msg);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(GetSOPUUID(localID)).CurQuark.QuarkName);
         }
 
         private OSDMap PrepareCollisionArgs(uint localID, ColliderArgs colliders)
@@ -2318,7 +2331,7 @@ namespace DSG.RegionSync
 
         // Several routines rely on the check for 'data == null' to skip processing
         // when there are selection errors.
-        private void SendSceneEvent(SyncMsg msg)
+        private void SendSceneEvent(SyncMsg msg, string quarkName)
         {
             SyncMsgEvent msgEvent = msg as SyncMsgEvent;
             if (msgEvent != null)
@@ -2327,7 +2340,7 @@ namespace DSG.RegionSync
                 msgEvent.SequenceNum = GetNextEventSeq();
             }
             //send to actors who are interested in the event
-            SendSceneEventToRelevantSyncConnectors(ActorID, msg, null);
+            SendSceneEventToRelevantSyncConnectors(ActorID, msg, null, quarkName);
         }
 
         private ulong GetNextEventSeq()
@@ -2501,19 +2514,22 @@ namespace DSG.RegionSync
                                 SyncInfoBase sib;
                                 if (InfoManager.SyncInfoExists(uuid))
                                 {
-                                    if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
+                                    if (!m_quarkManager.LeftQuarks.ContainsKey(uuid) || !m_quarkManager.LeftQuarks[uuid])
                                     {
-                                        // Quarks have not changed
-                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
-                                        syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
-                                        // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
-                                    }
-                                    else 
-                                    {
-                                        // Crossed quarks
-                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
-                                        m_log.WarnFormat("Crossing from {0} to {1}", sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
-                                        m_quarkManager.QuarkCrossingUpdate(sib,updatedProperties);
+                                        if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
+                                        {
+                                            // Quarks have not changed
+                                            sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                            syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
+                                            // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
+                                        }
+                                        else
+                                        {
+                                            // Crossed quarks
+                                            sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                            m_log.WarnFormat("{0}: Crossing from {1} to {2}", LogHeader, sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
+                                            m_quarkManager.QuarkCrossingUpdate(sib, updatedProperties);
+                                        }
                                     }
                                 }
 
