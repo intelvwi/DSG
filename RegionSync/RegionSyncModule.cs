@@ -2095,7 +2095,7 @@ namespace DSG.RegionSync
                 m_log.Warn(LogHeader + ": part with localID " + localID + " not exist");
                 return;
             }
-            SyncMsgScriptReset msg = new SyncMsgScriptReset(this, part.UUID, itemID);
+            SyncMsgScriptReset msg = new SyncMsgScriptReset(this, itemID, part.UUID);
             SendSceneEvent(msg);
         }
 
