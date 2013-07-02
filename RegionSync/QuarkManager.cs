@@ -428,7 +428,7 @@ namespace DSG.RegionSync
                 return m_quarkSubscriptions[quarkName].GetAllQuarkSubscribers();
             else
             {
-                m_log.WarnFormat("GetQuarkSubscribers: There should be at least one subscription (parent) here");
+                //m_log.WarnFormat("GetQuarkSubscribers: There should be at least one subscription (parent) here");
                 return new HashSet<SyncConnector>();
             }
         }
@@ -584,7 +584,7 @@ namespace DSG.RegionSync
             SyncMsgPresenceQuarkCrossing syncMsg = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties);
             if (syncMsg != null)
             {
-                m_regionSyncModule.SendSyncMessage(syncMsg, sip.CurQuark.QuarkName);
+                m_regionSyncModule.SendSyncMessage(syncMsg, sip.PrevQuark.QuarkName ,sip.CurQuark.QuarkName);
             }
             TriggerPresenceQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sp);
             // if the presence is not in the quarks I manage, remove it from the scenegraph
@@ -625,7 +625,7 @@ namespace DSG.RegionSync
             SyncMsgPrimQuarkCrossing syncMsg = new SyncMsgPrimQuarkCrossing(m_regionSyncModule, sop, updatedProperties);
             if (syncMsg != null)
             {
-                m_regionSyncModule.SendSyncMessage(syncMsg, sip.CurQuark.QuarkName);
+                m_regionSyncModule.SendSyncMessage(syncMsg,sip.PrevQuark.QuarkName,sip.CurQuark.QuarkName);
             }
 
             TriggerPrimQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sop);

@@ -128,7 +128,7 @@ namespace DSG.RegionSync
             lock(m_syncLock)
                 if (m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo))
                 {
-                    if (UpdateInActiveQuark(thisSyncInfo))
+                    if (thisSyncInfo != null && UpdateInActiveQuark(thisSyncInfo))
                     {
                         // m_log.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoByLocal SyncInfo for {0} FOUND.", uuid);
                         return thisSyncInfo.UpdatePropertiesByLocal(uuid, updatedProperties, DateTime.UtcNow.Ticks, m_regionSyncModule.SyncID);
@@ -222,7 +222,9 @@ namespace DSG.RegionSync
             SyncInfoBase sib = SyncInfoBase.SyncInfoFactory(uuid, Scene, lastUpdateTimeStamp, syncID);
             lock (m_syncLock)
             {
-                if (UpdateInActiveQuark(sib))
+                if (sib == null)
+                    return;
+                else if (UpdateInActiveQuark(sib))
                     m_syncedUUIDs[uuid] = sib;
             }
         }
@@ -258,7 +260,10 @@ namespace DSG.RegionSync
 
         public bool UpdateInActiveQuark(SyncInfoBase syncInfo)
         {
-            if (m_regionSyncModule.QuarkManager.IsInActiveQuark(syncInfo.CurQuark.QuarkName))
+            // When the region starts, old parts are inserted into sync info. We assume they are all active quark parts for now.
+            if (m_regionSyncModule.QuarkManager == null)
+                return true;
+            else if (m_regionSyncModule.QuarkManager.IsInActiveQuark(syncInfo.CurQuark.QuarkName))
                 return true;
             else
                 return false;

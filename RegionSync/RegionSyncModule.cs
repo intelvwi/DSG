@@ -535,6 +535,8 @@ namespace DSG.RegionSync
         private void OnNewPresence(ScenePresence sp)
         {
             UUID uuid = sp.UUID;
+            if (m_quarkManager.LeftQuarks.ContainsKey(uuid))
+                m_quarkManager.LeftQuarks.Remove(uuid);
             // m_log.WarnFormat("{0} OnNewPresence uuid={1}, name={2}", LogHeader, uuid, sp.Name);
 
             // If the SP is already in the sync cache, then don't add it and don't sync it.
@@ -564,11 +566,11 @@ namespace DSG.RegionSync
             // I need to remember I am removing a presence. Removing a presence fires a OnObjectBeingRemoved for the attachments
             // that lead to another sync message. Only one sync message should be sent about this event, to avoid cascading updates.
             //
-            // 2) Presence is being removed because object is crossing
+            // 2) Presence is being removed because it is leaving
             // We check for it with the IsLocallyGeneratedEvent. If it is local, just return, no need to propagate
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPresenceCrossing))
                 return;
-            RememberLocallyGeneratedEvent(SyncMsg.MsgType.RemovedPresence, uuid);
+            m_log.WarnFormat("{0}: OnRemovePresence: UUID {1}, Thread ID {2}", LogHeader, uuid, Thread.CurrentThread.ManagedThreadId);
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
             // Now, remove from SyncInfoManager's record.
@@ -583,6 +585,8 @@ namespace DSG.RegionSync
         private void OnObjectAddedToScene(SceneObjectGroup sog)
         {
             UUID uuid = sog.UUID;
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPrimCrossing, sog.UUID))
+                return;
             // m_log.DebugFormat("{0} OnObjectAddedToScene uuid={1}", LogHeader, uuid);
 
             // If the SOG is already in the sync cache, then don't add it and don't sync it.
@@ -619,15 +623,24 @@ namespace DSG.RegionSync
             {
                 if (IsLocallyGeneratedEvent(SyncMsg.MsgType.RemovedPresence, sog.AttachedAvatar))
                 {
-                    // This object has already been removed from scene. One case where this happens:
-                    // 1) In CM: User disconnects. Client manager sends RemoveScene presence sync message and locally, delete attachments.
-                    // 2) In CM: Deleting attachments generates a removeobject sync message
-                    // 3) In PA: he remove scene presence sync calls pRegionContext.Scene.RemoveClient(Uuid, false), which
-                    // generates a delete attachments.
-                    // 4) In PA: Simultaneously, the removeobject sync message is treated for the same attachments
-                    // Don't just return, I still need to remove the sync infos!
-                    ForgetLocallyGeneratedEvent();
+                    // This object was an attachment being removed due to RemovedPresence.
+                    // It has already been removed from scene. This is how it happens (all in the same threads):
+                    // 1.1) First Actor: User disconnects. Client manager calls Scene.RemoveClient.
+                    // 1.2) Scene.RemoveClient calls TriggerOnRemovePresence, followed by AttachmentsModule.DeRezAttachments
+                    // 1.2.1) TriggerOnRemovePresence calls OnRemovePresence, which creates a sync message for RemovedPresence and sends it.
+                    // 1.2.2) DeRezAttachments calls UpdateDetachedObject, which calls DeleteSceneObject (before sog.AttachedAvatar = UUID.Zero!)
+                    // 1.3) DeleteSceneObject calls TriggerObjectBeingRemovedFromScene, and here we are!
+                    // If we allow SyncMsgRemovedObject to continue, this happens:
+                    // 2.1) In PA: The remove scene presence sync calls pRegionContext.Scene.RemoveClient(Uuid, false), which
+                    // generates a delete attachments. (1.1-1.4 happens in PA)
+                    // 2.2) In PA: Simultaneously, the removeobject sync message is treated for the same attachments
+                    // X) and so on..
+                    // Also, don't just return, I still need to remove the sync infos!
+                    m_log.WarnFormat("{0}: OnObjectBeingRemovedFromScene UUID {1}, Thread ID {2}", LogHeader, sog.UUID, Thread.CurrentThread.ManagedThreadId);
                 }
+                // Prim crossed to another quark not managed by this actor.
+                else if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPrimCrossing, sog.UUID))
+                    return;
                 else if (InfoManager.SyncInfoExists(sog.RootPart.UUID))
                 {
                     SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
@@ -911,12 +924,32 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sog"></param>
         /// <param name="syncMsg"></param>
-        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg, string quarkName)
+        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg, string curQuark)
         {
-            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(quarkName);
+            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(curQuark);
             foreach (SyncConnector connector in syncConnectors)
             {
-                if (!connector.otherSideActorID.Equals(init_actorID) && QuarkManager.IsInActiveQuark(quarkName))
+                if (!connector.otherSideActorID.Equals(init_actorID) && QuarkManager.IsInActiveQuark(curQuark))
+                {
+                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
+                    connector.ImmediateOutgoingMsg(syncMsg);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Send special update. This version is used for Quark Crossings. There is no need to check if is an active quark.
+        /// 
+        /// 
+        /// </summary>
+        /// <param name="sog"></param>
+        /// <param name="syncMsg"></param>
+        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg, string prevQuark, string curQuark)
+        {
+            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(prevQuark,curQuark);
+            foreach (SyncConnector connector in syncConnectors)
+            {
+                if (!connector.otherSideActorID.Equals(init_actorID) && QuarkManager.IsInActiveQuark(curQuark))
                 {
                     // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
                     connector.ImmediateOutgoingMsg(syncMsg);
@@ -1031,7 +1064,7 @@ namespace DSG.RegionSync
                     {
                         syncConnectors.Add(connector);
                     }
-                }, quarkName);
+                }, null, quarkName);
             }
             else
             {
@@ -1041,7 +1074,7 @@ namespace DSG.RegionSync
                 ForEachSyncConnector(delegate(SyncConnector connector)
                 {
                     syncConnectors.Add(connector);
-                }, quarkName);
+                }, null, quarkName);
             }
 
             return syncConnectors;
@@ -1536,12 +1569,12 @@ namespace DSG.RegionSync
         /// This version is for updates that are quark dependent.
         /// </summary>
         /// <param name="msg"></param>
-        public void SendSyncMessage(SyncMsg msg, string quarkName)
+        public void SendSyncMessage(SyncMsg msg, string prevQuark, string curQuark)
         {
             ForEachSyncConnector(delegate(SyncConnector syncConnector)
             {
                 syncConnector.ImmediateOutgoingMsg(msg);
-            }, quarkName);
+            }, prevQuark, curQuark);
         }
 
         /// <summary>
@@ -1554,28 +1587,41 @@ namespace DSG.RegionSync
             ForEachSyncConnector(delegate(SyncConnector syncConnector)
             {
                 syncConnector.ImmediateOutgoingMsg(msg);
-            }, null);
+            }, null, null);
         }
 
         private void ForAllSyncConnectors(Action<SyncConnector> action)
         {
-            ForEachSyncConnector(action, null);
+            ForEachSyncConnector(action, null, null);
         }
 
-        private void ForEachSyncConnector(Action<SyncConnector> action, string quarkName)
+        private void ForEachSyncConnector(Action<SyncConnector> action, string prevQuark, string curQuark)
         {
             List<SyncConnector> closed = null;
-            HashSet<SyncConnector> subscribers = null;
-            if (quarkName != null)
-                subscribers = m_quarkManager.GetQuarkSubscribers(quarkName);
-            else
-                subscribers = m_syncConnectors;
+            HashSet<SyncConnector> curSubscribers = null, prevSubscribers = null, allSubscribers = new HashSet<SyncConnector>();
 
+
+            if (prevQuark == null && curQuark == null)
+                allSubscribers = m_syncConnectors;
+            else
+            {
+                if (curQuark != null)
+                {
+                    curSubscribers = m_quarkManager.GetQuarkSubscribers(curQuark);
+                    allSubscribers.UnionWith(curSubscribers);
+                }
+                if (prevQuark != null)
+                {
+                    prevSubscribers = m_quarkManager.GetQuarkSubscribers(prevQuark);
+                    allSubscribers.UnionWith(prevSubscribers);
+                }
+            }
+            
             HashSet<string> connectedRegions = new HashSet<string>();
             // The local region is always connected
             connectedRegions.Add(Scene.Name);
 
-            foreach (SyncConnector syncConnector in subscribers)
+            foreach (SyncConnector syncConnector in allSubscribers)
             {
                 // If connected, apply the action
                 if (syncConnector.connected)
@@ -2145,7 +2191,10 @@ namespace DSG.RegionSync
                 return;
             }
             SyncMsgAttach msg = new SyncMsgAttach(this, part.UUID, itemID, avatarID);
-            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(avatarID).CurQuark.QuarkName);
+            if (avatarID != null && avatarID != UUID.Zero)
+                SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(avatarID).CurQuark.QuarkName);
+            else
+                SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(part.UUID).CurQuark.QuarkName);
         }
 
         /* UNUSED??
@@ -2193,7 +2242,7 @@ namespace DSG.RegionSync
             UUID localUUID, originalUUID;
             GetGrabUUIDs(localID, out localUUID, originalID, out originalUUID);
             SyncMsgObjectGrab msg = new SyncMsgObjectGrab(this, remoteClient.AgentId, localUUID, originalUUID, offsetPos, surfaceArgs);
-            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(originalUUID).CurQuark.QuarkName);
+            SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(localUUID).CurQuark.QuarkName);
         }
 
         private void OnLocalObjectGrabbing(uint localID, uint originalID, Vector3 offsetPos, IClientAPI remoteClient, SurfaceTouchEventArgs surfaceArgs)
@@ -2514,6 +2563,7 @@ namespace DSG.RegionSync
                                 SyncInfoBase sib;
                                 if (InfoManager.SyncInfoExists(uuid))
                                 {
+                                    // Ignore updates about a "thing" that has already left this actor. Avoids generating crossing duplicates.
                                     if (!m_quarkManager.LeftQuarks.ContainsKey(uuid) || !m_quarkManager.LeftQuarks[uuid])
                                     {
                                         if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
@@ -2525,7 +2575,7 @@ namespace DSG.RegionSync
                                         }
                                         else
                                         {
-                                            // Crossed quarks
+                                            // Crossed quarks. Do not send update, it will be embedded in the QuarkCrossing message.
                                             sib = m_SyncInfoManager.GetSyncInfo(uuid);
                                             m_log.WarnFormat("{0}: Crossing from {1} to {2}", LogHeader, sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
                                             m_quarkManager.QuarkCrossingUpdate(sib, updatedProperties);
