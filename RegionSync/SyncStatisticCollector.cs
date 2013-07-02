@@ -51,6 +51,7 @@ using System.Text.RegularExpressions;
 using System.Timers;
 
 using OpenSim.Framework;
+using OpenSim.Framework.Console;
 using OpenSim.Framework.Monitoring;
 using OpenSim.Region.CoreModules;
 using OpenSim.Region.CoreModules.Framework.Statistics.Logging;
@@ -114,26 +115,95 @@ namespace DSG.RegionSync
 
         public override string ToConsoleString()
         {
-            StringBuilder ret = new StringBuilder();
+            // Message types that are not reported. There should be only one of these messages anyway.
+            string leaveOutMsgs = "GetObjec,GetPrese,GetTerra,Terrain,GetRegio,RegionIn,";
+            // Remembers the name of the actor on the other side of a connector
+            Dictionary<string, string> otherActor = new Dictionary<string, string>();
+
+            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
 
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
             if (StatsManager.TryGetStats(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
             {
+                // Find all the column names
+                Dictionary<string, int> cols = new Dictionary<string, int>();
+                int maxColumn = 2;  // two extra columns at beginning
                 foreach (string container in DSGStats.Keys)
                 {
-                    OSDMap containerMap = new OSDMap();
                     foreach (KeyValuePair<string, Stat> aStat in DSGStats[container])
                     {
-                        SyncConnectorStat connStat = aStat.Value as SyncConnectorStat;
-                        if (connStat != null)
+                        string colName = ExtractColumnNameFromStatShortname(aStat.Value.ShortName);
+                        if (!leaveOutMsgs.Contains(colName + ",") && !cols.ContainsKey(colName))
                         {
-                            ret.Append(connStat.ToConsoleString());
-                            ret.Append(Environment.NewLine);
+                            cols.Add(colName, maxColumn++);
+                        }
+                        if (!otherActor.ContainsKey(container))
+                        {
+                            SyncConnectorStat conStat = aStat.Value as SyncConnectorStat;
+                            if (conStat != null)
+                                otherActor[container] = conStat.OtherSideActorID;
                         }
                     }
                 }
+
+                // Add all the columns to the table
+                cdt.AddColumn("Connection", 22);
+                cdt.AddColumn("OtherActor", 10);
+                foreach (KeyValuePair<string, int> kvp in cols)
+                {
+                    cdt.AddColumn(kvp.Key, 8);
+                }
+
+                // Add a row for each of the containers
+                foreach (string container in DSGStats.Keys)
+                {
+                    string[] values = new string[maxColumn];
+                    values.Initialize();
+
+                    values[0] = container;
+                    if (otherActor.ContainsKey(container))
+                        values[1] = otherActor[container];
+
+                    foreach (KeyValuePair<string, Stat> aStat in DSGStats[container])
+                    {
+                        string colName = ExtractColumnNameFromStatShortname(aStat.Value.ShortName);
+                        if (cols.ContainsKey(colName))
+                            values[cols[colName]] = aStat.Value.Value.ToString();
+                    }
+
+                    cdt.AddRow(values);
+                }
             }
-            return ret.ToString();
+            return cdt.ToString();
+        }
+
+        private string ExtractColumnNameFromStatShortname(string shortName)
+        {
+            string ret = shortName;
+
+            // The shortname is like:
+            //   DSG_Queued_Msgs|SyncConnector0(script/rsea100)
+            //   DSG_Msgs_Typ_Rcvd|SyncConnector1(physics/rpea00)|GetObjects
+            // This code converts the first into "Queued_Msgs" and the second into "GetObjects".
+            string[] barPieces = ret.Split('|');
+            if (barPieces.Length == 2)
+            {
+                ret = barPieces[0];
+                ret = ret.Replace("DSG_Bytes_", "Byte");
+                ret = ret.Replace("DSG_Msgs_", "Msg");
+                ret = ret.Replace("DSG_", "");
+            }
+            if (barPieces.Length == 3)
+            {
+                if (barPieces[0].StartsWith("DSG_Msgs_Typ"))
+                {
+                    ret = barPieces[2];
+                }
+            }
+            if (ret.Length > 8)
+                ret = ret.Substring(0, 8);
+
+            return ret;
         }
 
         // Build an OSDMap of the DSG sync connector info. Returned map is of the form:
