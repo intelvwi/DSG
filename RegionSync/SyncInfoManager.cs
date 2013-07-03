@@ -223,7 +223,10 @@ namespace DSG.RegionSync
             lock (m_syncLock)
             {
                 if (sib == null)
+                {
+                    DebugLog.ErrorFormat("{0}: Could not create SyncInfo for syncID {1}", "[SYNC INFO MANAGER]", syncID);
                     return;
+                }
                 else if (UpdateInActiveQuark(sib))
                     m_syncedUUIDs[uuid] = sib;
             }

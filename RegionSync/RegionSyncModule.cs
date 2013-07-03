@@ -603,6 +603,7 @@ namespace DSG.RegionSync
             // m_log.WarnFormat("{0} OnObjectAddedToScene: Sync info not found in manager. Adding for uuid {1}.", LogHeader, uuid);
 
             // Add each SOP in SOG to SyncInfoManager
+            string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
             foreach (SceneObjectPart part in sog.Parts)
             {
                 m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, SyncID);
@@ -613,7 +614,7 @@ namespace DSG.RegionSync
                 // if we're syncing with other nodes, send out the message
                 SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
                 // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
             }
         }
 
@@ -2577,7 +2578,7 @@ namespace DSG.RegionSync
                                         {
                                             // Crossed quarks. Do not send update, it will be embedded in the QuarkCrossing message.
                                             sib = m_SyncInfoManager.GetSyncInfo(uuid);
-                                            m_log.WarnFormat("{0}: Crossing from {1} to {2}", LogHeader, sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
+                                            // m_log.WarnFormat("{0}: Crossing from {1} to {2}", LogHeader, sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
                                             m_quarkManager.QuarkCrossingUpdate(sib, updatedProperties);
                                         }
                                     }

@@ -3532,11 +3532,11 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
             switch (casecode)
             {
                 case 0: // current is not our quark and we don't know about the object
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 0", LogHeader);
+                    //m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 0", LogHeader);
                     break;
                 case 1: // current is not our quark and we know about the object
                     // Remove the object from the scenegraph
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 1", LogHeader);
+                    //m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 1", LogHeader);
                     // m_log.DebugFormat("{0}: SendPrimPropertyUpdates: not in my quark. Deleting object. sog={1}, sop={2}", LogHeader, sog.UUID, sop.UUID);
                     if (m_sog != null)
                     {
@@ -3565,7 +3565,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                         pRegionContext.InfoManager.InsertSyncInfoRemote(part.Key, part.Value);
                     }
                     m_sip = (SyncInfoPrim)pRegionContext.InfoManager.GetSyncInfo(m_primUUID);
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 2", LogHeader);
+                    //m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 2", LogHeader);
                     pRegionContext.RememberLocallyGeneratedEvent(MType, m_sog.UUID);
                     pRegionContext.Scene.AddNewSceneObject(m_sog, true);
                     pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3587,7 +3587,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                     {
                         m_log.ErrorFormat("{0}: Knew about the SOP, but don't have SyncInfo", LogHeader);
                     }
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 3", LogHeader);
+                    //m_log.WarnFormat("{0}: HandleQuarkCrossingFullUpdate: Case 3", LogHeader);
                     break;
             }            
             ret = true;
