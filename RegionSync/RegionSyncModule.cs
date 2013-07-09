@@ -2436,6 +2436,7 @@ namespace DSG.RegionSync
 
             //m_updateTick++;
 
+            Dictionary<UUID, HashSet<SyncableProperties.Type>> updates;
             lock (m_propertyUpdateLock)
             {
                 /*
@@ -2447,145 +2448,146 @@ namespace DSG.RegionSync
                     //m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
                     m_updateLoopLogSB = new StringBuilder(m_updateTick.ToString());
                 }
-                 * */ 
+                 * */
 
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
-                Dictionary<UUID, HashSet<SyncableProperties.Type>> updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
+                updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
                 m_propertyUpdates.Clear();
-
-                // Starting a new thread to prepare sync message and enqueue it to SyncConnectors
-                // Might not be syncing right now or have any updates, but the worker thread will determine that just before the send
-                System.Threading.ThreadPool.QueueUserWorkItem(delegate
-                {
-                    // If syncing with other nodes, send updates
-                    if (IsSyncingWithOtherSyncNodes())
-                    {
-                        int updateIndex = 0;
-                        foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
-                        {
-                            UUID uuid = update.Key;
-                            HashSet<SyncableProperties.Type> updatedProperties = update.Value;
-
-                            // Skip if the uuid is no longer in the local Scene or if the part is being deleted
-                            //if ((sp == null) && (sop == null || sop.ParentGroup == null || sop.ParentGroup.IsDeleted))
-                            //    continue;
-
-                            //Sync the SOP data and cached property values in SyncInfoManager again
-                            //HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(sop, update.Value);
-                            //updatedProperties.UnionWith(propertiesWithSyncInfoUpdated);
-
-                            HashSet<string> syncIDs = null;
-                            try
-                            {
-                                syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
-
-                                /*
-                                //Log encoding delays
-                                if (tickLog)
-                                {
-                                    DateTime encodeEndTime = DateTime.Now;
-                                    TimeSpan span = encodeEndTime - startTime;
-                                    m_updateLoopLogSB.Append(",update-" +updateIndex+"," + span.TotalMilliseconds.ToString());
-                                }
-                                 * */
-
-                                SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(this, uuid, updatedProperties);
-
-                                /*
-                                //Log encoding delays
-                                if (tickLog)
-                                {
-                                    DateTime syncMsgendTime = DateTime.Now;
-                                    TimeSpan span = syncMsgendTime - startTime;
-                                    m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
-                                }
-                                 * */
-
-                                HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
-                                // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
-                                foreach (SyncConnector connector in syncConnectors)
-                                {
-                                    //If the updated properties are from the same actor, the no need to send this sync message to that actor
-                                    if (syncIDs.Count == 1)
-                                    {
-                                        if (syncIDs.Contains(connector.otherSideActorID))
-                                        {
-                                            //m_log.DebugFormat("Skip sending to {0}", connector.otherSideActorID);
-                                            continue;
-                                        }
-
-                                    }
-                                    else
-                                    {
-                                        //debug
-                                        /*
-                                        string logstr="";
-                                        foreach (string sid in syncIDs)
-                                        {
-                                            logstr += sid+",";
-                                        }
-                                        m_log.DebugFormat("Updates from {0}", logstr);
-                                         * */
-                                    }
-                                    // Prepare the data for output. If more updated properties are added later,
-                                    //     the data is rebuilt. Calling this here means the conversion is usually done on this
-                                    //     worker thread and not the send thread and that log messages have the correct len.
-                                    msg.ConvertOut(this);
-                                    connector.EnqueueOutgoingUpdate(uuid, msg);
-                                }
-
-                                /*
-                                //Log encoding delays
-                                if (tickLog)
-                                {
-                                    DateTime syncConnectorendTime = DateTime.Now;
-                                    TimeSpan span = syncConnectorendTime - startTime;
-                                    m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
-                                }
-                                 * */
-                            }
-                            catch (Exception e)
-                            {
-                                m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e);
-                            }
-
-                            updateIndex++;
-
-                        }
-
-                        //If no updates to send out, see if SyncConnectors need to send KeeyAlive
-                        if (updates.Count == 0)
-                        {
-
-                            //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
-                            //sent is longer than SyncConnector.KeeyAliveMaxInterval)
-                            //foreach (SyncConnector syncConnector in m_syncConnectors)
-                            //{
-                            //    syncConnector.KeepAlive(m_syncMsgKeepAlive);
-                            //}
-                            ForEachSyncConnector(delegate(SyncConnector connector)
-                            {
-                                connector.KeepAlive(m_syncMsgKeepAlive);
-
-                            });
-                        }
-                    }
-
-                    /*
-                    if (tickLog)
-                    {
-                        DateTime endTime = DateTime.Now;
-                        TimeSpan span = endTime - startTime;
-                        m_updateLoopLogSB.Append(", total-span " + span.TotalMilliseconds.ToString());
-                        //m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
-                        //    m_updateTick, span.Milliseconds);
-                    }
-                     * */ 
-
-                    // Indicate that the current batch of updates has been completed
-                    Interlocked.Exchange(ref m_sendingPropertyUpdates, 0);
-                });
             }
+
+            // Starting a new thread to prepare sync message and enqueue it to SyncConnectors
+            // Might not be syncing right now or have any updates, but the worker thread will determine that just before the send
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                // If syncing with other nodes, send updates
+                if (IsSyncingWithOtherSyncNodes())
+                {
+                    int updateIndex = 0;
+                    foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
+                    {
+                        UUID uuid = update.Key;
+                        HashSet<SyncableProperties.Type> updatedProperties = update.Value;
+
+                        // Skip if the uuid is no longer in the local Scene or if the part is being deleted
+                        //if ((sp == null) && (sop == null || sop.ParentGroup == null || sop.ParentGroup.IsDeleted))
+                        //    continue;
+
+                        //Sync the SOP data and cached property values in SyncInfoManager again
+                        //HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(sop, update.Value);
+                        //updatedProperties.UnionWith(propertiesWithSyncInfoUpdated);
+
+                        HashSet<string> syncIDs = null;
+                        try
+                        {
+                            syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
+
+                            /*
+                            //Log encoding delays
+                            if (tickLog)
+                            {
+                                DateTime encodeEndTime = DateTime.Now;
+                                TimeSpan span = encodeEndTime - startTime;
+                                m_updateLoopLogSB.Append(",update-" +updateIndex+"," + span.TotalMilliseconds.ToString());
+                            }
+                             * */
+
+                            SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(this, uuid, updatedProperties);
+
+                            /*
+                            //Log encoding delays
+                            if (tickLog)
+                            {
+                                DateTime syncMsgendTime = DateTime.Now;
+                                TimeSpan span = syncMsgendTime - startTime;
+                                m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
+                            }
+                             * */
+
+                            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
+                            // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
+                            foreach (SyncConnector connector in syncConnectors)
+                            {
+                                //If the updated properties are from the same actor, the no need to send this sync message to that actor
+                                if (syncIDs.Count == 1)
+                                {
+                                    if (syncIDs.Contains(connector.otherSideActorID))
+                                    {
+                                        //m_log.DebugFormat("Skip sending to {0}", connector.otherSideActorID);
+                                        continue;
+                                    }
+
+                                }
+                                else
+                                {
+                                    //debug
+                                    /*
+                                    string logstr="";
+                                    foreach (string sid in syncIDs)
+                                    {
+                                        logstr += sid+",";
+                                    }
+                                    m_log.DebugFormat("Updates from {0}", logstr);
+                                     * */
+                                }
+                                // Prepare the data for output. If more updated properties are added later,
+                                //     the data is rebuilt. Calling this here means the conversion is usually done on this
+                                //     worker thread and not the send thread and that log messages have the correct len.
+                                msg.ConvertOut(this);
+                                connector.EnqueueOutgoingUpdate(uuid, msg);
+                            }
+
+                            /*
+                            //Log encoding delays
+                            if (tickLog)
+                            {
+                                DateTime syncConnectorendTime = DateTime.Now;
+                                TimeSpan span = syncConnectorendTime - startTime;
+                                m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
+                            }
+                             * */
+                        }
+                        catch (Exception e)
+                        {
+                            m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e);
+                        }
+
+                        updateIndex++;
+
+                    }
+
+                    //If no updates to send out, see if SyncConnectors need to send KeeyAlive
+                    if (updates.Count == 0)
+                    {
+
+                        //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
+                        //sent is longer than SyncConnector.KeeyAliveMaxInterval)
+                        //foreach (SyncConnector syncConnector in m_syncConnectors)
+                        //{
+                        //    syncConnector.KeepAlive(m_syncMsgKeepAlive);
+                        //}
+                        ForEachSyncConnector(delegate(SyncConnector connector)
+                        {
+                            connector.KeepAlive(m_syncMsgKeepAlive);
+
+                        });
+                    }
+                }
+
+                /*
+                if (tickLog)
+                {
+                    DateTime endTime = DateTime.Now;
+                    TimeSpan span = endTime - startTime;
+                    m_updateLoopLogSB.Append(", total-span " + span.TotalMilliseconds.ToString());
+                    //m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
+                    //    m_updateTick, span.Milliseconds);
+                }
+                 * */
+
+                // Indicate that the current batch of updates has been completed
+                Interlocked.Exchange(ref m_sendingPropertyUpdates, 0);
+            });
+
 
             CheckTerrainTainted();
         }
