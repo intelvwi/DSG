@@ -199,6 +199,8 @@ namespace DSG.RegionSync
             //has been sent through that connection for KeepAliveMaxInterval ms.
             SyncConnector.KeepAliveMaxInterval = m_sysConfig.GetInt("KeepAliveMaxInterval", 10000); //unit of ms
             m_syncMsgKeepAlive = new SyncMsgKeepAlive(this);
+
+            m_updateThreadDelayLog = m_sysConfig.GetBoolean("UpdateThreadDelayLog", false);
         }
 
         //Called after Initialise()
@@ -2397,8 +2399,10 @@ namespace DSG.RegionSync
             EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
         }
 
-        //private int m_updateTick = 0;
-        //private StringBuilder m_updateLoopLogSB;
+        private int m_updateTick = 0;
+        private StringBuilder m_updateLoopLogSB; //the logged information needs better formatting to be written to logfile, TODO
+        private bool m_updateThreadDelayLog = false; 
+
         /// <summary>
         /// Triggered periodically to send out sync messages that include 
         /// prim and scene presence properties that have been updated since last SyncOut.
@@ -2426,6 +2430,10 @@ namespace DSG.RegionSync
                 });
             }
 
+            //If no updates to send, or not connecting with other nodes, simply return
+            if (m_propertyUpdates.Count == 0 || !IsSyncingWithOtherSyncNodes())
+                return;
+
 
             // Existing value of 1 indicates that updates are currently being sent so skip updates this pass
             if (Interlocked.Exchange(ref m_sendingPropertyUpdates, 1) == 1)
@@ -2434,31 +2442,46 @@ namespace DSG.RegionSync
                 return;
             }
 
-            //m_updateTick++;
+            TimeSpan span; 
+            DateTime startTime= DateTime.Now;
+            int avWorkerThread, avPortThread;
+            if (m_updateThreadDelayLog)
+            {
+                m_updateTick++;
+                //bool tickLog = false;
+                m_updateLoopLogSB = new StringBuilder("Update tick " + m_updateTick);
+            }
 
             Dictionary<UUID, HashSet<SyncableProperties.Type>> updates;
             lock (m_propertyUpdateLock)
             {
-                /*
-                bool tickLog = false;
-                DateTime startTime = DateTime.Now;
-                if (m_propertyUpdates.Count > 0)
-                {
-                    tickLog = true;
-                    //m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
-                    m_updateLoopLogSB = new StringBuilder(m_updateTick.ToString());
-                }
-                 * */
-
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
                 updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
                 m_propertyUpdates.Clear();
             }
 
+            if (m_updateThreadDelayLog)
+            {
+                //Log locking delays
+                DateTime LockEndTime = DateTime.Now;
+                span = LockEndTime - startTime;
+                System.Threading.ThreadPool.GetAvailableThreads(out avWorkerThread, out avPortThread);
+                m_updateLoopLogSB.Append(", after lock, " + span.TotalMilliseconds + ", avWorkThread, " + avWorkerThread + " , avIOPortThread," + avPortThread);
+            }
+
             // Starting a new thread to prepare sync message and enqueue it to SyncConnectors
             // Might not be syncing right now or have any updates, but the worker thread will determine that just before the send
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            //System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            Util.FireAndForget(delegate
             {
+                if (m_updateThreadDelayLog)
+                {
+                    DateTime ThreadStartWorkingTime = DateTime.Now;
+                    span = ThreadStartWorkingTime - startTime;
+                    System.Threading.ThreadPool.GetAvailableThreads(out avWorkerThread, out avPortThread);
+                    m_updateLoopLogSB.Append(", into worker thread, " + span.TotalMilliseconds + ", avWorkThread, " + avWorkerThread + " , avIOPortThread," + avPortThread);
+                }
+
                 // If syncing with other nodes, send updates
                 if (IsSyncingWithOtherSyncNodes())
                 {
@@ -2481,27 +2504,24 @@ namespace DSG.RegionSync
                         {
                             syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
 
-                            /*
-                            //Log encoding delays
-                            if (tickLog)
+                            if (m_updateThreadDelayLog)
                             {
+                                //Log encoding delays
                                 DateTime encodeEndTime = DateTime.Now;
-                                TimeSpan span = encodeEndTime - startTime;
-                                m_updateLoopLogSB.Append(",update-" +updateIndex+"," + span.TotalMilliseconds.ToString());
+                                span = encodeEndTime - startTime;
+                                m_updateLoopLogSB.Append(", update#" + updateIndex + ", before encoding, " + span.TotalMilliseconds.ToString());
                             }
-                             * */
 
                             SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(this, uuid, updatedProperties);
 
-                            /*
-                            //Log encoding delays
-                            if (tickLog)
+                            if (m_updateThreadDelayLog)
                             {
+                                //Log encoding delays
                                 DateTime syncMsgendTime = DateTime.Now;
-                                TimeSpan span = syncMsgendTime - startTime;
-                                m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
+                                span = syncMsgendTime - startTime;
+                                m_updateLoopLogSB.Append(", after encoding, " + span.TotalMilliseconds.ToString());
                             }
-                             * */
+
 
                             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
                             // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
@@ -2536,15 +2556,14 @@ namespace DSG.RegionSync
                                 connector.EnqueueOutgoingUpdate(uuid, msg);
                             }
 
-                            /*
-                            //Log encoding delays
-                            if (tickLog)
+                            if (m_updateThreadDelayLog)
                             {
+                                //Log encoding delays
                                 DateTime syncConnectorendTime = DateTime.Now;
-                                TimeSpan span = syncConnectorendTime - startTime;
-                                m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
+                                span = syncConnectorendTime - startTime;
+                                m_updateLoopLogSB.Append(", after sending to all connectors, " + span.TotalMilliseconds.ToString());
                             }
-                             * */
+
                         }
                         catch (Exception e)
                         {
@@ -2573,16 +2592,17 @@ namespace DSG.RegionSync
                     }
                 }
 
-                /*
-                if (tickLog)
+                if (m_updateThreadDelayLog)
                 {
                     DateTime endTime = DateTime.Now;
-                    TimeSpan span = endTime - startTime;
+                    span = endTime - startTime;
                     m_updateLoopLogSB.Append(", total-span " + span.TotalMilliseconds.ToString());
-                    //m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
-                    //    m_updateTick, span.Milliseconds);
+                    if (span.TotalMilliseconds > 10)
+                    {
+                        m_log.WarnFormat("Update sending thread takes too long -- {0}", m_updateLoopLogSB.ToString());
+                    }
                 }
-                 * */
+
 
                 // Indicate that the current batch of updates has been completed
                 Interlocked.Exchange(ref m_sendingPropertyUpdates, 0);
