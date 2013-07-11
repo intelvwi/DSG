@@ -584,7 +584,8 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AggregateScriptEvents:
                     part.AggregateScriptEvents = (scriptEvents)(int)LastUpdateValue;
                     //DebugLog.DebugFormat("set {0} value to be {1}", property.ToString(), part.AggregateScriptEvents);
-                    //DSL part.aggregateScriptEventSubscriptions();
+                    // Have the part process the new values for collision events.
+                    part.SubscribeForCollisionEvents();
                     break;
 
                 case SyncableProperties.Type.AllowedDrop:
