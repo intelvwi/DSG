@@ -3620,7 +3620,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
     }
     public override bool ConvertOut(RegionSyncModule pRegionContext)
     {
-        if (Dir == Direction.Out)
+        if (Dir == Direction.Out && DataMap == null)
             DataMap = CreatePrimQuarkCrossingMessage(pRegionContext);
         return base.ConvertOut(pRegionContext);
     }
@@ -3832,7 +3832,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
 
     public override bool ConvertOut(RegionSyncModule pRegionContext)
     {
-        if (Dir == Direction.Out)
+        if (Dir == Direction.Out && DataMap == null)
             DataMap = CreatePresenceQuarkCrossingMessage(pRegionContext);
         return base.ConvertOut(pRegionContext);
     }
