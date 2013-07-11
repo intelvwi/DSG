@@ -2528,7 +2528,7 @@ namespace DSG.RegionSync
                             foreach (SyncConnector connector in syncConnectors)
                             {
                                 //If the updated properties are from the same actor, the no need to send this sync message to that actor
-                                if (syncIDs.Count == 1)
+                                if (syncIDs != null && syncIDs.Count == 1)
                                 {
                                     if (syncIDs.Contains(connector.otherSideActorID))
                                     {
