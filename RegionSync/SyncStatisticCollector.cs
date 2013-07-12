@@ -55,6 +55,7 @@ using OpenSim.Framework.Console;
 using OpenSim.Framework.Monitoring;
 using OpenSim.Region.CoreModules;
 using OpenSim.Region.CoreModules.Framework.Statistics.Logging;
+using OpenSim.Region.Framework.Scenes;
 
 using OpenMetaverse.StructuredData;
 
@@ -327,6 +328,7 @@ namespace DSG.RegionSync
         public static string DSGDetailCategory = "dsg-detail";
 
         private string RegionName = "pre";
+        private Scene AssociatedScene { get; set; }
 
         private int LogIntervalSeconds { get; set; }
         private System.Timers.Timer WriteTimer { get; set; }
@@ -431,13 +433,16 @@ namespace DSG.RegionSync
             m_lastLLUDPStatsLogTime = Util.EnvironmentTickCount(); //Util.EnvironmentTickCount() 15.6ms precision
         }
 
-        public void SpecifyRegion(string pRegionName)
+        public void SpecifyRegion(Scene pScene, string pRegionName)
         {
+            AssociatedScene = pScene;
             RegionName = pRegionName;
 
             // Once the region is set, we can start gathering statistics
             if (Enabled)
             {
+                RegisterDSGSpecificStats();
+
                 WriteTimer = new Timer(LogIntervalSeconds * 1000);
                 WriteTimer.Elapsed += StatsTimerElapsed;
                 WriteTimer.Start();
@@ -448,7 +453,7 @@ namespace DSG.RegionSync
         {       "RootAgents", "ChildAgents", "SimFPS", "PhysicsFPS", "TotalPrims",
                 "ActivePrims", "ActiveScripts", "ScriptLines",
                 "FrameTime", "PhysicsTime", "AgentTime", "ImageTime", "NetTime", "OtherTime", "SimSpareMS",
-                "AgentUpdates", "SlowFrames", "TimeDilation",
+                "AgentUpdates", "SlowFrames", "TimeDilation", "RealAgents",
         };
         List<string> serverStatFields = new List<string>
         {
@@ -514,6 +519,17 @@ namespace DSG.RegionSync
 
             if (m_LLUDPStatsLogWriter != null)
                 m_LLUDPStatsLogWriter.Close();
+        }
+
+        private void RegisterDSGSpecificStats()
+        {
+            // The number of real clients in a region. Counts the number of ScenePresences actually connected to a viewer.
+            StatsManager.RegisterStat(new Stat("RealAgents", "RealAgents", "RealAgents", "avatars", "scene", RegionName, StatType.Pull,
+                (s) => { 
+                    int realAgents = 0;
+                    AssociatedScene.ForEachScenePresence((sp) => { if (sp.ControllingClient is LLClientView) realAgents++; });
+                    s.Value = realAgents;
+                }, StatVerbosity.Info));
         }
 
         int lastStatTime = 0;

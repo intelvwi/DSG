@@ -229,7 +229,7 @@ namespace DSG.RegionSync
 
             if (StatCollector != null)
             {
-                StatCollector.SpecifyRegion(Scene.RegionInfo.RegionName);
+                StatCollector.SpecifyRegion(Scene, Scene.RegionInfo.RegionName);
             }
 
             SyncID = GetSyncID();
