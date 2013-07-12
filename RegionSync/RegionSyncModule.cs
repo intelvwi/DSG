@@ -806,7 +806,7 @@ namespace DSG.RegionSync
                new DsgEstateParam("AllowParcelChanges", (es) => { return es.AllowParcelChanges; },  (es,v) => { es.AllowParcelChanges = BoolParam(v); }),
                new DsgEstateParam("AllowSetHome",       (es) => { return es.AllowSetHome; },    (es,v) => { es.AllowSetHome = BoolParam(v); }),
                new DsgEstateParam("AllowVoice",         (es) => { return es.AllowVoice; },      (es,v) => { es.AllowVoice = BoolParam(v); }),
-               new DsgEstateParam("BullableFactor",     (es) => { return es.BillableFactor; },  (es,v) => { es.BillableFactor = FloatParam(v); }),
+               new DsgEstateParam("BillableFactor",     (es) => { return es.BillableFactor; },  (es,v) => { es.BillableFactor = FloatParam(v); }),
                new DsgEstateParam("BlockDwell",         (es) => { return es.BlockDwell; },      (es,v) => { es.BlockDwell = BoolParam(v); }),
                new DsgEstateParam("DenyAnonymous",      (es) => { return es.DenyAnonymous; },   (es,v) => { es.DenyAnonymous = BoolParam(v); }),
                new DsgEstateParam("DenyIdentified",     (es) => { return es.DenyIdentified; },  (es,v) => { es.DenyIdentified = BoolParam(v); }),
@@ -818,7 +818,6 @@ namespace DSG.RegionSync
                new DsgEstateParam("EstateID",           (es) => { return es.EstateID; },        (es,v) => { es.EstateID = (uint)IntParam(v); }),
                new DsgEstateParam("RedirectGridX",      (es) => { return es.RedirectGridX; },   (es,v) => { es.RedirectGridX = IntParam(v); }),
                new DsgEstateParam("RedirectGridY",      (es) => { return es.RedirectGridY; },   (es,v) => { es.RedirectGridY = IntParam(v); }),
-               new DsgEstateParam("PublicAccess",       (es) => { return es.PublicAccess; },    (es,v) => { es.PublicAccess = BoolParam(v); }),
                new DsgEstateParam("UseGlobalTime",      (es) => { return es.UseGlobalTime; },   (es,v) => { es.UseGlobalTime = BoolParam(v); }),
        };
 
