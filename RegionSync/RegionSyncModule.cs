@@ -874,7 +874,6 @@ namespace DSG.RegionSync
             }
             else
             {
-                m_log.DebugFormat("{0} dsgEstate: setting '{1}' to '{2}'", LogHeader, var, val);    // DEBUG DEBUG
                 esp.setter(estateSetting, val);
                 // After setting estate info, tell the object to store it
                 estateSetting.Save();
@@ -884,7 +883,6 @@ namespace DSG.RegionSync
                     em.TriggerEstateInfoChange();
 
                 SceneManager.Instance.CurrentScene.TriggerEstateSunUpdate();
-                m_log.DebugFormat("{0} dsgEstate: after set: '{1}' is '{2}'", LogHeader, var, esp.getter(estateSetting));    // DEBUG DEBUG
             }
             /*
             estateInfo.EstateAccess[1] = UUID;
