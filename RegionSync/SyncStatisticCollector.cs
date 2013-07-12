@@ -103,6 +103,22 @@ namespace DSG.RegionSync
         {
             return base.ToConsoleString();
         }
+
+        public override OSDMap ToOSDMap()
+        {
+            // Start with the underlying value map
+            OSDMap map = base.ToOSDMap();
+
+            map["StatType"] = "SyncConnectorStat";
+            map.Add("RegionName", RegionName);
+            map.Add("ConnectorNum", ConnectorNum);
+            map.Add("MyActorID", MyActorID);
+            map.Add("OtherSideActorID", OtherSideActorID);
+            map.Add("OtherSideRegionName", OtherSideRegionName);
+            map.Add("MessageType", MessageType);
+
+            return map;
+        }
     }
 
     // =================================================================================
