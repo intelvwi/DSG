@@ -3027,7 +3027,7 @@ public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptCollidingStart received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptCollidingStart received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptCollidingStart(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3066,7 +3066,7 @@ public class SyncMsgScriptColliding : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptColliding received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptColliding received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptColliding(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3103,7 +3103,7 @@ public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptCollidingEnd received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptCollidingEnd received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptCollidingEnd(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3140,7 +3140,7 @@ public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptLandCollidingStart received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptLandCollidingStart received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptLandCollidingStart(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3177,7 +3177,7 @@ public class SyncMsgScriptLandColliding : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptLandColliding received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptLandColliding received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptLandColliding(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3214,7 +3214,7 @@ public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptLandCollidingEnd(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
