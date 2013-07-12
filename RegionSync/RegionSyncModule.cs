@@ -2847,6 +2847,13 @@ namespace DSG.RegionSync
                         try
                         {
                             syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
+                            if (syncIDs == null)
+                            {
+                                // If we don't find any updated properties, don't generate an update message.
+                                // This usually happens when an object was deleted after some updates were generated for it.
+                                // The there-is-something-to-update flag is still set but there is no info in the sync cache.
+                                continue;
+                            }
 
                             if (m_updateThreadDelayLog)
                             {
