@@ -50,6 +50,7 @@ using Nini.Config;
 using OpenMetaverse;
 using OpenSim.Framework;
 using OpenSim.Framework.Client;
+using OpenSim.Framework.Console;
 using OpenSim.Framework.Monitoring;
 using OpenSim.Region.CoreModules.Framework.InterfaceCommander;
 using Logging = OpenSim.Region.CoreModules.Framework.Statistics.Logging;
@@ -191,6 +192,9 @@ namespace DSG.RegionSync
             int syncInfoAgeOutSeconds = m_sysConfig.GetInt("PrimSyncInfoAgeOutSeconds", 300); //unit of seconds
             TimeSpan tSpan = new TimeSpan(0, 0, syncInfoAgeOutSeconds);
             m_SyncInfoManager = new SyncInfoManager(this, tSpan.Ticks);
+
+            // Global command line commands
+            InstallGlobalCommands();
 
             //this is temp solution for reducing collision events for country fair demo
             m_reportCollisions = m_sysConfig.GetString("ReportCollisions", "All");
@@ -743,6 +747,347 @@ namespace DSG.RegionSync
 
                 m_commander.ProcessConsoleCommand(args[1], tmpArgs);
             }
+        }
+
+        private bool m_commandsLoaded = false;
+        private const string estateListInvocation = "dsgEstate list";
+        private const string parcelListInvocation = "dsgParcel list";
+        private const string estateInvocation = "dsgEstate set param value";
+        private const string parcelInvocation = "dsgParcel set x y param value";
+        private void InstallGlobalCommands()
+        {
+            if (!m_commandsLoaded)
+            {
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgEstate list",
+                    estateListInvocation,
+                    "List settable estate parameters on a DSG region",
+                    ProcessEstateList);
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgParcel list",
+                    parcelListInvocation,
+                    "List settable parcel parameters in a DSG region",
+                    ProcessParcelList);
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgEstate set",
+                    estateInvocation,
+                    "Set estate parameters on a DSG region",
+                    ProcessEstateSet);
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgParcel set",
+                    parcelInvocation,
+                    "Get parcel parameters in a DSG region",
+                    ProcessParcelSet);
+
+                m_commandsLoaded = true;
+            }
+        }
+
+        private delegate void dsgEstateSet(EstateSettings es, string v);
+        private delegate object dsgEstateGet(EstateSettings es);
+        private class DsgEstateParam
+        {
+            public string name;
+            public dsgEstateGet getter;
+            public dsgEstateSet setter;
+            public DsgEstateParam(string pName, dsgEstateGet pGetter, dsgEstateSet pSetter)
+            {
+                name = pName;
+                getter = pGetter;
+                setter = pSetter;
+            }
+        }
+        private DsgEstateParam[] DSGEstateParams = {
+               new DsgEstateParam("AllowDirectTeleport",(es) => { return es.AllowDirectTeleport; }, (es,v) => { es.AllowDirectTeleport = BoolParam(v); }),
+               new DsgEstateParam("AllowLandmark",      (es) => { return es.AllowLandmark; },   (es,v) => { es.AllowLandmark = BoolParam(v); }),
+               new DsgEstateParam("AllowParcelChanges", (es) => { return es.AllowParcelChanges; },  (es,v) => { es.AllowParcelChanges = BoolParam(v); }),
+               new DsgEstateParam("AllowSetHome",       (es) => { return es.AllowSetHome; },    (es,v) => { es.AllowSetHome = BoolParam(v); }),
+               new DsgEstateParam("AllowVoice",         (es) => { return es.AllowVoice; },      (es,v) => { es.AllowVoice = BoolParam(v); }),
+               new DsgEstateParam("BullableFactor",     (es) => { return es.BillableFactor; },  (es,v) => { es.BillableFactor = FloatParam(v); }),
+               new DsgEstateParam("BlockDwell",         (es) => { return es.BlockDwell; },      (es,v) => { es.BlockDwell = BoolParam(v); }),
+               new DsgEstateParam("DenyAnonymous",      (es) => { return es.DenyAnonymous; },   (es,v) => { es.DenyAnonymous = BoolParam(v); }),
+               new DsgEstateParam("DenyIdentified",     (es) => { return es.DenyIdentified; },  (es,v) => { es.DenyIdentified = BoolParam(v); }),
+               new DsgEstateParam("DenyMinors",         (es) => { return es.DenyMinors; },      (es,v) => { es.DenyMinors = BoolParam(v); }),
+               new DsgEstateParam("DenyTransacted",     (es) => { return es.DenyTransacted; },  (es,v) => { es.DenyTransacted = BoolParam(v); }),
+               new DsgEstateParam("FixedSun",           (es) => { return es.FixedSun; },        (es,v) => { es.FixedSun = BoolParam(v); }),
+               new DsgEstateParam("SunPosition",        (es) => { return es.SunPosition; },     (es,v) => { es.SunPosition = FloatParam(v); }),
+               new DsgEstateParam("PublicAccess",       (es) => { return es.PublicAccess; },    (es,v) => { es.PublicAccess = BoolParam(v); }),
+               new DsgEstateParam("EstateID",           (es) => { return es.EstateID; },        (es,v) => { es.EstateID = (uint)IntParam(v); }),
+               new DsgEstateParam("RedirectGridX",      (es) => { return es.RedirectGridX; },   (es,v) => { es.RedirectGridX = IntParam(v); }),
+               new DsgEstateParam("RedirectGridY",      (es) => { return es.RedirectGridY; },   (es,v) => { es.RedirectGridY = IntParam(v); }),
+               new DsgEstateParam("PublicAccess",       (es) => { return es.PublicAccess; },    (es,v) => { es.PublicAccess = BoolParam(v); }),
+       };
+
+        // Invocation is: dsgEstate list
+        private void ProcessEstateList(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            string regionName = SceneManager.Instance.CurrentScene.RegionInfo.RegionName;
+            EstateSettings estateInfo = SceneManager.Instance.CurrentScene.RegionInfo.EstateSettings;
+
+            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
+            MainConsole.Instance.OutputFormat("Estate name = {0}, id={1}", estateInfo.EstateName, estateInfo.EstateID);
+            cdt.AddColumn("Parameter", 20);
+            cdt.AddColumn("Value", 10);
+            foreach (DsgEstateParam espx in DSGEstateParams)
+            {
+                cdt.AddRow(espx.name, espx.getter(estateInfo).ToString());
+            }
+            MainConsole.Instance.Output(cdt.ToString());
+        }
+        // Invocation is: dsgEstate set variable value
+        private void ProcessEstateSet(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            if (cmdparms.Length != 4)
+            {
+                MainConsole.Instance.OutputFormat("Parameter count error. Invocation: {0}", estateInvocation);
+                return;
+            }
+            string var = cmdparms[2].ToLower();
+            string val = cmdparms[3];
+            EstateSettings estateSetting = SceneManager.Instance.CurrentScene.RegionInfo.EstateSettings;
+            DsgEstateParam esp = null;
+            foreach (DsgEstateParam espx in DSGEstateParams)
+            {
+                if (var == espx.name.ToLower())
+                {
+                    esp = espx;
+                    break;
+                }
+            }
+            if (esp == null)
+            {
+                MainConsole.Instance.OutputFormat("Unrecognized estate parameter name. Try 'dsgEstate list'.");
+            }
+            else
+            {
+                m_log.DebugFormat("{0} dsgEstate: setting '{1}' to '{2}'", LogHeader, var, val);    // DEBUG DEBUG
+                esp.setter(estateSetting, val);
+                // After setting estate info, tell the object to store it
+                estateSetting.Save();
+
+                IEstateModule em = SceneManager.Instance.CurrentScene.RequestModuleInterface<IEstateModule>();
+                if (em != null)
+                    em.TriggerEstateInfoChange();
+
+                SceneManager.Instance.CurrentScene.TriggerEstateSunUpdate();
+                m_log.DebugFormat("{0} dsgEstate: after set: '{1}' is '{2}'", LogHeader, var, esp.getter(estateSetting));    // DEBUG DEBUG
+            }
+            /*
+            estateInfo.EstateAccess[1] = UUID;
+            estateInfo.AddBan(new EstateBan());
+            estateInfo.EstateBans[1] = UUID;
+            estateInfo.EstateGroups[1] = UUID;
+            estateInfo.EstateManagers[1] = UUID;
+            estateInfo.EstateName = "string";
+            estateInfo.EstateOwner = UUID;
+            estateInfo.RemoveBan(UUID);
+             */
+        }
+
+        private delegate void dsgParcelSet(ILandObject lo, string v);
+        private delegate object dsgParcelGet(ILandObject lo);
+        private class DsgParcelParam
+        {
+            public string name;
+            public dsgParcelGet getter;
+            public dsgParcelSet setter;
+            public DsgParcelParam(string pName, dsgParcelGet pGetter, dsgParcelSet pSetter)
+            {
+                name = pName;
+                getter = pGetter;
+                setter = pSetter;
+            }
+        }
+        // The logical statement for the ParcelFlags setter XORs the current value with the desired value. If the XOR is true (the values
+        //     are different) the flags value is XORed with the flag value to complement it.
+        private DsgParcelParam[] DSGParcelParams = {
+               new DsgParcelParam("ParcelParam", (lo) => { return lo.LandData.Flags; }, (lo,v) => { lo.LandData.Flags = (uint)IntParam(v); }),
+               new DsgParcelParam("AllowFly", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowFly) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowFly) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowFly; } ),
+               new DsgParcelParam("AllowOtherScripts", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowOtherScripts) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowOtherScripts) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowOtherScripts; } ),
+               new DsgParcelParam("ForSale", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ForSale) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ForSale) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ForSale; } ),
+               new DsgParcelParam("AllowLandmark", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowLandmark) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowLandmark) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowLandmark; } ),
+               new DsgParcelParam("AllowTerraform", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowTerraform) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowTerraform) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowTerraform; } ),
+               new DsgParcelParam("AllowDamage", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowDamage) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowDamage) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowDamage; } ),
+               new DsgParcelParam("CreateObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.CreateObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.CreateObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.CreateObjects; } ),
+               new DsgParcelParam("ForSaleObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ForSaleObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ForSaleObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ForSaleObjects; } ),
+               new DsgParcelParam("UseAccessGroup", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseAccessGroup) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseAccessGroup) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseAccessGroup; } ),
+               new DsgParcelParam("UseAccessList", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseAccessList) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseAccessList) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseAccessList; } ),
+               new DsgParcelParam("UseBanList", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseBanList) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseBanList) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseBanList; } ),
+               new DsgParcelParam("UsePassList", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UsePassList) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UsePassList) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UsePassList; } ),
+               new DsgParcelParam("ShowDirectory", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ShowDirectory) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ShowDirectory) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ShowDirectory; } ),
+               new DsgParcelParam("AllowDeedToGroup", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowDeedToGroup) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowDeedToGroup) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowDeedToGroup; } ),
+               new DsgParcelParam("ContributeWithDeed", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ContributeWithDeed) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ContributeWithDeed) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ContributeWithDeed; } ),
+               new DsgParcelParam("SoundLocal", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.SoundLocal) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.SoundLocal) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.SoundLocal; } ),
+               new DsgParcelParam("SellParcelObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.SellParcelObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.SellParcelObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.SellParcelObjects; } ),
+               new DsgParcelParam("AllowPublish", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowPublish) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowPublish) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowPublish; } ),
+               new DsgParcelParam("MaturePublish", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.MaturePublish) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.MaturePublish) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.MaturePublish; } ),
+               new DsgParcelParam("UrlWebPage", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UrlWebPage) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UrlWebPage) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UrlWebPage; } ),
+               new DsgParcelParam("UrlRawHtml", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UrlRawHtml) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UrlRawHtml) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UrlRawHtml; } ),
+               new DsgParcelParam("RestrictPushObject", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.RestrictPushObject) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.RestrictPushObject) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.RestrictPushObject; } ),
+               new DsgParcelParam("DenyAnonymous", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.DenyAnonymous) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.DenyAnonymous) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.DenyAnonymous; } ),
+               new DsgParcelParam("LindenHome", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.LindenHome) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.LindenHome) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.LindenHome; } ),
+               new DsgParcelParam("AllowGroupScripts", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowGroupScripts) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowGroupScripts) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowGroupScripts; } ),
+               new DsgParcelParam("CreateGroupObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.CreateGroupObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.CreateGroupObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.CreateGroupObjects; } ),
+               new DsgParcelParam("AllowAPrimitiveEntry", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowAPrimitiveEntry) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowAPrimitiveEntry) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowAPrimitiveEntry; } ),
+               new DsgParcelParam("AllowGroupObjectEntry", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowGroupObjectEntry) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowGroupObjectEntry) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowGroupObjectEntry; } ),
+               new DsgParcelParam("AllowVoiceChat", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowVoiceChat) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowVoiceChat) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowVoiceChat; } ),
+               new DsgParcelParam("UseEstateVoiceChan", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseEstateVoiceChan) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseEstateVoiceChan) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseEstateVoiceChan; } ),
+               new DsgParcelParam("DenyAgeUnverified", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.DenyAgeUnverified) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.DenyAgeUnverified) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.DenyAgeUnverified; } ),
+               new DsgParcelParam("MusicURL", (lo) => { return lo.GetMusicUrl(); },  (lo,v) => { lo.SetMusicUrl(v); }),
+               new DsgParcelParam("MediaURL", (lo) => { return "something"; },  (lo,v) => { lo.SetMediaUrl(v); }),
+       };
+
+        // Invocation is: dsgParcel list
+        private void ProcessParcelList(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            string regionName = SceneManager.Instance.CurrentScene.RegionInfo.RegionName;
+
+            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
+            cdt.AddColumn("parcel <x,y>", 20);
+            cdt.AddColumn("Variable", 20);
+            cdt.AddColumn("Value", 20);
+            List<ILandObject> landObjects = SceneManager.Instance.CurrentScene.LandChannel.AllParcels();
+            foreach (ILandObject lo in landObjects)
+            {
+                foreach (DsgParcelParam pspx in DSGParcelParams)
+                {
+                    cdt.AddRow(String.Format("{0} <{1},{2}>", lo.LandData.Name, lo.StartPoint.X, lo.StartPoint.Y), pspx.name, pspx.getter(lo));
+                }
+            }
+            MainConsole.Instance.OutputFormat(cdt.ToString());
+        }
+
+        // Invocation is: dsgParcel set XCoord YCoord variable value
+        private void ProcessParcelSet(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            if (cmdparms.Length != 6)
+            {
+                MainConsole.Instance.OutputFormat("Parameter count error. Invocation: {0}", parcelInvocation);
+                return;
+            }
+            int xx = IntParam(cmdparms[2]);
+            int yy = IntParam(cmdparms[3]);
+            string var = cmdparms[4].ToLower();
+            string val = cmdparms[5];
+            ILandObject parcel = SceneManager.Instance.CurrentScene.LandChannel.GetLandObject(xx, yy);
+            if (parcel != null)
+            {
+                DsgParcelParam parcelParam = null;
+                foreach (DsgParcelParam ppx in DSGParcelParams)
+                {
+                    if (var == ppx.name.ToLower())
+                    {
+                        parcelParam = ppx;
+                        break;
+                    }
+                }
+                if (parcelParam != null)
+                {
+                    parcelParam.setter(parcel, val);
+                }
+                else
+                {
+                    MainConsole.Instance.OutputFormat("Unrecognized parcel parameter name. Try 'dsgParcel list'.");
+                }
+            }
+            else
+            {
+                MainConsole.Instance.OutputFormat("No parcel found at location <{0}, {1}>", xx, yy);
+            }
+        }
+
+        private static bool BoolParam(string v)
+        {
+            bool ret = false;
+            try
+            {
+                ret = Boolean.Parse(v);
+            }
+            catch
+            {
+                MainConsole.Instance.OutputFormat("Failure parsing parameter value. Must be 'true', 'false', 1 or 0. Setting to {0}", ret);
+            }
+            return ret;
+        }
+        private static int IntParam(string v)
+        {
+            int ret = 0;
+            try
+            {
+                ret = Int32.Parse(v);
+            }
+            catch
+            {
+                MainConsole.Instance.OutputFormat("Failure parsing parameter value. Must be integer. Setting to {0}", ret);
+            }
+            return ret;
+        }
+        private static float FloatParam(string v)
+        {
+            float ret = 0f;
+            try
+            {
+                ret = float.Parse(v);
+            }
+            catch
+            {
+                MainConsole.Instance.OutputFormat("Failure parsing parameter value. Must be float. Setting to {0}", ret);
+            }
+            return ret;
         }
 
         #endregion Console Command Interface
