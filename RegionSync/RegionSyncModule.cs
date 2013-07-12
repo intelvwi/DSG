@@ -819,6 +819,7 @@ namespace DSG.RegionSync
                new DsgEstateParam("RedirectGridX",      (es) => { return es.RedirectGridX; },   (es,v) => { es.RedirectGridX = IntParam(v); }),
                new DsgEstateParam("RedirectGridY",      (es) => { return es.RedirectGridY; },   (es,v) => { es.RedirectGridY = IntParam(v); }),
                new DsgEstateParam("PublicAccess",       (es) => { return es.PublicAccess; },    (es,v) => { es.PublicAccess = BoolParam(v); }),
+               new DsgEstateParam("UseGlobalTime",      (es) => { return es.UseGlobalTime; },   (es,v) => { es.UseGlobalTime = BoolParam(v); }),
        };
 
         // Invocation is: dsgEstate list
@@ -832,8 +833,8 @@ namespace DSG.RegionSync
             string regionName = SceneManager.Instance.CurrentScene.RegionInfo.RegionName;
             EstateSettings estateInfo = SceneManager.Instance.CurrentScene.RegionInfo.EstateSettings;
 
-            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
             MainConsole.Instance.OutputFormat("Estate name = {0}, id={1}", estateInfo.EstateName, estateInfo.EstateID);
+            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
             cdt.AddColumn("Parameter", 20);
             cdt.AddColumn("Value", 10);
             foreach (DsgEstateParam espx in DSGEstateParams)
