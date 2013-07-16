@@ -266,7 +266,7 @@ namespace DSG.RegionSync
                                         string cachedRealRegionName = (string)(CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
                                         if (cachedRealRegionName != Scene.Name && sp.Animator.Animations.ToArray().Length == 0)
                                         {
-                                            // If this is not the originating region for this presence or there is no additional
+                                            // If this is not the originating region for this presence and there is no additional
                                             //   animations being added, this simulator does not change the animation.
                                             // THIS IS A HORRIBLE KLUDGE. FIGURE OUT THE REAL SOLUTION!!
                                             // The problem is that animations are changed by every simulator (setting default
