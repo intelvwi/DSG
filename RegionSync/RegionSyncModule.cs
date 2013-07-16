@@ -2925,21 +2925,14 @@ namespace DSG.RegionSync
                     }
 
                     //If no updates to send out, see if SyncConnectors need to send KeeyAlive
-                    if (updates.Count == 0)
+                    //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
+                    //sent is longer than SyncConnector.KeeyAliveMaxInterval)
+                    ForEachSyncConnector(delegate(SyncConnector connector)
                     {
+                        connector.KeepAlive(m_syncMsgKeepAlive);
 
-                        //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
-                        //sent is longer than SyncConnector.KeeyAliveMaxInterval)
-                        //foreach (SyncConnector syncConnector in m_syncConnectors)
-                        //{
-                        //    syncConnector.KeepAlive(m_syncMsgKeepAlive);
-                        //}
-                        ForEachSyncConnector(delegate(SyncConnector connector)
-                        {
-                            connector.KeepAlive(m_syncMsgKeepAlive);
+                    });
 
-                        });
-                    }
                 }
 
                 if (m_updateThreadDelayLog)
