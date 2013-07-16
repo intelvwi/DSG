@@ -1151,17 +1151,9 @@ namespace DSG.RegionSync
 
         private string GetSyncID()
         {
-            /*
-            if (Scene != null)
-            {
-                return Scene.RegionInfo.RegionID.ToString();
-            }
-            else
-            {
-                return String.Empty;
-            }
-             * */
-            return ActorID;
+            // SyncID is the actor ID plus a random 4 digit number
+            Random r = new Random(int.Parse(Guid.NewGuid().ToString().Substring(0, 8), System.Globalization.NumberStyles.HexNumber));
+            return ActorID + r.Next(0, 9999).ToString("D4");
         }
 
         private void StatsTimerElapsed(object source, System.Timers.ElapsedEventArgs e)
