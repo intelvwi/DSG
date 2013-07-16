@@ -143,7 +143,7 @@ namespace DSG.RegionSync
         /// pSyncInfo is newer, copy its members to the local record.
         /// </summary>
         /// <param name="pSyncInfo"></param>
-        /// <returns></returns>
+        /// <returns>'true' if the received sync value was accepted and the sync cache was updated with the received value</returns>
         public bool CompareAndUpdateSyncInfoBySync(SyncedProperty pSyncInfo, long recvTS)
         {
             // KLUDGE!!! THIS TRIES TO FORCE THE SCRIPT SETTING OF ANIMATIONS VS DEFAULT ANIMATIONS.
@@ -156,6 +156,7 @@ namespace DSG.RegionSync
                 OSDArray existingAnimations = LastUpdateValue as OSDArray;
                 if (receivedAnimations != null && existingAnimations != null)
                 {
+                    /*
                     // If going from default animation to something better, always accept it
                     if (receivedAnimations.Count > 2 && existingAnimations.Count <= 2)
                     {
@@ -165,6 +166,10 @@ namespace DSG.RegionSync
                         UpdateSyncInfoBySync(pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID, pSyncInfo.LastUpdateValue, recvTS);
                         return true;
                     }
+                    */
+                    // For the moment, just accept received animations
+                    UpdateSyncInfoBySync(pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID, pSyncInfo.LastUpdateValue, recvTS);
+                    return true;
                 }
             }
 
