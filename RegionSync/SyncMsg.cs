@@ -2160,8 +2160,8 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
 
 public class SyncMsgKeepAlive : SyncMsgOSDMapData
 {
-    public override string DetailLogTagRcv { get { return "RcvKeepAlive"; } }
-    public override string DetailLogTagSnd { get { return "SndKeepAlive"; } }
+    public override string DetailLogTagRcv { get { return "RcvKpAlive"; } }
+    public override string DetailLogTagSnd { get { return "SndKpAlive"; } }
 
     //public string RegName;
 
