@@ -52,11 +52,11 @@ using OpenMetaverse;
 
 namespace DSG.RegionSync
 {
-    // Class queues updates for UUID's. 
-    // The updates could be JSON, serialized object data, or any string. 
-    // Updates are queued to the end and dequeued from the front of the queue
-    // Enqueuing an update with the same UUID will replace the previous update
-    // so it will not lose its place.
+    // Class for holding messages queued for output. There are two types: update messages
+    //    and 'first' messages. 'first' messages are simple SyncMsg's that will be sent out
+    //    before any update messages. Update messages are tracked by their 'id' and, if an
+    //    update message for the same id is queued, the second update is merged with the
+    //    first.
     class BlockingUpdateQueue
     {
         private object m_syncRoot = new object();
@@ -112,37 +112,31 @@ namespace DSG.RegionSync
             }
         }
 
-        // Dequeue an update
+        // Dequeue an update. Block if there are no updates in the queue.
         public SyncMsg Dequeue()
         {
             SyncMsg update = null;
             lock (m_syncRoot)
             {
                 // If the queue is empty, wait for it to contain something
-                while (m_queue.Count == 0 && m_firstQueue.Count == 0)
+                if (m_queue.Count < 1 && m_firstQueue.Count < 1)
                     Monitor.Wait(m_syncRoot);
+
                 if (m_firstQueue.Count > 0)
                 {
                     update = m_firstQueue.Dequeue();
                 }
                 else
                 {
-                    UUID id = m_queue.Dequeue();
-                    update = m_updates[id];
-                    m_updates.Remove(id);
+                    if (m_queue.Count > 0)
+                    {
+                        UUID id = m_queue.Dequeue();
+                        update = m_updates[id];
+                        m_updates.Remove(id);
+                    }
                 }
             }
             return update;
-        }
-
-        // Count of number of items currently queued
-        public int Count
-        {
-            get
-            {
-                lock (m_syncRoot)
-                    return m_queue.Count;
-            }
         }
     }
 }
