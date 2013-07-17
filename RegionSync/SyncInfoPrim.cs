@@ -156,16 +156,36 @@ namespace DSG.RegionSync
 
             // For each updated property, find out which ones really differ from values in SyncedProperty
             HashSet<SyncableProperties.Type> propertiesUpdatedByLocal = new HashSet<SyncableProperties.Type>();
+            Dictionary<SyncableProperties.Type, SyncedProperty> propertiesNotUpdate = new Dictionary<SyncableProperties.Type, SyncedProperty>();
             lock (m_syncLock)
             {
                 foreach (SyncableProperties.Type property in updatedProperties)
                 {
-                    if (CompareValue_UpdateByLocal(part, property, lastUpdateTS, syncID))
+                    bool resetSceneValue = false;
+                    if (CompareValue_UpdateByLocal(part, property, lastUpdateTS, syncID, out resetSceneValue))
                     {
                         propertiesUpdatedByLocal.Add(property);
                     }
+                    if(resetSceneValue)
+                    {
+                        SyncedProperty pSyncInfo;
+                        if (CurrentlySyncedProperties.TryGetValue(property, out pSyncInfo))
+                        {
+                            propertiesNotUpdate.Add(property, pSyncInfo);
+                        }
+                    }
                 }
             }
+
+            //Now we only need to read from the SyncInfo, so moving the SetPropertyValue out of lock, to avoid potential deadlocks.
+            //For the properties that were not updated in the SyncInfo, set the property values in SOP so that they are
+            //consistent with the SyncInfo
+            /*
+            foreach (KeyValuePair<SyncableProperties.Type, SyncedProperty> nonUpdatedProperty in propertiesNotUpdate)
+            {
+                SetPropertyValue(nonUpdatedProperty.Key, nonUpdatedProperty.Value);
+            }
+             * */ 
 
             /*
             string debugprops = "";
@@ -201,8 +221,10 @@ namespace DSG.RegionSync
         /// <param name="lastUpdateByLocalTS"></param>
         /// <param name="syncID"></param>
         /// <returns>Return true if the property's value maintained in this SyncInfoPrim is replaced by SOP's data.</returns>
-        private bool CompareValue_UpdateByLocal(SceneObjectPart part, SyncableProperties.Type property, long lastUpdateByLocalTS, string syncID)
+        private bool CompareValue_UpdateByLocal(SceneObjectPart part, SyncableProperties.Type property, long lastUpdateByLocalTS, string syncID, out bool resetSceneValue)
         {
+            resetSceneValue = false;
+
             //DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal: Updating property {0} on part {1}", property.ToString(), part.UUID);
             if (!CurrentlySyncedProperties.ContainsKey(property))
             {
@@ -287,12 +309,18 @@ namespace DSG.RegionSync
 
                             // Updating either absolute position or position also requires checking for updates to group position
                             if (property == SyncableProperties.Type.AbsolutePosition || property == SyncableProperties.Type.Position)
-                                CompareValue_UpdateByLocal(part, SyncableProperties.Type.GroupPosition, lastUpdateByLocalTS, syncID);
+                            {
+                                CompareValue_UpdateByLocal(part, SyncableProperties.Type.GroupPosition, lastUpdateByLocalTS, syncID, out resetSceneValue);
+                                resetSceneValue = false;
+                            }
 
                             return true;
                         }
                         // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): TS < lastTS (updating SOP)", property.ToString());
-                        SetPropertyValue(property);
+
+                        //We'll reset the property value outside of CompareValue_UpdateByLocal
+                        //SetPropertyValue(property);
+                        resetSceneValue = true;
                     }
                     break;
             }
@@ -547,6 +575,14 @@ namespace DSG.RegionSync
             part.ParentGroup.HasGroupChanged = true;
         }
 
+        public override void SetPropertyValue(SyncableProperties.Type property, SyncedProperty pSyncInfo)
+        {
+            SceneObjectPart part = (SceneObjectPart)SceneThing;
+            // DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(property={0})", property.ToString());
+            SetPropertyValue(part, property, pSyncInfo);
+            part.ParentGroup.HasGroupChanged = true;
+        }
+
         /// <summary>
         /// Set the property's value based on the value maintained in SyncInfoManager.
         /// Assumption: caller will call ScheduleFullUpdate to enqueue updates properly to
@@ -559,6 +595,9 @@ namespace DSG.RegionSync
         private void SetPropertyValue(SceneObjectPart part, SyncableProperties.Type property)
         {
             //DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(part={0}, property={1})", part.UUID, property.ToString());
+
+            if (part == null)
+                return;
 
             // If this is a physical property but the part's PhysActor is null, then we can't set it.
             if (SyncableProperties.PhysActorProperties.Contains(property) && !CurrentlySyncedProperties.ContainsKey(property) && part.PhysActor == null)
@@ -574,6 +613,14 @@ namespace DSG.RegionSync
                 return;
             }
             SyncedProperty pSyncInfo = CurrentlySyncedProperties[property];
+            SetPropertyValue(part, property, pSyncInfo);
+        }
+
+        private void SetPropertyValue(SceneObjectPart part, SyncableProperties.Type property, SyncedProperty pSyncInfo)
+        {
+            if (part == null || pSyncInfo == null)
+                return;
+
             Object LastUpdateValue = pSyncInfo.LastUpdateValue;
 
             switch (property)
