@@ -45,6 +45,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -53,6 +54,7 @@ using System.Timers;
 using OpenSim.Framework;
 using OpenSim.Framework.Console;
 using OpenSim.Framework.Monitoring;
+using OpenSim.Framework.Servers;
 using OpenSim.Region.CoreModules;
 using OpenSim.Region.CoreModules.Framework.Statistics.Logging;
 using OpenSim.Region.Framework.Scenes;
@@ -378,6 +380,9 @@ namespace DSG.RegionSync
         private bool LogLLUDPBWAggFlushWrites { get; set; }
         private int LogLLUDPBWAggInterval { get; set; }
 
+        private bool RemoteStatsFetchEnabled { get; set; }
+        private string RemoteStatsFetchBase { get; set; }
+
         public SyncStatisticCollector(IConfig cfg)
         {
             Enabled = cfg.GetBoolean("StatisticLoggingEnable", false);
@@ -441,6 +446,15 @@ namespace DSG.RegionSync
                     m_log.InfoFormat("{0} Enabling server logging. Dir={1}, fileAge={2}min, flush={3}",
                             LogHeader, LogLLUDPBWAggDirectory, LogLLUDPBWAggFileTimeMinutes, LogLLUDPBWAggFlushWrites);
                 }
+
+                RemoteStatsFetchEnabled = cfg.GetBoolean("RemoteStatsFetchEnabled", false);
+                if (RemoteStatsFetchEnabled)
+                {
+                    RemoteStatsFetchBase = cfg.GetString("RemoteStatsFetchbase", "DSGStats");
+                    // That was simple
+                }
+
+                SetupRemoteStatsFetch();
 
                 // If enabled, we add a DSG pretty printer to the output
                 StatsManager.RegisterStat(new SyncConnectorStatAggregator(DSGCategory, DSGCategory, "Distributed Scene Graph", "", DSGCategory));
@@ -878,8 +892,44 @@ namespace DSG.RegionSync
                 m_lastLLUDPAggregatedIn = currentLLUDPAggregatedIn;
                 m_lastLLUDPAggregatedOut = currentLLUDPAggregatedOut;
             }
-
-
         }
+
+        private void SetupRemoteStatsFetch()
+        {
+            if (!RemoteStatsFetchEnabled) return;
+
+            string urlBase = String.Format("/{0}/", RemoteStatsFetchBase);
+            MainServer.Instance.AddHTTPHandler(urlBase, HandleStatsRequest);
+            m_log.DebugFormat("{0}: RemoteStatsFetch enabled. URL={1}", LogHeader, urlBase);
+        }
+
+        private Hashtable HandleStatsRequest(Hashtable request)
+        {
+            Hashtable responsedata = new Hashtable();
+            string regpath = request["uri"].ToString();
+            int response_code = 200;
+            string contenttype = "text/json";
+
+            string pCategoryName = StatsManager.AllSubCommand;
+            string pContainerName = StatsManager.AllSubCommand;
+            string pStatName = StatsManager.AllSubCommand;
+
+            if (request.ContainsKey("cat")) pCategoryName = request["cat"].ToString();
+            if (request.ContainsKey("cont")) pContainerName = request["cat"].ToString();
+            if (request.ContainsKey("stat")) pStatName = request["cat"].ToString();
+
+            string strOut = StatsManager.GetStatsAsOSDMap(pCategoryName, pContainerName, pStatName).ToString();
+
+            m_log.DebugFormat("{0} StatFetch: uri={1}, cat={2}, cont={3}, stat={4}, resp={5}",
+                                    LogHeader, regpath, pCategoryName, pContainerName, pStatName, strOut);
+
+            responsedata["int_response_code"] = response_code;
+            responsedata["content_type"] = contenttype;
+            responsedata["keepalive"] = false;
+            responsedata["str_response_string"] = strOut;
+
+            return responsedata;
+        }
+
     }
 }
