@@ -2773,9 +2773,16 @@ namespace DSG.RegionSync
                 });
             }
 
-            //If no updates to send, or not connecting with other nodes, simply return
+            //If no updates to send, or not connecting with other nodes, check to see if we need to send KeepAlive messages; 
             if (m_propertyUpdates.Count == 0 || !IsSyncingWithOtherSyncNodes())
+            {
+                ForEachSyncConnector(delegate(SyncConnector connector)
+                {
+                    connector.KeepAlive(m_syncMsgKeepAlive);
+
+                });
                 return;
+            }
 
 
             // Existing value of 1 indicates that updates are currently being sent so skip updates this pass
@@ -2854,6 +2861,7 @@ namespace DSG.RegionSync
                                 continue;
                             }
 
+                            /*
                             if (m_updateThreadDelayLog)
                             {
                                 //Log encoding delays
@@ -2861,6 +2869,7 @@ namespace DSG.RegionSync
                                 span = encodeEndTime - startTime;
                                 m_updateLoopLogSB.Append(", update#" + updateIndex + ", before encoding, " + span.TotalMilliseconds.ToString());
                             }
+                             * */ 
 
                             SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(this, uuid, updatedProperties);
 
@@ -2869,7 +2878,7 @@ namespace DSG.RegionSync
                                 //Log encoding delays
                                 DateTime syncMsgendTime = DateTime.Now;
                                 span = syncMsgendTime - startTime;
-                                m_updateLoopLogSB.Append(", after encoding, " + span.TotalMilliseconds.ToString());
+                                m_updateLoopLogSB.Append(", update#" + updateIndex + ", after creating SyncMsgUpdatedProperties msg, " + span.TotalMilliseconds.ToString());
                             }
 
 
@@ -2903,6 +2912,15 @@ namespace DSG.RegionSync
                                 //     the data is rebuilt. Calling this here means the conversion is usually done on this
                                 //     worker thread and not the send thread and that log messages have the correct len.
                                 msg.ConvertOut(this);
+
+                                if (m_updateThreadDelayLog)
+                                {
+                                    //Log encoding delays
+                                    DateTime syncConnectorConvertOutTime = DateTime.Now;
+                                    span = syncConnectorConvertOutTime - startTime;
+                                    m_updateLoopLogSB.Append(" , connector "+connector.otherSideActorID+" after ConvertOut, " + span.TotalMilliseconds.ToString());
+                                }
+
                                 connector.EnqueueOutgoingUpdate(uuid, msg);
                             }
 
@@ -2939,7 +2957,7 @@ namespace DSG.RegionSync
                 {
                     DateTime endTime = DateTime.Now;
                     span = endTime - startTime;
-                    m_updateLoopLogSB.Append(", total-span " + span.TotalMilliseconds.ToString());
+                    m_updateLoopLogSB.Append(", total-span,  " + span.TotalMilliseconds.ToString());
                     if (span.TotalMilliseconds > 10)
                     {
                         m_log.WarnFormat("Update sending thread takes too long -- {0}", m_updateLoopLogSB.ToString());
