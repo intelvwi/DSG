@@ -1880,6 +1880,7 @@ namespace DSG.RegionSync
             m_log.WarnFormat("{0}: Sending region name: \"{0}\"", LogHeader, Scene.RegionInfo.RegionName);
 
             SendSyncMessage(new SyncMsgGetRegionInfo(this));
+            SendSyncMessage(new SyncMsgGetEnvironment(this));
             SendSyncMessage(new SyncMsgGetTerrain(this));
             SendSyncMessage(new SyncMsgGetPresences(this));
             SendSyncMessage(new SyncMsgGetObjects(this));

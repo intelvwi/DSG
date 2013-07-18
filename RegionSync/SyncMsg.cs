@@ -73,10 +73,12 @@ public abstract class SyncMsg
         GetObjects,
         GetPresences,
         GetRegionInfo,
+        GetEnvironment,
         
         // SIM <-> CM
         Terrain,
         RegionInfo,
+        Environment,
         
         NewObject,       // objects
         RemovedObject,   // objects
@@ -216,8 +218,10 @@ public abstract class SyncMsg
             case MsgType.GetObjects:        ret = new SyncMsgGetObjects(length, data);           break;
             case MsgType.GetPresences:      ret = new SyncMsgGetPresences(length, data);         break;
             case MsgType.GetRegionInfo:     ret = new SyncMsgGetRegionInfo(length, data);        break;
+            case MsgType.GetEnvironment:    ret = new SyncMsgGetEnvironment(length, data);       break;
             case MsgType.Terrain:           ret = new SyncMsgTerrain(length, data);              break;
             case MsgType.RegionInfo:        ret = new SyncMsgRegionInfo(length, data);           break;
+            case MsgType.Environment:       ret = new SyncMsgEnvironment(length, data);          break;
             case MsgType.NewObject:         ret = new SyncMsgNewObject(length, data);            break;
             case MsgType.RemovedObject:     ret = new SyncMsgRemovedObject(length, data);        break;
             case MsgType.LinkObject:        ret = new SyncMsgLinkObject(length, data);           break;
@@ -816,6 +820,93 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     {
         if (RegionContext != null)
             RegionContext.DetailedUpdateLogging(Uuid, SyncableProperties, null, "SendUpdate", pConnectorContext.otherSideActorID, DataLength);
+    }
+}
+// ====================================================================================================
+// Send to have other side send us their environment info.
+// If received, send our environment info.
+public class SyncMsgGetEnvironment: SyncMsgOSDMapData
+{
+    public override string DetailLogTagRcv { get { return "RcvGetEnvi"; } }
+    public override string DetailLogTagSnd { get { return "SndGetEnvi"; } }
+
+    public SyncMsgGetEnvironment(RegionSyncModule pRegionContext)
+        : base(MsgType.GetEnvironment, pRegionContext)
+    {
+    }
+    public SyncMsgGetEnvironment(int pLength, byte[] pData)
+        : base(MsgType.GetEnvironment, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
+    {
+        return base.ConvertIn(pRegionContext);
+    }
+    public override bool HandleIn(RegionSyncModule pRegionContext)
+    {
+        if (base.HandleIn(pRegionContext))
+        {
+            string environment = pRegionContext.Scene.SimulationDataService.LoadRegionEnvironmentSettings(pRegionContext.Scene.RegionInfo.RegionID);
+            SyncMsgEnvironment msg = new SyncMsgEnvironment(pRegionContext, environment);
+            msg.ConvertOut(pRegionContext);
+            ConnectorContext.ImmediateOutgoingMsg(msg);
+        }
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        return base.ConvertOut(pRegionContext);
+    }
+}
+// ====================================================================================================
+// Sent to tell the other end our environment info.
+// When received, it is the other side's environment info.
+public class SyncMsgEnvironment: SyncMsgOSDMapData
+{
+    public override string DetailLogTagRcv { get { return "RcvEnviron"; } }
+    public override string DetailLogTagSnd { get { return "SndEnviron"; } }
+
+    public string Env { get; set; }
+
+    public SyncMsgEnvironment(RegionSyncModule pRegionContext, string env)
+        : base(MsgType.Environment, pRegionContext)
+    {
+        Env = env;
+    }
+    public SyncMsgEnvironment(int pLength, byte[] pData)
+        : base(MsgType.Environment, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
+    {
+        return base.ConvertIn(pRegionContext);
+    }
+    public override bool HandleIn(RegionSyncModule pRegionContext)
+    {
+        if (base.HandleIn(pRegionContext))
+        {
+            Env = DataMap["environment"].AsString();
+            RegionContext.Scene.SimulationDataService.StoreRegionEnvironmentSettings(RegionContext.Scene.RegionInfo.RegionID, Env);
+        }
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        lock (m_dataLock)
+        {
+            if (Dir == Direction.Out && DataMap == null)
+            {
+                OSDMap data = new OSDMap(1);
+                data["environment"] = OSD.FromString(Env);
+                DataMap = data;
+            }
+        }
+        return base.ConvertOut(pRegionContext);
+    }
+    // Logs the whole string of parameters received. Only happens once per region connect.
+    public override void LogReception(RegionSyncModule pRegionContext, SyncConnector pConnectorContext)
+    {
+        pRegionContext.DetailedUpdateWrite(DetailLogTagRcv, ZeroUUID, 0, ZeroUUID, DataMap.ToString(), DataLength);
     }
 }
 // ====================================================================================================
