@@ -498,6 +498,12 @@ namespace DSG.RegionSync
             SetPropertyValue(sp, property);
         }
 
+        public override void SetPropertyValue(SyncableProperties.Type property, SyncedProperty syncedPropertyValue)
+        {
+            ScenePresence sp = (ScenePresence)SceneThing;
+            SetPropertyValue(sp, property, syncedPropertyValue);
+        }
+
         /// <summary>
         /// This function should only be triggered when an update update is received (i.e. 
         /// triggered by remote update instead of local update).
@@ -515,6 +521,13 @@ namespace DSG.RegionSync
             }
 
             SyncedProperty pSyncInfo = CurrentlySyncedProperties[property];
+            SetPropertyValue(sp, property, pSyncInfo);
+        }
+
+        private void SetPropertyValue(ScenePresence sp, SyncableProperties.Type property, SyncedProperty pSyncInfo)
+        {
+            if (sp == null || pSyncInfo == null) return;
+
             Object pValue = pSyncInfo.LastUpdateValue;
             switch (property)
             {

@@ -363,8 +363,11 @@ namespace DSG.RegionSync
 
         public void Close(bool force)
         {
-            m_log.WarnFormat("[REGION SYNC AVATAR] Close called on dummy client ({0})", Name);
+            if (!IsActive && !force)
+                return;
+            //m_log.WarnFormat("[REGION SYNC AVATAR] Close called on dummy client ({0})", Name);
             //throw new NotImplementedException("Attempting to close a RegionSyncAvatar is not supported.");
+            m_scene.RemoveClient(AgentId, false);
         }
 
         public bool AgentUpdate(AgentUpdateArgs arg)

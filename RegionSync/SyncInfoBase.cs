@@ -161,6 +161,7 @@ namespace DSG.RegionSync
         {
             long recvTS = RegionSyncModule.NowTicks();
             HashSet<SyncableProperties.Type> propertiesUpdated = new HashSet<SyncableProperties.Type>();
+            Dictionary<SyncableProperties.Type, SyncedProperty> updatedSyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
 
             lock (m_syncLock)
             {
@@ -191,7 +192,8 @@ namespace DSG.RegionSync
                             //If updated, update the property value in scene object/presence
                             if (updated)
                             {
-                                SetPropertyValue(property);
+                                //SetPropertyValue(property);
+                                updatedSyncedProperties.Add(property, CurrentlySyncedProperties[property]);
                                 propertiesUpdated.Add(property);
                             }
                         }
@@ -201,6 +203,13 @@ namespace DSG.RegionSync
                         }
                     }
                 }
+            }
+
+            //Now we only need to read from the SyncInfo, so moving the SetPropertyValue out of lock, to avoid potential deadlocks
+            //which might happen due to side effects of "set" functions of a SOp or SP property
+            foreach (KeyValuePair<SyncableProperties.Type, SyncedProperty> updatedSyncedProperty in updatedSyncedProperties)
+            {
+                SetPropertyValue(updatedSyncedProperty.Key, updatedSyncedProperty.Value);
             }
             
             PostUpdateBySync(propertiesUpdated);
@@ -220,6 +229,8 @@ namespace DSG.RegionSync
 
         // When this is called, the SyncInfo should already have a reference to the scene object it will be updating
         public abstract void SetPropertyValue(SyncableProperties.Type property);
+
+        public abstract void SetPropertyValue(SyncableProperties.Type property, SyncedProperty syncedPropertyValue); 
 
         public abstract Object GetPropertyValue(SyncableProperties.Type property);
     }
