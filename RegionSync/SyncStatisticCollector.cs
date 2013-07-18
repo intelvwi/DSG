@@ -920,13 +920,14 @@ namespace DSG.RegionSync
 
             string strOut = StatsManager.GetStatsAsOSDMap(pCategoryName, pContainerName, pStatName).ToString();
 
-            m_log.DebugFormat("{0} StatFetch: uri={1}, cat={2}, cont={3}, stat={4}, resp={5}",
-                                    LogHeader, regpath, pCategoryName, pContainerName, pStatName, strOut);
+            // m_log.DebugFormat("{0} StatFetch: uri={1}, cat={2}, cont={3}, stat={4}, resp={5}",
+            //                         LogHeader, regpath, pCategoryName, pContainerName, pStatName, strOut);
 
             responsedata["int_response_code"] = response_code;
             responsedata["content_type"] = contenttype;
             responsedata["keepalive"] = false;
             responsedata["str_response_string"] = strOut;
+            responsedata["access_control_allow_origin"] = "*";
 
             return responsedata;
         }
