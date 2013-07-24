@@ -333,6 +333,12 @@ namespace DSG.RegionSync
                 try
                 {
                     byte[] data = msg.GetWireBytes();
+                    if (data == null)
+                    {
+                        m_log.ErrorFormat("{0}: Error in Send(), m_data was null when attempting to retrieve GetWireBytes.",
+                                LogHeader);
+                        return;
+                    }
                     CollectSendStat(msg.MType.ToString(), msg.DataLength);
                     // Rather than async write, use the TCP flow control to stop this thread if the
                     //    receiver cannot consume the data quick enough.

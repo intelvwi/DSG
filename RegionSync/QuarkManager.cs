@@ -584,6 +584,8 @@ namespace DSG.RegionSync
             SyncMsgPresenceQuarkCrossing syncMsg = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties);
             if (syncMsg != null)
             {
+                // Convert out now, so we won't risk the scene being deleted before we have created the message.
+                syncMsg.ConvertOut(m_regionSyncModule);
                 m_regionSyncModule.SendSyncMessage(syncMsg, sip.PrevQuark.QuarkName ,sip.CurQuark.QuarkName);
             }
             TriggerPresenceQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sp);
@@ -625,6 +627,8 @@ namespace DSG.RegionSync
             SyncMsgPrimQuarkCrossing syncMsg = new SyncMsgPrimQuarkCrossing(m_regionSyncModule, sop, updatedProperties);
             if (syncMsg != null)
             {
+                // Need to convert out now, so there is no delay between encoding the prim and sending it out. 
+                syncMsg.ConvertOut(m_regionSyncModule);
                 m_regionSyncModule.SendSyncMessage(syncMsg,sip.PrevQuark.QuarkName,sip.CurQuark.QuarkName);
             }
 

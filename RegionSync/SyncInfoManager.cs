@@ -151,7 +151,7 @@ namespace DSG.RegionSync
                 }
 
             //This should not happen, as we should only receive UpdatedPrimProperties after receiving a NewObject message
-            DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} NOT FOUND.", uuid);
+            //DebugLog.WarnFormat("[SYNC INFO MANAGER] UpdateSyncInfoBySync SyncInfo for {0} NOT FOUND.", uuid);
             return new HashSet<SyncableProperties.Type>();
         }
 

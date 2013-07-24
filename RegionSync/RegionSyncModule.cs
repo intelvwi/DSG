@@ -604,17 +604,21 @@ namespace DSG.RegionSync
 
             // Add each SOP in SOG to SyncInfoManager
             string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
-            foreach (SceneObjectPart part in sog.Parts)
+            // If the new object was created outside my active quarks, it should remain local.
+            if (m_quarkManager != null && m_quarkManager.IsInActiveQuark(quarkName))
             {
-                m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, SyncID);
-            }
+                foreach (SceneObjectPart part in sog.Parts)
+                {
+                    m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, SyncID);
+                }
 
-            if (IsSyncingWithOtherSyncNodes())
-            {
-                // if we're syncing with other nodes, send out the message
-                SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
-                // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
+                if (IsSyncingWithOtherSyncNodes())
+                {
+                    // if we're syncing with other nodes, send out the message
+                    SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
+                    // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
+                    SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
+                }
             }
         }
 
@@ -644,10 +648,17 @@ namespace DSG.RegionSync
                     return;
                 else if (InfoManager.SyncInfoExists(sog.RootPart.UUID))
                 {
-                    SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
-                    msg.ConvertOut(this);
-                    //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-                    SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
+                    // This part is reached only when an object is removed locally. If this was generated from incoming SyncRemovedObject,
+                    // the SyncInfoExists would fail.
+                    string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
+                    // If the object was renived outside my active quarks, it should remain a local action.
+                    if (m_quarkManager != null && m_quarkManager.IsInActiveQuark(quarkName))
+                    {
+                        SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
+                        msg.ConvertOut(this);
+                        //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
+                        SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
+                    }
                 }
                 else
                     return;
