@@ -65,6 +65,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Text;
 using System.Collections;
+using System.Timers;
 
 using System.IO;
 using System.Xml;
@@ -207,6 +208,7 @@ namespace DSG.RegionSync
             m_updateThreadDelayLog = m_sysConfig.GetBoolean("UpdateThreadDelayLog", false);
         }
 
+        private static System.Timers.Timer m_syncOutTimer;
         //Called after Initialise()
         public void AddRegion(Scene scene)
         {
@@ -222,6 +224,12 @@ namespace DSG.RegionSync
             Scene.EventManager.OnPluginConsole += EventManager_OnPluginConsole;
             Scene.EventManager.OnRegionHeartbeatEnd += SyncOutUpdates;
             InstallInterfaces();
+
+            m_syncOutTimer = new System.Timers.Timer();
+            m_syncOutTimer.Interval = 20;
+            m_syncOutTimer.Elapsed += new ElapsedEventHandler(delegate(object o, ElapsedEventArgs e) { SyncOutUpdates(Scene); });
+            m_syncOutTimer.Enabled = true;
+
 
             // Add region name to various logging headers so we know where the log messages come from
             LogHeader += "/" + scene.RegionInfo.RegionName;
@@ -320,6 +328,8 @@ namespace DSG.RegionSync
         {
             if (!Active)
                 return;
+
+            m_syncOutTimer.Enabled = false;
 
             IEstateModule estate = Scene.RequestModuleInterface<IEstateModule>();
             if (estate != null)
