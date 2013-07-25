@@ -605,7 +605,7 @@ namespace DSG.RegionSync
             // Add each SOP in SOG to SyncInfoManager
             string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
             // If the new object was created outside my active quarks, it should remain local.
-            if (m_quarkManager != null && m_quarkManager.IsInActiveQuark(quarkName))
+            if (m_quarkManager == null || m_quarkManager.IsInActiveQuark(quarkName))
             {
                 foreach (SceneObjectPart part in sog.Parts)
                 {
@@ -652,7 +652,7 @@ namespace DSG.RegionSync
                     // the SyncInfoExists would fail.
                     string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
                     // If the object was renived outside my active quarks, it should remain a local action.
-                    if (m_quarkManager != null && m_quarkManager.IsInActiveQuark(quarkName))
+                    if (m_quarkManager == null || m_quarkManager.IsInActiveQuark(quarkName))
                     {
                         SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
                         msg.ConvertOut(this);
