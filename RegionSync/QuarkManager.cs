@@ -115,6 +115,8 @@ namespace DSG.RegionSync
         private static string LogHeader = "[QUARKMANAGER]";
         private Boolean m_detailUpdateDebugLog = false;
         private string m_zeroUUID = UUID.Zero.ToString();
+        private string m_parentAddress;
+        private int m_parentPort;
 
         private Dictionary<UUID,bool> m_leftQuarks = new Dictionary<UUID,bool>();
         public Dictionary<UUID,bool> LeftQuarks
@@ -256,9 +258,17 @@ namespace DSG.RegionSync
             // SOMEHOW (??) I have a list of RegionSyncListenerInfo of my "superset" quarks.
             
             #region THROWMEAWAY
-            // STUB!
+            // STUB! Gets parent node address from config file in simulator
+            m_parentAddress = config.GetString("ParentAddress", "");
+            m_parentPort = config.GetInt("ParentPort", -1);
+
             List<RegionSyncListenerInfo> superSetQuarks = new List<RegionSyncListenerInfo>();
-            RegionSyncListenerInfo test_parent = new RegionSyncListenerInfo("127.0.0.1",15000);
+            if (m_parentAddress.Length == 0)
+            {
+                m_parentAddress = "127.0.0.1";
+                m_parentPort = 15000;
+            }
+            RegionSyncListenerInfo test_parent = new RegionSyncListenerInfo(m_parentAddress,m_parentPort);
             superSetQuarks.Add(test_parent);
             #endregion
 
