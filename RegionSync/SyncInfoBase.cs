@@ -161,22 +161,27 @@ namespace DSG.RegionSync
         {
             long recvTS = RegionSyncModule.NowTicks();
             HashSet<SyncableProperties.Type> propertiesUpdated = new HashSet<SyncableProperties.Type>();
-            Dictionary<SyncableProperties.Type, SyncedProperty> updatedSyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
+            List<SyncedProperty> updatedSyncedProperties = new List<SyncedProperty>();
 
             lock (m_syncLock)
             {
                 foreach (SyncedProperty syncedProperty in syncedProperties)
                 {
                     bool updated = false;
+
                     SyncableProperties.Type property = syncedProperty.Property;
                     //Compare if the value of the property in this SyncInfo is different than the value in local scene
-                    if (!CurrentlySyncedProperties.ContainsKey(property))
+
+                    SyncedProperty currentlySyncedProperty;
+                    CurrentlySyncedProperties.TryGetValue(property, out currentlySyncedProperty);
+
+                    // If synced property is not in cache, add it now.
+                    if (currentlySyncedProperty == null)
                     {
                         //could happen if PhysActor is just created (object stops being phantom)
                         if (SyncableProperties.PhysActorProperties.Contains(property))
                         {
-                            SyncedProperty syncInfo = new SyncedProperty(syncedProperty);
-                            CurrentlySyncedProperties.Add(property, syncInfo);
+                            CurrentlySyncedProperties.Add(property, syncedProperty);
                         }
                         else
                         {
@@ -188,12 +193,12 @@ namespace DSG.RegionSync
                         try
                         {
                             //Compare timestamp and update SyncInfo if necessary
-                            updated = CurrentlySyncedProperties[property].CompareAndUpdateSyncInfoBySync(syncedProperty, recvTS);
+                            updated = currentlySyncedProperty.CompareAndUpdateSyncInfoBySync(syncedProperty, recvTS);
                             //If updated, update the property value in scene object/presence
                             if (updated)
                             {
                                 //SetPropertyValue(property);
-                                updatedSyncedProperties.Add(property, CurrentlySyncedProperties[property]);
+                                updatedSyncedProperties.Add(currentlySyncedProperty);
                                 propertiesUpdated.Add(property);
                             }
                         }
@@ -207,9 +212,9 @@ namespace DSG.RegionSync
 
             //Now we only need to read from the SyncInfo, so moving the SetPropertyValue out of lock, to avoid potential deadlocks
             //which might happen due to side effects of "set" functions of a SOp or SP property
-            foreach (KeyValuePair<SyncableProperties.Type, SyncedProperty> updatedSyncedProperty in updatedSyncedProperties)
+            foreach (SyncedProperty updatedProperty in updatedSyncedProperties)
             {
-                SetPropertyValue(updatedSyncedProperty.Key, updatedSyncedProperty.Value);
+                SetPropertyValue(updatedProperty);
             }
             
             PostUpdateBySync(propertiesUpdated);
@@ -224,13 +229,16 @@ namespace DSG.RegionSync
         public void SetPropertyValues(HashSet<SyncableProperties.Type> properties)
         {
             foreach (SyncableProperties.Type property in properties)
-                SetPropertyValue(property);
+            {
+                SyncedProperty syncedProperty;
+                CurrentlySyncedProperties.TryGetValue(property, out syncedProperty);
+                if (syncedProperty != null)
+                    SetPropertyValue(syncedProperty);
+            }
         }
 
         // When this is called, the SyncInfo should already have a reference to the scene object it will be updating
-        public abstract void SetPropertyValue(SyncableProperties.Type property);
-
-        public abstract void SetPropertyValue(SyncableProperties.Type property, SyncedProperty syncedPropertyValue); 
+        public abstract void SetPropertyValue(SyncedProperty syncedProperty);
 
         public abstract Object GetPropertyValue(SyncableProperties.Type property);
     }

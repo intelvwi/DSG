@@ -1375,6 +1375,7 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
     {
         if (base.HandleIn(pRegionContext))
         {
+            pRegionContext.RememberLocallyGeneratedEvent(MType);
             // If this is a relay node, forward the message
             if (pRegionContext.IsSyncRelay)
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);

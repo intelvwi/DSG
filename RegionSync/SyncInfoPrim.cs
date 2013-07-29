@@ -105,34 +105,21 @@ namespace DSG.RegionSync
 
             lock (m_syncLock)
             {
-                // First decode syncInfoData into CurrentlySyncedProperties
+                // Decode syncInfoData into CurrentlySyncedProperties
                 CurrentlySyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
-                HashSet<SyncableProperties.Type> full = SyncableProperties.FullUpdateProperties;
-                //if (!full.Contains(SyncableProperties.Type.Position))
-                //    DebugLog.ErrorFormat("{0} SyncableProperties.FullUpdateProperties missing Position!", LogHeader);
-                foreach (SyncableProperties.Type property in SyncableProperties.FullUpdateProperties)
+                foreach(KeyValuePair<string, OSD> kvp in syncInfoData)
                 {
-                    //if(property == SyncableProperties.Type.Position)
-                    //    DebugLog.WarnFormat("{0} {1} {2} {3}", LogHeader, UUID, property, syncInfoData.ContainsKey(property.ToString()));
-                    if (syncInfoData.ContainsKey(property.ToString()))
+                    // Parse each property from the key in the map we received
+                    SyncableProperties.Type property = (SyncableProperties.Type) Enum.Parse(typeof(SyncableProperties.Type), kvp.Key);
+                    SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)(kvp.Value));
+                    CurrentlySyncedProperties.Add(property, syncedProperty);
+                    try
                     {
-                        SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)syncInfoData[property.ToString()]);
-                        //DebugLog.WarnFormat("{0}: Adding property {1} to CurrentlySyncedProperties", LogHeader, property);
-                        CurrentlySyncedProperties.Add(property, syncedProperty);
-                        try
-                        {
-                            SetPropertyValue((SceneObjectPart)SceneThing, property);
-                        }
-                        catch (Exception e)
-                        {
-                            DebugLog.ErrorFormat("{0}: Error setting SOP property {1}: {2}", LogHeader, property, e.Message);
-                        }
+                        SetPropertyValue((SceneObjectPart)SceneThing, syncedProperty);
                     }
-                    else
+                    catch (Exception e)
                     {
-                        // For Phantom prims, they don't have PhysActor properties. So this branch could happen. 
-                        // Should ensure we're dealing with a phantom prim.
-                        //DebugLog.WarnFormat("{0}: Property {1} not included in OSDMap passed to constructor", LogHeader, property);
+                        DebugLog.ErrorFormat("{0}: Error setting SOP property {1}: {2}", LogHeader, property, e.Message);
                     }
                 }
             }
@@ -226,7 +213,12 @@ namespace DSG.RegionSync
             resetSceneValue = false;
 
             //DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal: Updating property {0} on part {1}", property.ToString(), part.UUID);
-            if (!CurrentlySyncedProperties.ContainsKey(property))
+
+            SyncedProperty syncedProperty;
+            CurrentlySyncedProperties.TryGetValue(property, out syncedProperty);
+
+            // If the property does not exist yet then add it.
+            if (syncedProperty == null)
             {
                 Object initValue = GetPropertyValue(part, property);
                 SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateByLocalTS, syncID);
@@ -246,7 +238,6 @@ namespace DSG.RegionSync
                     return CompareAndUpdateSOPGroupPositionByLocal(part, lastUpdateByLocalTS, syncID);
 
                 default:
-                    SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
                     Object value = GetPropertyValue(part, property);
 
                     // If both null, no update needed
@@ -305,7 +296,7 @@ namespace DSG.RegionSync
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
                             // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareValue_UpdateByLocal (property={0}): TS >= lastTS (updating SyncInfo)", property.ToString());
-                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
+                            syncedProperty.UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
 
                             // Updating either absolute position or position also requires checking for updates to group position
                             if (property == SyncableProperties.Type.AbsolutePosition || property == SyncableProperties.Type.Position)
@@ -567,19 +558,11 @@ namespace DSG.RegionSync
             return null;
         }
 
-        public override void SetPropertyValue(SyncableProperties.Type property)
+        public override void SetPropertyValue(SyncedProperty pSyncInfo)
         {
             SceneObjectPart part = (SceneObjectPart)SceneThing;
             // DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(property={0})", property.ToString());
-            SetPropertyValue(part, property);
-            part.ParentGroup.HasGroupChanged = true;
-        }
-
-        public override void SetPropertyValue(SyncableProperties.Type property, SyncedProperty pSyncInfo)
-        {
-            SceneObjectPart part = (SceneObjectPart)SceneThing;
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(property={0})", property.ToString());
-            SetPropertyValue(part, property, pSyncInfo);
+            SetPropertyValue(part, pSyncInfo);
             part.ParentGroup.HasGroupChanged = true;
         }
 
@@ -592,35 +575,40 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="part"></param>
         /// <param name="property"></param>
-        private void SetPropertyValue(SceneObjectPart part, SyncableProperties.Type property)
+        /// 
+        /*
+        private void SetPropertyValue(SceneObjectPart part, SyncedProperty syncedProperty)
         {
             //DebugLog.WarnFormat("[SYNC INFO PRIM] SetPropertyValue(part={0}, property={1})", part.UUID, property.ToString());
 
             if (part == null)
                 return;
 
+            SyncableProperties.Type property = syncedProperty.Property;
+
             // If this is a physical property but the part's PhysActor is null, then we can't set it.
-            if (SyncableProperties.PhysActorProperties.Contains(property) && !CurrentlySyncedProperties.ContainsKey(property) && part.PhysActor == null)
+            if (SyncableProperties.PhysActorProperties.Contains(property) && syncedProperty == null && part.PhysActor == null)
             {
                 // DebugLog.WarnFormat("{0}: SetPropertyValue: property {1} not in record.", LogHeader, property.ToString());
                 //For phantom prims, they don't have physActor properties, so for those properties, simply return
                 return;
             }
 
-            if (!CurrentlySyncedProperties.ContainsKey(property))
+            if (syncedProperty == null)
             {
                 DebugLog.ErrorFormat("{0}: SetPropertyValue: property {1} not in sync cache for uuid {2}. CSP.Count={3} ", LogHeader, property, UUID, CurrentlySyncedProperties.Count);
                 return;
             }
-            SyncedProperty pSyncInfo = CurrentlySyncedProperties[property];
-            SetPropertyValue(part, property, pSyncInfo);
+            SetPropertyValue(part, property, syncedProperty);
         }
+        */
 
-        private void SetPropertyValue(SceneObjectPart part, SyncableProperties.Type property, SyncedProperty pSyncInfo)
+        private void SetPropertyValue(SceneObjectPart part, SyncedProperty pSyncInfo)
         {
             if (part == null || pSyncInfo == null)
                 return;
 
+            SyncableProperties.Type property = pSyncInfo.Property;
             Object LastUpdateValue = pSyncInfo.LastUpdateValue;
 
             switch (property)
@@ -964,37 +952,32 @@ namespace DSG.RegionSync
             if (part.ParentGroup != null)
             {
                 part.ParentGroup.AbsolutePosition = (Vector3)pSyncInfo.LastUpdateValue;
-
-                SyncedProperty gPosSyncInfo;
-
                 if (part.ParentGroup.IsAttachment)
                     return;
 
-                if (CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.GroupPosition))
+                SyncedProperty syncedProperty;
+                CurrentlySyncedProperties.TryGetValue(SyncableProperties.Type.GroupPosition, out syncedProperty);
+                if (syncedProperty == null)
                 {
-                    gPosSyncInfo = CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition];
-                    gPosSyncInfo.UpdateSyncInfoBySync(pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID, part.GroupPosition, pSyncInfo.LastSyncUpdateRecvTime);
+                    CurrentlySyncedProperties.Add(SyncableProperties.Type.GroupPosition, new SyncedProperty(SyncableProperties.Type.GroupPosition,
+                        part.GroupPosition, pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID));
                 }
                 else
                 {
-                    gPosSyncInfo = new SyncedProperty(SyncableProperties.Type.GroupPosition,
-                        part.GroupPosition, pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID);
-                    CurrentlySyncedProperties.Add(SyncableProperties.Type.GroupPosition, gPosSyncInfo);
+                    syncedProperty.UpdateSyncInfoBySync(pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID, part.GroupPosition, pSyncInfo.LastSyncUpdateRecvTime);
                 }
 
                 if (part.PhysActor != null)
                 {
-                    SyncedProperty posSyncInfo;
-                    if (CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.Position))
+                    CurrentlySyncedProperties.TryGetValue(SyncableProperties.Type.Position, out syncedProperty);
+                    if(syncedProperty == null)
                     {
-                        posSyncInfo = CurrentlySyncedProperties[SyncableProperties.Type.Position];
-                        posSyncInfo.UpdateSyncInfoBySync(pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID, part.PhysActor.Position, pSyncInfo.LastSyncUpdateRecvTime);
+                        CurrentlySyncedProperties.Add(SyncableProperties.Type.Position, new SyncedProperty(SyncableProperties.Type.Position,
+                            part.PhysActor.Position, pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID));
                     }
                     else
                     {
-                        posSyncInfo = new SyncedProperty(SyncableProperties.Type.Position,
-                            part.PhysActor.Position, pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID);
-                        CurrentlySyncedProperties.Add(SyncableProperties.Type.Position, posSyncInfo);
+                        syncedProperty.UpdateSyncInfoBySync(pSyncInfo.LastUpdateTimeStamp, pSyncInfo.LastUpdateSyncID, part.PhysActor.Position, pSyncInfo.LastSyncUpdateRecvTime);
                     }
                 }
                 //the above operation may change GroupPosition and PhysActor.Postiion
@@ -1044,61 +1027,69 @@ namespace DSG.RegionSync
             if (part.ParentGroup.IsAttachment)
                 return false;
 
-            // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareAndUpdateSOPGroupPositionByLocal");
-            if (!part.GroupPosition.ApproxEquals((Vector3)CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateValue, (float)0.001))
+            SyncedProperty groupPositionProperty;
+            SyncedProperty positionProperty;
+            CurrentlySyncedProperties.TryGetValue(SyncableProperties.Type.GroupPosition, out groupPositionProperty);
+            if (groupPositionProperty == null)
             {
-                if (lastUpdateByLocalTS >= CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateTimeStamp)
+                DebugLog.WarnFormat("{0}: CompareAndUpdateSOPGroupPosition for uuid {1}. GroupPosition is not in CurrentlySyncedProperties!", LogHeader, part.UUID);
+                return false;
+            }
+            // DebugLog.WarnFormat("[SYNC INFO PRIM] CompareAndUpdateSOPGroupPositionByLocal");
+            if (!part.GroupPosition.ApproxEquals((Vector3)groupPositionProperty.LastUpdateValue, (float)0.001))
+            {
+                CurrentlySyncedProperties.TryGetValue(SyncableProperties.Type.Position, out positionProperty);
+                if (lastUpdateByLocalTS >= groupPositionProperty.LastUpdateTimeStamp)
                 {
                     //Update cached value with SOP.GroupPosition
-                    CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, (Object)part.GroupPosition);
+                    groupPositionProperty.UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, (Object)part.GroupPosition);
 
                     //Also may need to cached PhysActor.Position
                     if (part.PhysActor != null)
                     {
-                        if (!CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.Position))
+                        if (positionProperty == null)
                         {
                             Object initValue = GetPropertyValue(part, SyncableProperties.Type.Position);
-                            SyncedProperty syncInfo = new SyncedProperty(SyncableProperties.Type.Position, initValue, lastUpdateByLocalTS, syncID);
-                            CurrentlySyncedProperties.Add(SyncableProperties.Type.Position, syncInfo);
+                            positionProperty = new SyncedProperty(SyncableProperties.Type.Position, initValue, lastUpdateByLocalTS, syncID);
+                            CurrentlySyncedProperties.Add(SyncableProperties.Type.Position, positionProperty);
                         }
                         else
                         {
-                            if (!part.PhysActor.Position.Equals(CurrentlySyncedProperties[SyncableProperties.Type.Position].LastUpdateValue))
+                            if (!part.PhysActor.Position.Equals(positionProperty.LastUpdateValue))
                             {
-                                CurrentlySyncedProperties[SyncableProperties.Type.Position].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, (Object)part.PhysActor.Position);
+                                positionProperty.UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, (Object)part.PhysActor.Position);
                             }
                         }
                     }
                     return true;
                 }
-                else if (lastUpdateByLocalTS < CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateTimeStamp)
+                else if (lastUpdateByLocalTS < groupPositionProperty.LastUpdateTimeStamp)
                 {
                     //overwrite SOP's data, set function of GroupPosition updates PhysActor.Position as well
-                    part.GroupPosition = (Vector3)CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateValue;
+                    part.GroupPosition = (Vector3)groupPositionProperty.LastUpdateValue;
 
                     //PhysActor.Position is just updated by setting GroupPosition 
                     //above, so need to update the cached value of Position here.
                     if (part.PhysActor != null)
                     {
                         //Set the timestamp and syncID to be the same with GroupPosition
-                        long lastUpdateTimestamp = CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateTimeStamp;
-                        string lastUpdateSyncID = CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateSyncID;
+                        long lastUpdateTimestamp = groupPositionProperty.LastUpdateTimeStamp;
+                        string lastUpdateSyncID = groupPositionProperty.LastUpdateSyncID;
 
-                        if (!CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.Position))
+                        if (positionProperty == null)
                         {
                             Object initValue = GetPropertyValue(part, SyncableProperties.Type.Position);
-                            SyncedProperty syncInfo = new SyncedProperty(SyncableProperties.Type.Position, initValue, lastUpdateTimestamp, lastUpdateSyncID);
-                            CurrentlySyncedProperties.Add(SyncableProperties.Type.Position, syncInfo);
+                            positionProperty = new SyncedProperty(SyncableProperties.Type.Position, initValue, lastUpdateTimestamp, lastUpdateSyncID);
+                            CurrentlySyncedProperties.Add(SyncableProperties.Type.Position, positionProperty);
                         }
                         else
                         {
-                            if (!part.PhysActor.Position.Equals(CurrentlySyncedProperties[SyncableProperties.Type.Position].LastUpdateValue))
+                            if (!part.PhysActor.Position.Equals(positionProperty.LastUpdateValue))
                             {
                                 //Set the timestamp and syncID to be the same with GroupPosition
                                 //long lastUpdateTimestamp = CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateTimeStamp;
                                 //string lastUpdateSyncID = CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateSyncID;
-                                CurrentlySyncedProperties[SyncableProperties.Type.Position].UpdateSyncInfoByLocal(lastUpdateTimestamp,
-                                    lastUpdateSyncID, (Object)part.PhysActor.Position);
+                                positionProperty.UpdateSyncInfoByLocal(lastUpdateTimestamp, lastUpdateSyncID, (Object)part.PhysActor.Position);
                             }
                         }
                     }
