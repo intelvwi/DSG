@@ -743,7 +743,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
                 pRegionContext.ForgetLocallyGeneratedEvent();
 
                 // Do our own detail logging after we know which properties are actually updated (in propertiesUpdated)
-                pRegionContext.DetailedUpdateLogging(Uuid, propertiesUpdated, SyncedProperties, "RecUpdateN", ConnectorContext.otherSideActorID, DataLength);
+                pRegionContext.DetailedUpdateLogging(Uuid, propertiesUpdated, "RecUpdateN", ConnectorContext.otherSideActorID, DataLength);
 
                 // Relay the update properties
                 if (pRegionContext.IsSyncRelay)
@@ -819,7 +819,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     public override void LogTransmission(SyncConnector pConnectorContext)
     {
         if (RegionContext != null)
-            RegionContext.DetailedUpdateLogging(Uuid, SyncableProperties, null, "SendUpdate", pConnectorContext.otherSideActorID, DataLength);
+            RegionContext.DetailedUpdateLogging(Uuid, SyncableProperties, "SendUpdate", pConnectorContext.otherSideActorID, DataLength);
     }
 }
 // ====================================================================================================

@@ -2020,7 +2020,6 @@ namespace DSG.RegionSync
         /// <param name="msgLen">the length of the message being sent/received</param>
         public void DetailedUpdateLogging(UUID sopUUID,
                             HashSet<SyncableProperties.Type> updatedProperties,
-                            HashSet<SyncedProperty> syncedProperties,
                             string op,
                             string senderReceiver,
                             int msgLen )
@@ -2028,108 +2027,65 @@ namespace DSG.RegionSync
             // save the lookup work if logging is not enabled
             if (!m_detailedLog.Enabled) return;
 
-            SyncableProperties.Type propertyToCheck = SyncableProperties.Type.GroupPosition;
-            if (updatedProperties != null && !updatedProperties.Contains(SyncableProperties.Type.GroupPosition))
-            {
-                // the group position is not being updated this time so just pick the first property in the set
-                foreach (SyncableProperties.Type t in updatedProperties)
-                {
-                    propertyToCheck = t;
-                    break;
-                }
-            }
+            // Need a handle on one synced property to report time and last sync ID
             SyncedProperty syncedProperty = null;
-            // Did the caller pass us the list of synced properties? (can save the lookup time)
-            if (syncedProperties == null)
-            {
-                try
-                {
-                    // go find the synced properties for this updated object
-                    SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(sopUUID);
-                    if (sib != null)
-                    {
-                        Dictionary<SyncableProperties.Type, SyncedProperty> primProperties = sib.CurrentlySyncedProperties;
-                        primProperties.TryGetValue(propertyToCheck, out syncedProperty);
+            Dictionary<SyncableProperties.Type, SyncedProperty> currentlySynced = null;
 
-                        // odd, this should not happen. If there is no instance of the property, just use the first sync info
-                        if (syncedProperty == null && primProperties.Count > 0)
-                        {
-                            // the property we're looking for is not there. Just use the first one in the list
-                            Dictionary<SyncableProperties.Type, SyncedProperty>.Enumerator eenum = primProperties.GetEnumerator();
-                            eenum.MoveNext();
-                            syncedProperty = eenum.Current.Value;
-                        }
-                    }
-                }
-                catch
-                {
-                    syncedProperty = null;
-                }
-            }
-            else
+            SyncInfoBase syncInfo = m_SyncInfoManager.GetSyncInfo(sopUUID);
+            if (syncInfo != null)
             {
-                // we were passed the list of syncInfos so look for our property in there
-                foreach (SyncedProperty psi in syncedProperties)
+                currentlySynced = syncInfo.CurrentlySyncedProperties;
+            }
+
+            if (currentlySynced != null)
+            {
+                if (updatedProperties.Contains(SyncableProperties.Type.GroupPosition))
                 {
-                    if (psi.Property == propertyToCheck)
+                    // If group position is synced, prefer that one
+                    syncedProperty = currentlySynced[SyncableProperties.Type.GroupPosition];
+                }
+                else
+                {
+                    // Just choose the first one in the list
+                    foreach (SyncableProperties.Type ttt in updatedProperties)
                     {
-                        syncedProperty = psi;
+                        syncedProperty = currentlySynced[ttt];
                         break;
                     }
                 }
-                if (syncedProperty == null && syncedProperties.Count > 0)
-                {
-                    // again, this should not happen but recover by using the first sync info in the list
-                    HashSet<SyncedProperty>.Enumerator eenum = syncedProperties.GetEnumerator();
-                    eenum.MoveNext();
-                    syncedProperty = eenum.Current;
-                }
-            }
-            if (syncedProperty != null)
-            {
-                // get something to report as the properties being changed
-                string propertyName = GenerateUpdatedPropertyName(sopUUID, syncedProperty, updatedProperties, syncedProperties);
 
-                StringBuilder sb = new StringBuilder(op);
-                sb.Append(",");
-                sb.Append(DateTime.UtcNow.Ticks.ToString());
-                sb.Append(",");
-                sb.Append(sopUUID.ToString());
-                sb.Append(",");
-                sb.Append(syncedProperty.LastUpdateTimeStamp.ToString());
-                sb.Append(",");
-                sb.Append(propertyName);
-                sb.Append(",");
-                sb.Append(senderReceiver);
-                sb.Append(",");
-                sb.Append(syncedProperty.LastUpdateSyncID.ToString());
-                sb.Append(",");
-                sb.Append(msgLen.ToString());
-                m_detailedLog.Write(sb.ToString());
-                /*
-                // My presumption is that using a StringBuilder and doing my own conversions
-                //    is going to be faster then all the checking that happens in String.Format().
-                m_detailedLog.Write("{0},{1},{2},{3},{4},{5},{6},{7}",
-                            op,
-                            DateTime.UtcNow.Ticks,
-                            sopUUID,
-                            syncedProperty.LastUpdateTimeStamp,
-                            syncedProperty.Property.ToString(),
-                            senderReceiver,
-                            syncedProperty.LastUpdateSyncID,
-                            msgLen);
-                 */
+                if (syncedProperty != null)
+                {
+                    // get something to report as the properties being changed
+                    string propertyName = GenerateUpdatedPropertyName(sopUUID, currentlySynced, updatedProperties);
+
+                    StringBuilder sb = new StringBuilder(op);
+                    sb.Append(",");
+                    sb.Append(DateTime.UtcNow.Ticks.ToString());
+                    sb.Append(",");
+                    sb.Append(sopUUID.ToString());
+                    sb.Append(",");
+                    sb.Append(syncedProperty.LastUpdateTimeStamp.ToString());
+                    sb.Append(",");
+                    sb.Append(propertyName);
+                    sb.Append(",");
+                    sb.Append(senderReceiver);
+                    sb.Append(",");
+                    sb.Append(syncedProperty.LastUpdateSyncID.ToString());
+                    sb.Append(",");
+                    sb.Append(msgLen.ToString());
+                    m_detailedLog.Write(sb.ToString());
+                }
             }
         }
 
         // version for if you don't know the message length
         public void DetailedUpdateLogging(UUID sopUUID,
                             HashSet<SyncableProperties.Type> updatedProperties,
-                            HashSet<SyncedProperty> syncedProperties,
                             string op,
                             string senderReceiver)
         {
-            DetailedUpdateLogging(sopUUID, updatedProperties, syncedProperties, op, senderReceiver, 0);
+            DetailedUpdateLogging(sopUUID, updatedProperties, op, senderReceiver, 0);
         }
 
         // Version with the uuid.ToString in one place
@@ -2178,55 +2134,29 @@ namespace DSG.RegionSync
         // If enabled in the configuration file, fill the properties field with a list of all
         //  the properties updated along with their value.
         // This is a lot of work, but it really helps when debugging.
-        // Routine returns the name of the passed 'syncedProperty.Type' (short form)
-        //   or a list of all the changed properties with their values.
+        // 'currentlySynced' may be passed as null in which case no values are output even if properties should be.
+        // Routine returns the name of the passed 'syncedProperty.Type' (short form).
         // The string output will have no commas in it so it doesn't break the comma
         //   separated log fields. Each property/values are separated by "/"s.
         private string GenerateUpdatedPropertyName(
                             UUID sopUUID,
-                            SyncedProperty syncedProperty,
-                            HashSet<SyncableProperties.Type> updatedProperties,
-                            HashSet<SyncedProperty> syncedProperties )
+                            Dictionary<SyncableProperties.Type, SyncedProperty> currentlySynced,
+                            HashSet<SyncableProperties.Type> updatedProperties )
         {
-            //  Default is just the name from the passed updated property
-            string ret = syncedProperty.Property.ToString();
+            StringBuilder sb = new StringBuilder();
 
-            // if we're not doing detailed values, just return the default, short property section
-            if (!m_detailedPropertyValues) return ret;
-
-            // We are called two ways: either we are passed a list of synced properties
-            //    or we have to fetch the one for this UUID.
-            HashSet<SyncedProperty> properties = syncedProperties;
-            // if we were not passed properties, get the currently outbound updated properties
-            if (properties == null)
+            // For each of the updated properties, make an entry with the property name and, optionally, the value
+            foreach (SyncableProperties.Type synt in updatedProperties)
             {
-                SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(sopUUID);
-                if (sib != null)
-                {
-                    Dictionary<SyncableProperties.Type, SyncedProperty> currentlySyncedProperties = sib.CurrentlySyncedProperties;
-                    properties = new HashSet<SyncedProperty>();
-                    foreach (KeyValuePair<SyncableProperties.Type, SyncedProperty> kvp in currentlySyncedProperties)
-                    {
-                        properties.Add(kvp.Value);
-                    }
-                }
-            }
-            if (properties != null)
-            {
-                StringBuilder sb = new StringBuilder();
-                foreach (SyncedProperty synp in properties)
-                {
-                    // if this is not one of the updated properties, don't output anything
-                    if (!updatedProperties.Contains(synp.Property)) continue;
+                if (sb.Length != 0) sb.Append("/");
+                sb.Append(synt.ToString());
 
+                if (m_detailedPropertyValues && currentlySynced != null)
+                {
+                    SyncedProperty synp = currentlySynced[synt];
+                    string sVal = "";
                     try
                     {
-                        // put the name of the property
-                        if (sb.Length != 0) sb.Append("/");
-                        sb.Append(synp.Property.ToString());
-
-                        string sVal = null;
-
                         // There are some properties that we don't want to output
                         //   or that we want to format specially.
                         switch (synp.Property)
@@ -2290,11 +2220,10 @@ namespace DSG.RegionSync
                                                     LogHeader, synp.Property.ToString(), e);
                     }
                 }
-                // So the fields are still separated by commas, replace all the commas in the values
-                ret = sb.ToString().Replace(", ", ";");
             }
 
-            return ret;
+            // So the fields are still separated by commas, replace all the commas in the values
+            return sb.ToString().Replace(", ", ";");
         }
         // END DSG DEBUG
 

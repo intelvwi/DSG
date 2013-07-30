@@ -304,13 +304,6 @@ namespace DSG.RegionSync
                                 if (!string.IsNullOrEmpty(connStat.MessageType))
                                 {
                                     OSDMap messagesMap = (OSDMap)connectorMap["MessagesByType"];
-                                    // If the first entry for this message type, add a place to account this message type
-                                    if (!messagesMap.ContainsKey(connStat.MessageType))
-                                    {
-                                        messagesMap.Add(connStat.MessageType, new OSDMap());
-                                    }
-                                    // Add the message type count
-                                    OSDMap messageMap = (OSDMap)messagesMap[connStat.MessageType];
                                     messagesMap.Add(connStat.Name, OSD.FromReal(val));
                                 }
 
