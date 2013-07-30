@@ -142,7 +142,7 @@ namespace DSG.RegionSync
             ConsoleDisplayTable cdt = new ConsoleDisplayTable();
 
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
-            if (StatsManager.TryGetStats(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
+            if (StatsManager.TryGetStatsForCategory(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
             {
                 // Find all the column names
                 Dictionary<string, int> cols = new Dictionary<string, int>();
@@ -267,7 +267,7 @@ namespace DSG.RegionSync
             // Fetch all the DSG stats. Extract connectors and then organize the stats.
             // The top dictionary is the containers (region name)
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
-            if (StatsManager.TryGetStats(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
+            if (StatsManager.TryGetStatsForCategory(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
             {
                 foreach (string container in DSGStats.Keys)
                 {
@@ -585,7 +585,7 @@ namespace DSG.RegionSync
             int msSinceLast = Util.EnvironmentTickCountSubtract(lastStatTime);
 
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
-            if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
+            if (StatsManager.TryGetStatsForCategory(DSGDetailCategory, out DSGStats))
             {
                 foreach (string container in DSGStats.Keys)
                 {
@@ -709,7 +709,7 @@ namespace DSG.RegionSync
         private void LogStats(string category, string logDir, string logPrefix, int logFileTime, bool logFlushWrites, List<string> fields)
         {
             SortedDictionary<string, SortedDictionary<string, Stat>> categoryStats;
-            if (StatsManager.TryGetStats(category, out categoryStats))
+            if (StatsManager.TryGetStatsForCategory(category, out categoryStats))
             {
                 foreach (string container in categoryStats.Keys)
                 {
@@ -771,7 +771,7 @@ namespace DSG.RegionSync
             SortedDictionary<string, SortedDictionary<string, Stat>> categoryStats;
             LogWriter connWriter = null;
             Dictionary<string, string> outputValues = new Dictionary<string, string>();
-            if (StatsManager.TryGetStats(category, out categoryStats))
+            if (StatsManager.TryGetStatsForCategory(category, out categoryStats))
             {
                 foreach (string container in categoryStats.Keys)
                 {
