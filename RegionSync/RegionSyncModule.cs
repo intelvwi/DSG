@@ -1958,10 +1958,13 @@ namespace DSG.RegionSync
                 {
                     UUID uuid = sp.UUID;
                     SyncInfoPresence sip = (SyncInfoPresence)(m_SyncInfoManager.GetSyncInfo(uuid));
-                    string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
-                    if (!connectedRegions.Contains(cachedRealRegionName))
+                    if (sip != null)
                     {
-                        avatarsToRemove.Add(uuid);
+                        string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
+                        if (!connectedRegions.Contains(cachedRealRegionName))
+                        {
+                            avatarsToRemove.Add(uuid);
+                        }
                     }
 
                 });

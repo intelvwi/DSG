@@ -256,8 +256,18 @@ namespace DSG.RegionSync
         {
             // DebugLog.WarnFormat("[SYNC INFO MANAGER] GetSyncInfo for uuid {0}", uuid);
             // Should never be called unless SyncInfo has already been added
+            //lock (m_syncLock)
+            //    return m_syncedUUIDs[uuid];
+            SyncInfoBase thisSyncInfo = null;
+            bool found = false;
             lock (m_syncLock)
-                return m_syncedUUIDs[uuid];
+            {
+                found = m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo);
+            }
+            if (found)
+                return thisSyncInfo;
+            else
+                return null;
         }
     }
 }
