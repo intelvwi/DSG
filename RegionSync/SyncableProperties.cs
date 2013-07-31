@@ -283,7 +283,7 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.PA_TargetVelocity);
             allProperties.Add(SyncableProperties.Type.RealRegion);
             allProperties.Add(SyncableProperties.Type.Flying);
-            allProperties.Add(SyncableProperties.Type.PresenceType);
+            // allProperties.Add(SyncableProperties.Type.PresenceType);
             allProperties.Add(SyncableProperties.Type.IsColliding);
 
             return allProperties;
@@ -306,7 +306,7 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.PA_Velocity);
             allProperties.Add(SyncableProperties.Type.PA_TargetVelocity);
             allProperties.Add(SyncableProperties.Type.Flying);
-            allProperties.Add(SyncableProperties.Type.PresenceType);
+            // allProperties.Add(SyncableProperties.Type.PresenceType);
             allProperties.Add(SyncableProperties.Type.IsColliding);
 
             return allProperties;

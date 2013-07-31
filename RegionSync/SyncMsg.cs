@@ -1877,7 +1877,9 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
             // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
             acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
-            PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
+            // PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
+            // Fake like we're not a user so normal teleport processing will not happen.
+            PresenceType pt = PresenceType.Npc;
 
             // Add the decoded circuit to local scene
             pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
