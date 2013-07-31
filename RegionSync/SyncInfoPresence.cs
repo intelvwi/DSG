@@ -94,7 +94,7 @@ namespace DSG.RegionSync
         /// <param name="id">UUID of the scene presence</param>
         /// <param name="syncInfoData">Initial sync data</param>
         /// <param name="scene">The local scene</param>
-        public SyncInfoPresence(UUID id, OSDMap syncInfoData, Scene scene)
+        public SyncInfoPresence(UUID id, OSDArray properties, Scene scene)
         {
             // DebugLog.WarnFormat("[SYNC INFO PRESENCE] Constructing SyncInfoPresence (from map) for uuid {0}", id);
 
@@ -103,18 +103,13 @@ namespace DSG.RegionSync
 
             lock (m_syncLock)
             {
+                // Decode syncInfoData into CurrentlySyncedProperties
                 CurrentlySyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
-                foreach (SyncableProperties.Type property in SyncableProperties.AvatarProperties)
+                foreach (OSD property in properties)
                 {
-                    if (syncInfoData.ContainsKey(property.ToString()))
-                    {
-                        SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)syncInfoData[property.ToString()]);
-                        CurrentlySyncedProperties.Add(property, syncedProperty);
-                    }
-                    else
-                    {
-                        DebugLog.ErrorFormat("[SYNC INFO PRESENCE] SyncInfoPresence: Property {0} not included in the given OSDMap", property);
-                    }
+                    // Parse each property from the key in the map we received
+                    SyncedProperty syncedProperty = new SyncedProperty((OSDArray)property);
+                    CurrentlySyncedProperties.Add(syncedProperty.Property, syncedProperty);
                 }
             }
         }

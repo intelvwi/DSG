@@ -183,18 +183,15 @@ namespace DSG.RegionSync
         {
             // DebugLog.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0}", uuid);
             SyncInfoBase thisSyncInfo = null;
-            bool found = false;
             lock (m_syncLock)
             {
-                found = m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo);
+                m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo);
             }
-            if (found)
+            if (thisSyncInfo != null)
             {
                 OSDMap data = new OSDMap();
-                data["uuid"] = OSDMap.FromUUID(uuid);
-                //OSDMap propertyData = m_syncedUUIDs[uuid].EncodeSyncedProperties(propertiesToEncode);
-                OSDMap propertyData = thisSyncInfo.EncodeSyncedProperties(propertiesToEncode);
-                data["propertyData"] = propertyData;
+                data["uuid"] = OSD.FromUUID(uuid);
+                data["properties"] = thisSyncInfo.EncodeSyncedProperties(propertiesToEncode);
                 return data;
             }
 

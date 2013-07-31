@@ -108,15 +108,14 @@ namespace DSG.RegionSync
         #endregion //Members
 
         /// <summary>
-        /// Encode the SyncInfo of each property, including its current value 
-        /// maintained in this SyncModule, its timestamp and syncID.
+        /// Encode the SyncInfo of each property, including its current value maintained in this SyncModule, its timestamp and syncID.
+        /// HashSet of SyncedProperty to OSDMap
         /// </summary>
-        /// <param name="propertiesToSync">The list of properties to be encoded. 
-        /// If FullUpdate is included, then encode all properties.</param>
+        /// <param name="propertiesToSync">The list of properties to be encoded.</param>
         /// <returns></returns>
-        public OSDMap EncodeSyncedProperties(HashSet<SyncableProperties.Type> propertiesToSync)
+        public OSDArray EncodeSyncedProperties(HashSet<SyncableProperties.Type> propertiesToSync)
         {
-            OSDMap propertyData = new OSDMap();
+            OSDArray propertyData = new OSDArray();
 
             //Lock first, so that we effectively freeze the record and take a snapshot
             lock (m_syncLock)
@@ -126,7 +125,7 @@ namespace DSG.RegionSync
                     SyncedProperty prop;
                     if (CurrentlySyncedProperties.TryGetValue(ptype, out prop))
                     {
-                        propertyData.Add(ptype.ToString(), prop.ToOSDMap());
+                        propertyData.Add(prop.ToOSDArray());
                     }
                     else
                     {
@@ -135,6 +134,20 @@ namespace DSG.RegionSync
                 }
             }
             return propertyData;
+        }
+
+        // OSDMap -> HashSet<SyncedProperty>
+        public static HashSet<SyncedProperty> DecodeSyncedProperties(OSDMap data)
+        {
+            // data["properties"] is an OSDArray of OSDArrays.
+            // For each array, construct a new SyncedProperty
+            OSDArray properties = (OSDArray)data["properties"];
+            HashSet<SyncedProperty> syncedProperties = new HashSet<SyncedProperty>();
+            foreach (OSDArray property in properties)
+            {
+                syncedProperties.Add(new SyncedProperty(property));
+            }
+            return syncedProperties;
         }
 
         public HashSet<string> GetLastUpdateSyncIDs(HashSet<SyncableProperties.Type> propertiesToSync)

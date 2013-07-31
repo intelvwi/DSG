@@ -91,7 +91,7 @@ namespace DSG.RegionSync
         }
 
         // Constructor used for initializing SyncInfo from remote (OSDMap) data before syncing it locally
-        public SyncInfoPrim(UUID id, OSDMap syncInfoData, Scene scene)
+        public SyncInfoPrim(UUID id, OSDArray properties, Scene scene)
         {
             UUID = id;
             Scene = scene;
@@ -107,12 +107,11 @@ namespace DSG.RegionSync
             {
                 // Decode syncInfoData into CurrentlySyncedProperties
                 CurrentlySyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
-                foreach(KeyValuePair<string, OSD> kvp in syncInfoData)
+                foreach(OSDArray property in properties)
                 {
                     // Parse each property from the key in the map we received
-                    SyncableProperties.Type property = (SyncableProperties.Type) Enum.Parse(typeof(SyncableProperties.Type), kvp.Key);
-                    SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)(kvp.Value));
-                    CurrentlySyncedProperties.Add(property, syncedProperty);
+                    SyncedProperty syncedProperty = new SyncedProperty(property);
+                    CurrentlySyncedProperties.Add(syncedProperty.Property, syncedProperty);
                     try
                     {
                         SetPropertyValue((SceneObjectPart)SceneThing, syncedProperty);
