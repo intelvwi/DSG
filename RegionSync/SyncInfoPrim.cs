@@ -610,6 +610,9 @@ namespace DSG.RegionSync
             SyncableProperties.Type property = pSyncInfo.Property;
             Object LastUpdateValue = pSyncInfo.LastUpdateValue;
 
+            // Do not generate undo information for this update
+            part.IgnoreUndoUpdate = true;
+
             switch (property)
             {
                 ///////////////////////
@@ -940,6 +943,9 @@ namespace DSG.RegionSync
                         part.ParentGroup.IsSelected = (bool)LastUpdateValue;
                     break;
             }
+
+            // Do not generate undo information for this update
+            part.IgnoreUndoUpdate = false;
 
             //Calling ScheduleFullUpdate to trigger enqueuing updates for sync'ing (relay sync nodes need to do so)
             //part.ScheduleFullUpdate(new List<SyncableProperties.Type>() { property }); 
