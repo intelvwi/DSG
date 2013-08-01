@@ -45,15 +45,19 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Timers;
 
 using OpenSim.Framework;
+using OpenSim.Framework.Console;
 using OpenSim.Framework.Monitoring;
+using OpenSim.Framework.Servers;
 using OpenSim.Region.CoreModules;
 using OpenSim.Region.CoreModules.Framework.Statistics.Logging;
+using OpenSim.Region.Framework.Scenes;
 
 using OpenMetaverse.StructuredData;
 
@@ -101,6 +105,22 @@ namespace DSG.RegionSync
         {
             return base.ToConsoleString();
         }
+
+        public override OSDMap ToOSDMap()
+        {
+            // Start with the underlying value map
+            OSDMap map = base.ToOSDMap();
+
+            map["StatType"] = "SyncConnectorStat";
+            map.Add("RegionName", RegionName);
+            map.Add("ConnectorNum", ConnectorNum);
+            map.Add("MyActorID", MyActorID);
+            map.Add("OtherSideActorID", OtherSideActorID);
+            map.Add("OtherSideRegionName", OtherSideRegionName);
+            map.Add("MessageType", MessageType);
+
+            return map;
+        }
     }
 
     // =================================================================================
@@ -114,26 +134,95 @@ namespace DSG.RegionSync
 
         public override string ToConsoleString()
         {
-            StringBuilder ret = new StringBuilder();
+            // Message types that are not reported. There should be only one of these messages anyway.
+            string leaveOutMsgs = "GetObjec,GetPrese,GetTerra,Terrain,GetRegio,RegionIn,";
+            // Remembers the name of the actor on the other side of a connector
+            Dictionary<string, string> otherActor = new Dictionary<string, string>();
+
+            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
 
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
-            if (StatsManager.TryGetStats(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
+            if (StatsManager.TryGetStatsForCategory(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
             {
+                // Find all the column names
+                Dictionary<string, int> cols = new Dictionary<string, int>();
+                int maxColumn = 2;  // two extra columns at beginning
                 foreach (string container in DSGStats.Keys)
                 {
-                    OSDMap containerMap = new OSDMap();
                     foreach (KeyValuePair<string, Stat> aStat in DSGStats[container])
                     {
-                        SyncConnectorStat connStat = aStat.Value as SyncConnectorStat;
-                        if (connStat != null)
+                        string colName = ExtractColumnNameFromStatShortname(aStat.Value.ShortName);
+                        if (!leaveOutMsgs.Contains(colName + ",") && !cols.ContainsKey(colName))
                         {
-                            ret.Append(connStat.ToConsoleString());
-                            ret.Append(Environment.NewLine);
+                            cols.Add(colName, maxColumn++);
+                        }
+                        if (!otherActor.ContainsKey(container))
+                        {
+                            SyncConnectorStat conStat = aStat.Value as SyncConnectorStat;
+                            if (conStat != null)
+                                otherActor[container] = conStat.OtherSideActorID;
                         }
                     }
                 }
+
+                // Add all the columns to the table
+                cdt.AddColumn("Connection", 22);
+                cdt.AddColumn("OtherActor", 10);
+                foreach (KeyValuePair<string, int> kvp in cols)
+                {
+                    cdt.AddColumn(kvp.Key, 8);
+                }
+
+                // Add a row for each of the containers
+                foreach (string container in DSGStats.Keys)
+                {
+                    string[] values = new string[maxColumn];
+                    values.Initialize();
+
+                    values[0] = container;
+                    if (otherActor.ContainsKey(container))
+                        values[1] = otherActor[container];
+
+                    foreach (KeyValuePair<string, Stat> aStat in DSGStats[container])
+                    {
+                        string colName = ExtractColumnNameFromStatShortname(aStat.Value.ShortName);
+                        if (cols.ContainsKey(colName))
+                            values[cols[colName]] = aStat.Value.Value.ToString();
+                    }
+
+                    cdt.AddRow(values);
+                }
             }
-            return ret.ToString();
+            return cdt.ToString();
+        }
+
+        private string ExtractColumnNameFromStatShortname(string shortName)
+        {
+            string ret = shortName;
+
+            // The shortname is like:
+            //   DSG_Queued_Msgs|SyncConnector0(script/rsea100)
+            //   DSG_Msgs_Typ_Rcvd|SyncConnector1(physics/rpea00)|GetObjects
+            // This code converts the first into "Queued_Msgs" and the second into "GetObjects".
+            string[] barPieces = ret.Split('|');
+            if (barPieces.Length == 2)
+            {
+                ret = barPieces[0];
+                ret = ret.Replace("DSG_Bytes_", "Byte");
+                ret = ret.Replace("DSG_Msgs_", "Msg");
+                ret = ret.Replace("DSG_", "");
+            }
+            if (barPieces.Length == 3)
+            {
+                if (barPieces[0].StartsWith("DSG_Msgs_Typ"))
+                {
+                    ret = barPieces[2];
+                }
+            }
+            if (ret.Length > 8)
+                ret = ret.Substring(0, 8);
+
+            return ret;
         }
 
         // Build an OSDMap of the DSG sync connector info. Returned map is of the form:
@@ -178,7 +267,7 @@ namespace DSG.RegionSync
             // Fetch all the DSG stats. Extract connectors and then organize the stats.
             // The top dictionary is the containers (region name)
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
-            if (StatsManager.TryGetStats(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
+            if (StatsManager.TryGetStatsForCategory(SyncStatisticCollector.DSGDetailCategory, out DSGStats))
             {
                 foreach (string container in DSGStats.Keys)
                 {
@@ -215,13 +304,6 @@ namespace DSG.RegionSync
                                 if (!string.IsNullOrEmpty(connStat.MessageType))
                                 {
                                     OSDMap messagesMap = (OSDMap)connectorMap["MessagesByType"];
-                                    // If the first entry for this message type, add a place to account this message type
-                                    if (!messagesMap.ContainsKey(connStat.MessageType))
-                                    {
-                                        messagesMap.Add(connStat.MessageType, new OSDMap());
-                                    }
-                                    // Add the message type count
-                                    OSDMap messageMap = (OSDMap)messagesMap[connStat.MessageType];
                                     messagesMap.Add(connStat.Name, OSD.FromReal(val));
                                 }
 
@@ -257,6 +339,7 @@ namespace DSG.RegionSync
         public static string DSGDetailCategory = "dsg-detail";
 
         private string RegionName = "pre";
+        private Scene AssociatedScene { get; set; }
 
         private int LogIntervalSeconds { get; set; }
         private System.Timers.Timer WriteTimer { get; set; }
@@ -289,6 +372,9 @@ namespace DSG.RegionSync
         private int LogLLUDPBWAggFileTimeMinutes { get; set; }
         private bool LogLLUDPBWAggFlushWrites { get; set; }
         private int LogLLUDPBWAggInterval { get; set; }
+
+        private bool RemoteStatsFetchEnabled { get; set; }
+        private string RemoteStatsFetchBase { get; set; }
 
         public SyncStatisticCollector(IConfig cfg)
         {
@@ -354,6 +440,15 @@ namespace DSG.RegionSync
                             LogHeader, LogLLUDPBWAggDirectory, LogLLUDPBWAggFileTimeMinutes, LogLLUDPBWAggFlushWrites);
                 }
 
+                RemoteStatsFetchEnabled = cfg.GetBoolean("RemoteStatsFetchEnabled", false);
+                if (RemoteStatsFetchEnabled)
+                {
+                    RemoteStatsFetchBase = cfg.GetString("RemoteStatsFetchbase", "DSGStats");
+                    // That was simple
+                }
+
+                SetupRemoteStatsFetch();
+
                 // If enabled, we add a DSG pretty printer to the output
                 StatsManager.RegisterStat(new SyncConnectorStatAggregator(DSGCategory, DSGCategory, "Distributed Scene Graph", "", DSGCategory));
             }
@@ -361,13 +456,16 @@ namespace DSG.RegionSync
             m_lastLLUDPStatsLogTime = Util.EnvironmentTickCount(); //Util.EnvironmentTickCount() 15.6ms precision
         }
 
-        public void SpecifyRegion(string pRegionName)
+        public void SpecifyRegion(Scene pScene, string pRegionName)
         {
+            AssociatedScene = pScene;
             RegionName = pRegionName;
 
             // Once the region is set, we can start gathering statistics
             if (Enabled)
             {
+                RegisterDSGSpecificStats();
+
                 WriteTimer = new Timer(LogIntervalSeconds * 1000);
                 WriteTimer.Elapsed += StatsTimerElapsed;
                 WriteTimer.Start();
@@ -378,7 +476,7 @@ namespace DSG.RegionSync
         {       "RootAgents", "ChildAgents", "SimFPS", "PhysicsFPS", "TotalPrims",
                 "ActivePrims", "ActiveScripts", "ScriptLines",
                 "FrameTime", "PhysicsTime", "AgentTime", "ImageTime", "NetTime", "OtherTime", "SimSpareMS",
-                "AgentUpdates", "SlowFrames", "TimeDilation",
+                "AgentUpdates", "SlowFrames", "TimeDilation", "RealAgents",
         };
         List<string> serverStatFields = new List<string>
         {
@@ -446,6 +544,17 @@ namespace DSG.RegionSync
                 m_LLUDPStatsLogWriter.Close();
         }
 
+        private void RegisterDSGSpecificStats()
+        {
+            // The number of real clients in a region. Counts the number of ScenePresences actually connected to a viewer.
+            StatsManager.RegisterStat(new Stat("RealAgents", "RealAgents", "RealAgents", "avatars", "scene", RegionName, StatType.Pull,
+                (s) => { 
+                    int realAgents = 0;
+                    AssociatedScene.ForEachScenePresence((sp) => { if (sp.ControllingClient is LLClientView) realAgents++; });
+                    s.Value = realAgents;
+                }, StatVerbosity.Info));
+        }
+
         int lastStatTime = 0;
         // Structure kept per connection to remember last values so we can do per-second calculations
         private class LastStatValues
@@ -476,7 +585,7 @@ namespace DSG.RegionSync
             int msSinceLast = Util.EnvironmentTickCountSubtract(lastStatTime);
 
             SortedDictionary<string, SortedDictionary<string, Stat>> DSGStats;
-            if (StatsManager.TryGetStats(DSGDetailCategory, out DSGStats))
+            if (StatsManager.TryGetStatsForCategory(DSGDetailCategory, out DSGStats))
             {
                 foreach (string container in DSGStats.Keys)
                 {
@@ -600,7 +709,7 @@ namespace DSG.RegionSync
         private void LogStats(string category, string logDir, string logPrefix, int logFileTime, bool logFlushWrites, List<string> fields)
         {
             SortedDictionary<string, SortedDictionary<string, Stat>> categoryStats;
-            if (StatsManager.TryGetStats(category, out categoryStats))
+            if (StatsManager.TryGetStatsForCategory(category, out categoryStats))
             {
                 foreach (string container in categoryStats.Keys)
                 {
@@ -662,7 +771,7 @@ namespace DSG.RegionSync
             SortedDictionary<string, SortedDictionary<string, Stat>> categoryStats;
             LogWriter connWriter = null;
             Dictionary<string, string> outputValues = new Dictionary<string, string>();
-            if (StatsManager.TryGetStats(category, out categoryStats))
+            if (StatsManager.TryGetStatsForCategory(category, out categoryStats))
             {
                 foreach (string container in categoryStats.Keys)
                 {
@@ -776,8 +885,45 @@ namespace DSG.RegionSync
                 m_lastLLUDPAggregatedIn = currentLLUDPAggregatedIn;
                 m_lastLLUDPAggregatedOut = currentLLUDPAggregatedOut;
             }
-
-
         }
+
+        private void SetupRemoteStatsFetch()
+        {
+            if (!RemoteStatsFetchEnabled) return;
+
+            string urlBase = String.Format("/{0}/", RemoteStatsFetchBase);
+            MainServer.Instance.AddHTTPHandler(urlBase, HandleStatsRequest);
+            m_log.DebugFormat("{0}: RemoteStatsFetch enabled. URL={1}", LogHeader, urlBase);
+        }
+
+        private Hashtable HandleStatsRequest(Hashtable request)
+        {
+            Hashtable responsedata = new Hashtable();
+            string regpath = request["uri"].ToString();
+            int response_code = 200;
+            string contenttype = "text/json";
+
+            string pCategoryName = StatsManager.AllSubCommand;
+            string pContainerName = StatsManager.AllSubCommand;
+            string pStatName = StatsManager.AllSubCommand;
+
+            if (request.ContainsKey("cat")) pCategoryName = request["cat"].ToString();
+            if (request.ContainsKey("cont")) pContainerName = request["cat"].ToString();
+            if (request.ContainsKey("stat")) pStatName = request["cat"].ToString();
+
+            string strOut = StatsManager.GetStatsAsOSDMap(pCategoryName, pContainerName, pStatName).ToString();
+
+            // m_log.DebugFormat("{0} StatFetch: uri={1}, cat={2}, cont={3}, stat={4}, resp={5}",
+            //                         LogHeader, regpath, pCategoryName, pContainerName, pStatName, strOut);
+
+            responsedata["int_response_code"] = response_code;
+            responsedata["content_type"] = contenttype;
+            responsedata["keepalive"] = false;
+            responsedata["str_response_string"] = strOut;
+            responsedata["access_control_allow_origin"] = "*";
+
+            return responsedata;
+        }
+
     }
 }

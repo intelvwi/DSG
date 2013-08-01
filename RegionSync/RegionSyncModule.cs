@@ -50,6 +50,7 @@ using Nini.Config;
 using OpenMetaverse;
 using OpenSim.Framework;
 using OpenSim.Framework.Client;
+using OpenSim.Framework.Console;
 using OpenSim.Framework.Monitoring;
 using OpenSim.Region.CoreModules.Framework.InterfaceCommander;
 using Logging = OpenSim.Region.CoreModules.Framework.Statistics.Logging;
@@ -64,6 +65,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Text;
 using System.Collections;
+using System.Timers;
 
 using System.IO;
 using System.Xml;
@@ -93,7 +95,10 @@ namespace DSG.RegionSync
         private int m_statMsgsOut = 0;
         private int m_statEventIn = 0;
         private int m_statEventOut = 0;
-        
+
+        public static long UpdateTimeDisplacementFudgeTicks = 0;
+        public static bool ShouldUnconditionallyAcceptAnimationOverrides = true;
+
         public void Initialise(IConfigSource config)
         {
             m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
@@ -121,8 +126,12 @@ namespace DSG.RegionSync
 
             IsSyncRelay =  m_sysConfig.GetBoolean("IsHub", false);
             m_hasLocalSyncListener = m_sysConfig.GetBoolean("HasLocalSync", false);
-            //IsSyncRelay = m_sysConfig.GetBoolean("IsSyncRelay", false);
-            //m_hasLocalSyncListener = m_sysConfig.GetBoolean("IsSyncListenerLocal", false);
+            // Ticks are 100ns increments. Convert fudge seconds into ticks.
+            UpdateTimeDisplacementFudgeTicks = m_sysConfig.GetLong("UpdateTimeDisplacementFudgeSeconds", 0) * 10000000L;
+
+            // Until timing is improved, so animations always are updated by scripts, if this flag is 'true', always
+            //     accept received updates to animation values if they are more than just default animations.
+            ShouldUnconditionallyAcceptAnimationOverrides = m_sysConfig.GetBoolean("ShouldUnconditionallyAcceptAnimationOverrides", true);
 
             Active = true;
 
@@ -183,6 +192,9 @@ namespace DSG.RegionSync
             TimeSpan tSpan = new TimeSpan(0, 0, syncInfoAgeOutSeconds);
             m_SyncInfoManager = new SyncInfoManager(this, tSpan.Ticks);
 
+            // Global command line commands
+            InstallGlobalCommands();
+
             //this is temp solution for reducing collision events for country fair demo
             m_reportCollisions = m_sysConfig.GetString("ReportCollisions", "All");
 
@@ -190,8 +202,11 @@ namespace DSG.RegionSync
             //has been sent through that connection for KeepAliveMaxInterval ms.
             SyncConnector.KeepAliveMaxInterval = m_sysConfig.GetInt("KeepAliveMaxInterval", 10000); //unit of ms
             m_syncMsgKeepAlive = new SyncMsgKeepAlive(this);
+
+            m_updateThreadDelayLog = m_sysConfig.GetBoolean("UpdateThreadDelayLog", false);
         }
 
+        private static System.Timers.Timer m_syncOutTimer;
         //Called after Initialise()
         public void AddRegion(Scene scene)
         {
@@ -208,13 +223,19 @@ namespace DSG.RegionSync
             Scene.EventManager.OnRegionHeartbeatEnd += SyncOutUpdates;
             InstallInterfaces();
 
+            m_syncOutTimer = new System.Timers.Timer();
+            m_syncOutTimer.Interval = 20;
+            m_syncOutTimer.Elapsed += new ElapsedEventHandler(delegate(object o, ElapsedEventArgs e) { SyncOutUpdates(Scene); });
+            m_syncOutTimer.Enabled = true;
+
+
             // Add region name to various logging headers so we know where the log messages come from
             LogHeader += "/" + scene.RegionInfo.RegionName;
             m_detailedLog.LogFileHeader = m_detailedLog.LogFileHeader + scene.RegionInfo.RegionName + "-";
 
             if (StatCollector != null)
             {
-                StatCollector.SpecifyRegion(Scene.RegionInfo.RegionName);
+                StatCollector.SpecifyRegion(Scene, Scene.RegionInfo.RegionName);
             }
 
             SyncID = GetSyncID();
@@ -321,6 +342,8 @@ namespace DSG.RegionSync
         {
             if (!Active)
                 return;
+
+            m_syncOutTimer.Enabled = false;
 
             IEstateModule estate = Scene.RequestModuleInterface<IEstateModule>();
             if (estate != null)
@@ -525,7 +548,7 @@ namespace DSG.RegionSync
 
             TerrainSyncInfo.LastUpdateValue = terrain;
             TerrainSyncInfo.LastUpdateActorID = GetSyncID();
-            TerrainSyncInfo.LastUpdateTimeStamp = DateTime.UtcNow.Ticks;
+            TerrainSyncInfo.LastUpdateTimeStamp = RegionSyncModule.NowTicks();
 
             SyncMsgTerrain msg = new SyncMsgTerrain(this, TerrainSyncInfo);
 
@@ -547,8 +570,7 @@ namespace DSG.RegionSync
             }
 
             // Add SP to SyncInfoManager
-            m_SyncInfoManager.InsertSyncInfoLocal(uuid, DateTime.UtcNow.Ticks, SyncID);
-
+            m_SyncInfoManager.InsertSyncInfoLocal(uuid, RegionSyncModule.NowTicks(), SyncID);
             if (IsSyncingWithOtherSyncNodes())
             {
                 SyncMsgNewPresence msg = new SyncMsgNewPresence(this, sp);
@@ -609,16 +631,16 @@ namespace DSG.RegionSync
             {
                 foreach (SceneObjectPart part in sog.Parts)
                 {
-                    m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, SyncID);
+                    m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, RegionSyncModule.NowTicks(), SyncID);
                 }
+            }
 
-                if (IsSyncingWithOtherSyncNodes())
-                {
-                    // if we're syncing with other nodes, send out the message
-                    SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
-                    // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
-                    SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
-                }
+            if (IsSyncingWithOtherSyncNodes())
+            {
+                // if we're syncing with other nodes, send out the message
+                SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
+                // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
             }
         }
 
@@ -752,10 +774,21 @@ namespace DSG.RegionSync
             cmdSyncDumpUUID.AddArgument("uuid", "The uuid to print values for", "UUID");
             cmdSyncDumpUUID.AddArgument("full", "Print all values, not just differences", "String");
 
+                        // For handling and debugging disconnection, reconnection trial, etc
+            Command cmdSyncConnMgmt = new Command("conn", CommandIntentions.COMMAND_HAZARDOUS, SyncConnMgmt, "Manage and debug sync connections");
+            cmdSyncConnMgmt.AddArgument("mgmtCmd", "command for managing connections", "String");
+            cmdSyncConnMgmt.AddArgument("otherSideRegionName/remoteListenerAddr:Port", 
+                "regionName of the actor/sim on the other side of the sync connection, if 'all', then all syncconnectors are included; or addr:port for reconn", "String");
+
+            Command cmdSyncTimeFudge = new Command("timeFudge", CommandIntentions.COMMAND_HAZARDOUS, SyncTimeFudge, "Adjust a base time fudge factor for timestamps");
+            cmdSyncTimeFudge.AddArgument("fudge", "Signed seconds to adjust from system time. 'list' will just display the current value.", "String");
+
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
             m_commander.RegisterCommand("uuid", cmdSyncDumpUUID);
+            m_commander.RegisterCommand("conn", cmdSyncConnMgmt);
+            m_commander.RegisterCommand("timeFudge", cmdSyncTimeFudge);
 
             lock (Scene)
             {
@@ -785,6 +818,345 @@ namespace DSG.RegionSync
 
                 m_commander.ProcessConsoleCommand(args[1], tmpArgs);
             }
+        }
+
+        private bool m_commandsLoaded = false;
+        private const string estateListInvocation = "dsgEstate list";
+        private const string parcelListInvocation = "dsgParcel list";
+        private const string estateInvocation = "dsgEstate set param value";
+        private const string parcelInvocation = "dsgParcel set x y param value";
+        private void InstallGlobalCommands()
+        {
+            if (!m_commandsLoaded)
+            {
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgEstate list",
+                    estateListInvocation,
+                    "List settable estate parameters on a DSG region",
+                    ProcessEstateList);
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgParcel list",
+                    parcelListInvocation,
+                    "List settable parcel parameters in a DSG region",
+                    ProcessParcelList);
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgEstate set",
+                    estateInvocation,
+                    "Set estate parameters on a DSG region",
+                    ProcessEstateSet);
+
+                MainConsole.Instance.Commands.AddCommand(
+                    "Regions", false, "dsgParcel set",
+                    parcelInvocation,
+                    "Get parcel parameters in a DSG region",
+                    ProcessParcelSet);
+
+                m_commandsLoaded = true;
+            }
+        }
+
+        private delegate void dsgEstateSet(EstateSettings es, string v);
+        private delegate object dsgEstateGet(EstateSettings es);
+        private class DsgEstateParam
+        {
+            public string name;
+            public dsgEstateGet getter;
+            public dsgEstateSet setter;
+            public DsgEstateParam(string pName, dsgEstateGet pGetter, dsgEstateSet pSetter)
+            {
+                name = pName;
+                getter = pGetter;
+                setter = pSetter;
+            }
+        }
+        private DsgEstateParam[] DSGEstateParams = {
+               new DsgEstateParam("AllowDirectTeleport",(es) => { return es.AllowDirectTeleport; }, (es,v) => { es.AllowDirectTeleport = BoolParam(v); }),
+               new DsgEstateParam("AllowLandmark",      (es) => { return es.AllowLandmark; },   (es,v) => { es.AllowLandmark = BoolParam(v); }),
+               new DsgEstateParam("AllowParcelChanges", (es) => { return es.AllowParcelChanges; },  (es,v) => { es.AllowParcelChanges = BoolParam(v); }),
+               new DsgEstateParam("AllowSetHome",       (es) => { return es.AllowSetHome; },    (es,v) => { es.AllowSetHome = BoolParam(v); }),
+               new DsgEstateParam("AllowVoice",         (es) => { return es.AllowVoice; },      (es,v) => { es.AllowVoice = BoolParam(v); }),
+               new DsgEstateParam("BillableFactor",     (es) => { return es.BillableFactor; },  (es,v) => { es.BillableFactor = FloatParam(v); }),
+               new DsgEstateParam("BlockDwell",         (es) => { return es.BlockDwell; },      (es,v) => { es.BlockDwell = BoolParam(v); }),
+               new DsgEstateParam("DenyAnonymous",      (es) => { return es.DenyAnonymous; },   (es,v) => { es.DenyAnonymous = BoolParam(v); }),
+               new DsgEstateParam("DenyIdentified",     (es) => { return es.DenyIdentified; },  (es,v) => { es.DenyIdentified = BoolParam(v); }),
+               new DsgEstateParam("DenyMinors",         (es) => { return es.DenyMinors; },      (es,v) => { es.DenyMinors = BoolParam(v); }),
+               new DsgEstateParam("DenyTransacted",     (es) => { return es.DenyTransacted; },  (es,v) => { es.DenyTransacted = BoolParam(v); }),
+               new DsgEstateParam("FixedSun",           (es) => { return es.FixedSun; },        (es,v) => { es.FixedSun = BoolParam(v); }),
+               new DsgEstateParam("SunPosition",        (es) => { return es.SunPosition; },     (es,v) => { es.SunPosition = FloatParam(v); }),
+               new DsgEstateParam("PublicAccess",       (es) => { return es.PublicAccess; },    (es,v) => { es.PublicAccess = BoolParam(v); }),
+               new DsgEstateParam("EstateID",           (es) => { return es.EstateID; },        (es,v) => { es.EstateID = (uint)IntParam(v); }),
+               new DsgEstateParam("RedirectGridX",      (es) => { return es.RedirectGridX; },   (es,v) => { es.RedirectGridX = IntParam(v); }),
+               new DsgEstateParam("RedirectGridY",      (es) => { return es.RedirectGridY; },   (es,v) => { es.RedirectGridY = IntParam(v); }),
+               new DsgEstateParam("UseGlobalTime",      (es) => { return es.UseGlobalTime; },   (es,v) => { es.UseGlobalTime = BoolParam(v); }),
+       };
+
+        // Invocation is: dsgEstate list
+        private void ProcessEstateList(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            string regionName = SceneManager.Instance.CurrentScene.RegionInfo.RegionName;
+            EstateSettings estateInfo = SceneManager.Instance.CurrentScene.RegionInfo.EstateSettings;
+
+            MainConsole.Instance.OutputFormat("Estate name = {0}, id={1}", estateInfo.EstateName, estateInfo.EstateID);
+            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
+            cdt.AddColumn("Parameter", 20);
+            cdt.AddColumn("Value", 10);
+            foreach (DsgEstateParam espx in DSGEstateParams)
+            {
+                cdt.AddRow(espx.name, espx.getter(estateInfo).ToString());
+            }
+            MainConsole.Instance.Output(cdt.ToString());
+        }
+        // Invocation is: dsgEstate set variable value
+        private void ProcessEstateSet(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            if (cmdparms.Length != 4)
+            {
+                MainConsole.Instance.OutputFormat("Parameter count error. Invocation: {0}", estateInvocation);
+                return;
+            }
+            string var = cmdparms[2].ToLower();
+            string val = cmdparms[3];
+            EstateSettings estateSetting = SceneManager.Instance.CurrentScene.RegionInfo.EstateSettings;
+            DsgEstateParam esp = null;
+            foreach (DsgEstateParam espx in DSGEstateParams)
+            {
+                if (var == espx.name.ToLower())
+                {
+                    esp = espx;
+                    break;
+                }
+            }
+            if (esp == null)
+            {
+                MainConsole.Instance.OutputFormat("Unrecognized estate parameter name. Try 'dsgEstate list'.");
+            }
+            else
+            {
+                esp.setter(estateSetting, val);
+                // After setting estate info, tell the object to store it
+                estateSetting.Save();
+
+                IEstateModule em = SceneManager.Instance.CurrentScene.RequestModuleInterface<IEstateModule>();
+                if (em != null)
+                    em.TriggerEstateInfoChange();
+
+                SceneManager.Instance.CurrentScene.TriggerEstateSunUpdate();
+            }
+            /*
+            estateInfo.EstateAccess[1] = UUID;
+            estateInfo.AddBan(new EstateBan());
+            estateInfo.EstateBans[1] = UUID;
+            estateInfo.EstateGroups[1] = UUID;
+            estateInfo.EstateManagers[1] = UUID;
+            estateInfo.EstateName = "string";
+            estateInfo.EstateOwner = UUID;
+            estateInfo.RemoveBan(UUID);
+             */
+        }
+
+        private delegate void dsgParcelSet(ILandObject lo, string v);
+        private delegate object dsgParcelGet(ILandObject lo);
+        private class DsgParcelParam
+        {
+            public string name;
+            public dsgParcelGet getter;
+            public dsgParcelSet setter;
+            public DsgParcelParam(string pName, dsgParcelGet pGetter, dsgParcelSet pSetter)
+            {
+                name = pName;
+                getter = pGetter;
+                setter = pSetter;
+            }
+        }
+        // The logical statement for the ParcelFlags setter XORs the current value with the desired value. If the XOR is true (the values
+        //     are different) the flags value is XORed with the flag value to complement it.
+        private DsgParcelParam[] DSGParcelParams = {
+               new DsgParcelParam("ParcelParam", (lo) => { return lo.LandData.Flags; }, (lo,v) => { lo.LandData.Flags = (uint)IntParam(v); }),
+               new DsgParcelParam("AllowFly", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowFly) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowFly) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowFly; } ),
+               new DsgParcelParam("AllowOtherScripts", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowOtherScripts) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowOtherScripts) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowOtherScripts; } ),
+               new DsgParcelParam("ForSale", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ForSale) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ForSale) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ForSale; } ),
+               new DsgParcelParam("AllowLandmark", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowLandmark) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowLandmark) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowLandmark; } ),
+               new DsgParcelParam("AllowTerraform", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowTerraform) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowTerraform) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowTerraform; } ),
+               new DsgParcelParam("AllowDamage", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowDamage) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowDamage) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowDamage; } ),
+               new DsgParcelParam("CreateObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.CreateObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.CreateObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.CreateObjects; } ),
+               new DsgParcelParam("ForSaleObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ForSaleObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ForSaleObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ForSaleObjects; } ),
+               new DsgParcelParam("UseAccessGroup", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseAccessGroup) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseAccessGroup) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseAccessGroup; } ),
+               new DsgParcelParam("UseAccessList", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseAccessList) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseAccessList) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseAccessList; } ),
+               new DsgParcelParam("UseBanList", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseBanList) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseBanList) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseBanList; } ),
+               new DsgParcelParam("UsePassList", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UsePassList) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UsePassList) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UsePassList; } ),
+               new DsgParcelParam("ShowDirectory", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ShowDirectory) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ShowDirectory) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ShowDirectory; } ),
+               new DsgParcelParam("AllowDeedToGroup", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowDeedToGroup) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowDeedToGroup) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowDeedToGroup; } ),
+               new DsgParcelParam("ContributeWithDeed", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.ContributeWithDeed) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.ContributeWithDeed) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.ContributeWithDeed; } ),
+               new DsgParcelParam("SoundLocal", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.SoundLocal) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.SoundLocal) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.SoundLocal; } ),
+               new DsgParcelParam("SellParcelObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.SellParcelObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.SellParcelObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.SellParcelObjects; } ),
+               new DsgParcelParam("AllowPublish", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowPublish) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowPublish) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowPublish; } ),
+               new DsgParcelParam("MaturePublish", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.MaturePublish) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.MaturePublish) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.MaturePublish; } ),
+               new DsgParcelParam("UrlWebPage", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UrlWebPage) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UrlWebPage) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UrlWebPage; } ),
+               new DsgParcelParam("UrlRawHtml", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UrlRawHtml) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UrlRawHtml) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UrlRawHtml; } ),
+               new DsgParcelParam("RestrictPushObject", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.RestrictPushObject) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.RestrictPushObject) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.RestrictPushObject; } ),
+               new DsgParcelParam("DenyAnonymous", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.DenyAnonymous) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.DenyAnonymous) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.DenyAnonymous; } ),
+               new DsgParcelParam("LindenHome", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.LindenHome) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.LindenHome) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.LindenHome; } ),
+               new DsgParcelParam("AllowGroupScripts", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowGroupScripts) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowGroupScripts) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowGroupScripts; } ),
+               new DsgParcelParam("CreateGroupObjects", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.CreateGroupObjects) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.CreateGroupObjects) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.CreateGroupObjects; } ),
+               new DsgParcelParam("AllowAPrimitiveEntry", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowAPrimitiveEntry) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowAPrimitiveEntry) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowAPrimitiveEntry; } ),
+               new DsgParcelParam("AllowGroupObjectEntry", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowGroupObjectEntry) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowGroupObjectEntry) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowGroupObjectEntry; } ),
+               new DsgParcelParam("AllowVoiceChat", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.AllowVoiceChat) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.AllowVoiceChat) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.AllowVoiceChat; } ),
+               new DsgParcelParam("UseEstateVoiceChan", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.UseEstateVoiceChan) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.UseEstateVoiceChan) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.UseEstateVoiceChan; } ),
+               new DsgParcelParam("DenyAgeUnverified", (lo) => { return (lo.LandData.Flags & (uint)ParcelFlags.DenyAgeUnverified) != 0; }, 
+                   (lo,v) => { if (((lo.LandData.Flags & (uint)ParcelFlags.DenyAgeUnverified) != 0) ^ BoolParam(v)) lo.LandData.Flags ^= (uint)ParcelFlags.DenyAgeUnverified; } ),
+               new DsgParcelParam("MusicURL", (lo) => { return lo.GetMusicUrl(); },  (lo,v) => { lo.SetMusicUrl(v); }),
+               new DsgParcelParam("MediaURL", (lo) => { return "something"; },  (lo,v) => { lo.SetMediaUrl(v); }),
+       };
+
+        // Invocation is: dsgParcel list
+        private void ProcessParcelList(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            string regionName = SceneManager.Instance.CurrentScene.RegionInfo.RegionName;
+
+            ConsoleDisplayTable cdt = new ConsoleDisplayTable();
+            cdt.AddColumn("parcel <x,y>", 20);
+            cdt.AddColumn("Variable", 20);
+            cdt.AddColumn("Value", 20);
+            List<ILandObject> landObjects = SceneManager.Instance.CurrentScene.LandChannel.AllParcels();
+            foreach (ILandObject lo in landObjects)
+            {
+                foreach (DsgParcelParam pspx in DSGParcelParams)
+                {
+                    cdt.AddRow(String.Format("{0} <{1},{2}>", lo.LandData.Name, lo.StartPoint.X, lo.StartPoint.Y), pspx.name, pspx.getter(lo));
+                }
+            }
+            MainConsole.Instance.OutputFormat(cdt.ToString());
+        }
+
+        // Invocation is: dsgParcel set XCoord YCoord variable value
+        private void ProcessParcelSet(string module, string[] cmdparms)
+        {
+            if (SceneManager.Instance == null || SceneManager.Instance.CurrentScene == null)
+            {
+                MainConsole.Instance.Output("Error: no region selected. Use 'change region' to select a region.");
+                return;
+            }
+            if (cmdparms.Length != 6)
+            {
+                MainConsole.Instance.OutputFormat("Parameter count error. Invocation: {0}", parcelInvocation);
+                return;
+            }
+            int xx = IntParam(cmdparms[2]);
+            int yy = IntParam(cmdparms[3]);
+            string var = cmdparms[4].ToLower();
+            string val = cmdparms[5];
+            ILandObject parcel = SceneManager.Instance.CurrentScene.LandChannel.GetLandObject(xx, yy);
+            if (parcel != null)
+            {
+                DsgParcelParam parcelParam = null;
+                foreach (DsgParcelParam ppx in DSGParcelParams)
+                {
+                    if (var == ppx.name.ToLower())
+                    {
+                        parcelParam = ppx;
+                        break;
+                    }
+                }
+                if (parcelParam != null)
+                {
+                    parcelParam.setter(parcel, val);
+                }
+                else
+                {
+                    MainConsole.Instance.OutputFormat("Unrecognized parcel parameter name. Try 'dsgParcel list'.");
+                }
+            }
+            else
+            {
+                MainConsole.Instance.OutputFormat("No parcel found at location <{0}, {1}>", xx, yy);
+            }
+        }
+
+        private static bool BoolParam(string v)
+        {
+            bool ret = false;
+            try
+            {
+                ret = Boolean.Parse(v);
+            }
+            catch
+            {
+                MainConsole.Instance.OutputFormat("Failure parsing parameter value. Must be 'true', 'false', 1 or 0. Setting to {0}", ret);
+            }
+            return ret;
+        }
+        private static int IntParam(string v)
+        {
+            int ret = 0;
+            try
+            {
+                ret = Int32.Parse(v);
+            }
+            catch
+            {
+                MainConsole.Instance.OutputFormat("Failure parsing parameter value. Must be integer. Setting to {0}", ret);
+            }
+            return ret;
+        }
+        private static float FloatParam(string v)
+        {
+            float ret = 0f;
+            try
+            {
+                ret = float.Parse(v);
+            }
+            catch
+            {
+                MainConsole.Instance.OutputFormat("Failure parsing parameter value. Must be float. Setting to {0}", ret);
+            }
+            return ret;
         }
 
         #endregion Console Command Interface
@@ -863,17 +1235,9 @@ namespace DSG.RegionSync
 
         private string GetSyncID()
         {
-            /*
-            if (Scene != null)
-            {
-                return Scene.RegionInfo.RegionID.ToString();
-            }
-            else
-            {
-                return String.Empty;
-            }
-             * */
-            return ActorID;
+            // SyncID is the actor ID plus a random 4 digit number
+            Random r = new Random(int.Parse(Guid.NewGuid().ToString().Substring(0, 8), System.Globalization.NumberStyles.HexNumber));
+            return ActorID + r.Next(0, 9999).ToString("D4");
         }
 
         private void StatsTimerElapsed(object source, System.Timers.ElapsedEventArgs e)
@@ -1268,6 +1632,28 @@ namespace DSG.RegionSync
         }
 
 
+        private void SyncTimeFudge(Object[] args)
+        {
+            try
+            {
+                string theArg = (string)args[0];
+                if (!String.IsNullOrEmpty(theArg))
+                {
+                    Double fudgeFactorFraction = Double.Parse(theArg);
+                    // Convert seconds into ticks.
+                    UpdateTimeDisplacementFudgeTicks = (long)(fudgeFactorFraction * 10000000L);
+                }
+            }
+            catch (Exception e)
+            {
+                // m_log.WarnFormat("Parsing of arguement didn't work: {0}", e);
+                // If it can't be parsed, ignore the parameter and return the value.
+            }
+
+            m_log.WarnFormat("Update time offset fudge factor = {0}", ((double)UpdateTimeDisplacementFudgeTicks) / 10000000.0D);
+        }
+
+
         private void SyncStateReport(Object[] args)
         {
             //Preliminary implementation
@@ -1290,6 +1676,48 @@ namespace DSG.RegionSync
 
             m_log.WarnFormat("SyncStateReport {0} -- Object count: {1}, Prim Count {2}, Av Count {3} ", Scene.RegionInfo.RegionName, sogList.Count, primCount, avatarCount);
             m_log.WarnFormat("Estimated size of SyncInfoManager is {0}", m_SyncInfoManager.Size);
+        }
+
+
+        private void SyncConnMgmt(Object[] args)
+        {
+            string mgmtCmd = (string)args[0];
+            string otherSideRegionName = (string)args[1];
+
+            SyncConnector syncConnector = null;
+            if (otherSideRegionName != "all")
+            {
+                foreach (SyncConnector connector in m_syncConnectors)
+                {
+                    if (connector.otherSideRegionName == otherSideRegionName)
+                    {
+                        syncConnector = connector;
+                        break;
+                    }
+                }
+            }
+            switch (mgmtCmd)
+            {
+                case "close":
+                case "reconn":
+                case "rmavatar":
+                    Console.WriteLine(mgmtCmd + " NOT implemented yet");
+                    break;
+                case "show":
+                    if (otherSideRegionName == "all")
+                    {
+                        foreach (SyncConnector connector in m_syncConnectors)
+                        {
+                            Console.WriteLine("SyncConnector " + connector.ConnectorNum + ", connected to " + connector.otherSideActorID + "/" + connector.otherSideRegionName);
+                        }
+                    }
+                    else
+                    {
+                        if (syncConnector != null)
+                            Console.WriteLine("SyncConnector " + syncConnector.ConnectorNum + ", connected to " + syncConnector.otherSideActorID + "/" + syncConnector.otherSideRegionName);
+                    }
+                    break;
+            }
         }
 
         private void SyncDebug(Object[] args)
@@ -1351,8 +1779,8 @@ namespace DSG.RegionSync
                     data["seqNum"] = OSD.FromULong(evSeq);
                     SymmetricSyncMessage rsm = new SymmetricSyncMessage(SymmetricSyncMessage.MsgType.ScriptCollidingStart, data);
 
-                    //HandleRemoteEvent_ScriptCollidingStart(ActorID, evSeq, data, DateTime.UtcNow.Ticks);
-                    HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType.ScriptCollidingStart, ActorID, evSeq, data, DateTime.UtcNow.Ticks);
+                    //HandleRemoteEvent_ScriptCollidingStart(ActorID, evSeq, data, RegionSyncModule.NowTicks());
+                    HandleRemoteEvent_ScriptCollidingEvents(SymmetricSyncMessage.MsgType.ScriptCollidingStart, ActorID, evSeq, data, RegionSyncModule.NowTicks());
                 }
             }
             */
@@ -1375,7 +1803,7 @@ namespace DSG.RegionSync
                         //into the local record
                         foreach (SceneObjectPart part in sog.Parts)
                         {
-                            m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, SyncID);
+                            m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, RegionSyncModule.NowTicks(), SyncID);
                         }
 
                         //Next test serialization
@@ -1545,12 +1973,13 @@ namespace DSG.RegionSync
             // SendSyncMessage(new SyncMsgSyncID(m_syncID));
 
             // message sent to help calculating the difference in the clocks
-            SendSyncMessageAll(new SyncMsgTimeStamp(this, DateTime.UtcNow.Ticks));
+            SendSyncMessageAll(new SyncMsgTimeStamp(this, RegionSyncModule.NowTicks()));
 
             SendSyncMessageAll(new SyncMsgRegionName(this, Scene.RegionInfo.RegionName));
             m_log.WarnFormat("{0}: Sending region name: \"{0}\"", LogHeader, Scene.RegionInfo.RegionName);
 
             SendSyncMessageAll(new SyncMsgGetRegionInfo(this));
+            SendSyncMessageAll(new SyncMsgGetEnvironment(this));
             SendSyncMessageAll(new SyncMsgGetTerrain(this));
             SendSyncMessageAll(new SyncMsgGetPresences(this));
             SendSyncMessageAll(new SyncMsgGetObjects(this));
@@ -1565,6 +1994,7 @@ namespace DSG.RegionSync
             //customize the message for each parent. We may optimize it later, low priority for now though.
             //OSDMap quarkData = m_quarkManager.CreateQuarkSubscriptionMessageArgs();
             SendSyncMessageAll(new SyncMsgQuarkSubscription(this,true));
+
 
             //We'll deal with Event a bit later
 
@@ -1647,6 +2077,7 @@ namespace DSG.RegionSync
                     if (closed == null)
                         closed = new List<SyncConnector>();
                     closed.Add(syncConnector);
+                    m_log.WarnFormat("{0}: SyncConnector {1} connection closed", LogHeader, syncConnector.otherSideActorID); 
                 }
             }
 
@@ -1728,7 +2159,6 @@ namespace DSG.RegionSync
         /// <param name="msgLen">the length of the message being sent/received</param>
         public void DetailedUpdateLogging(UUID sopUUID,
                             HashSet<SyncableProperties.Type> updatedProperties,
-                            HashSet<SyncedProperty> syncedProperties,
                             string op,
                             string senderReceiver,
                             int msgLen )
@@ -1736,108 +2166,65 @@ namespace DSG.RegionSync
             // save the lookup work if logging is not enabled
             if (!m_detailedLog.Enabled) return;
 
-            SyncableProperties.Type propertyToCheck = SyncableProperties.Type.GroupPosition;
-            if (updatedProperties != null && !updatedProperties.Contains(SyncableProperties.Type.GroupPosition))
-            {
-                // the group position is not being updated this time so just pick the first property in the set
-                foreach (SyncableProperties.Type t in updatedProperties)
-                {
-                    propertyToCheck = t;
-                    break;
-                }
-            }
+            // Need a handle on one synced property to report time and last sync ID
             SyncedProperty syncedProperty = null;
-            // Did the caller pass us the list of synced properties? (can save the lookup time)
-            if (syncedProperties == null)
-            {
-                try
-                {
-                    // go find the synced properties for this updated object
-                    SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(sopUUID);
-                    if (sib != null)
-                    {
-                        Dictionary<SyncableProperties.Type, SyncedProperty> primProperties = sib.CurrentlySyncedProperties;
-                        primProperties.TryGetValue(propertyToCheck, out syncedProperty);
+            Dictionary<SyncableProperties.Type, SyncedProperty> currentlySynced = null;
 
-                        // odd, this should not happen. If there is no instance of the property, just use the first sync info
-                        if (syncedProperty == null && primProperties.Count > 0)
-                        {
-                            // the property we're looking for is not there. Just use the first one in the list
-                            Dictionary<SyncableProperties.Type, SyncedProperty>.Enumerator eenum = primProperties.GetEnumerator();
-                            eenum.MoveNext();
-                            syncedProperty = eenum.Current.Value;
-                        }
-                    }
-                }
-                catch
-                {
-                    syncedProperty = null;
-                }
-            }
-            else
+            SyncInfoBase syncInfo = m_SyncInfoManager.GetSyncInfo(sopUUID);
+            if (syncInfo != null)
             {
-                // we were passed the list of syncInfos so look for our property in there
-                foreach (SyncedProperty psi in syncedProperties)
+                currentlySynced = syncInfo.CurrentlySyncedProperties;
+            }
+
+            if (currentlySynced != null)
+            {
+                if (updatedProperties.Contains(SyncableProperties.Type.GroupPosition))
                 {
-                    if (psi.Property == propertyToCheck)
+                    // If group position is synced, prefer that one
+                    syncedProperty = currentlySynced[SyncableProperties.Type.GroupPosition];
+                }
+                else
+                {
+                    // Just choose the first one in the list
+                    foreach (SyncableProperties.Type ttt in updatedProperties)
                     {
-                        syncedProperty = psi;
+                        syncedProperty = currentlySynced[ttt];
                         break;
                     }
                 }
-                if (syncedProperty == null && syncedProperties.Count > 0)
-                {
-                    // again, this should not happen but recover by using the first sync info in the list
-                    HashSet<SyncedProperty>.Enumerator eenum = syncedProperties.GetEnumerator();
-                    eenum.MoveNext();
-                    syncedProperty = eenum.Current;
-                }
-            }
-            if (syncedProperty != null)
-            {
-                // get something to report as the properties being changed
-                string propertyName = GenerateUpdatedPropertyName(sopUUID, syncedProperty, updatedProperties, syncedProperties);
 
-                StringBuilder sb = new StringBuilder(op);
-                sb.Append(",");
-                sb.Append(DateTime.UtcNow.Ticks.ToString());
-                sb.Append(",");
-                sb.Append(sopUUID.ToString());
-                sb.Append(",");
-                sb.Append(syncedProperty.LastUpdateTimeStamp.ToString());
-                sb.Append(",");
-                sb.Append(propertyName);
-                sb.Append(",");
-                sb.Append(senderReceiver);
-                sb.Append(",");
-                sb.Append(syncedProperty.LastUpdateSyncID.ToString());
-                sb.Append(",");
-                sb.Append(msgLen.ToString());
-                m_detailedLog.Write(sb.ToString());
-                /*
-                // My presumption is that using a StringBuilder and doing my own conversions
-                //    is going to be faster then all the checking that happens in String.Format().
-                m_detailedLog.Write("{0},{1},{2},{3},{4},{5},{6},{7}",
-                            op,
-                            DateTime.UtcNow.Ticks,
-                            sopUUID,
-                            syncedProperty.LastUpdateTimeStamp,
-                            syncedProperty.Property.ToString(),
-                            senderReceiver,
-                            syncedProperty.LastUpdateSyncID,
-                            msgLen);
-                 */
+                if (syncedProperty != null)
+                {
+                    // get something to report as the properties being changed
+                    string propertyName = GenerateUpdatedPropertyName(sopUUID, currentlySynced, updatedProperties);
+
+                    StringBuilder sb = new StringBuilder(op);
+                    sb.Append(",");
+                    sb.Append(DateTime.UtcNow.Ticks.ToString());
+                    sb.Append(",");
+                    sb.Append(sopUUID.ToString());
+                    sb.Append(",");
+                    sb.Append(syncedProperty.LastUpdateTimeStamp.ToString());
+                    sb.Append(",");
+                    sb.Append(propertyName);
+                    sb.Append(",");
+                    sb.Append(senderReceiver);
+                    sb.Append(",");
+                    sb.Append(syncedProperty.LastUpdateSyncID.ToString());
+                    sb.Append(",");
+                    sb.Append(msgLen.ToString());
+                    m_detailedLog.Write(sb.ToString());
+                }
             }
         }
 
         // version for if you don't know the message length
         public void DetailedUpdateLogging(UUID sopUUID,
                             HashSet<SyncableProperties.Type> updatedProperties,
-                            HashSet<SyncedProperty> syncedProperties,
                             string op,
                             string senderReceiver)
         {
-            DetailedUpdateLogging(sopUUID, updatedProperties, syncedProperties, op, senderReceiver, 0);
+            DetailedUpdateLogging(sopUUID, updatedProperties, op, senderReceiver, 0);
         }
 
         // Version with the uuid.ToString in one place
@@ -1886,55 +2273,29 @@ namespace DSG.RegionSync
         // If enabled in the configuration file, fill the properties field with a list of all
         //  the properties updated along with their value.
         // This is a lot of work, but it really helps when debugging.
-        // Routine returns the name of the passed 'syncedProperty.Type' (short form)
-        //   or a list of all the changed properties with their values.
+        // 'currentlySynced' may be passed as null in which case no values are output even if properties should be.
+        // Routine returns the name of the passed 'syncedProperty.Type' (short form).
         // The string output will have no commas in it so it doesn't break the comma
         //   separated log fields. Each property/values are separated by "/"s.
         private string GenerateUpdatedPropertyName(
                             UUID sopUUID,
-                            SyncedProperty syncedProperty,
-                            HashSet<SyncableProperties.Type> updatedProperties,
-                            HashSet<SyncedProperty> syncedProperties )
+                            Dictionary<SyncableProperties.Type, SyncedProperty> currentlySynced,
+                            HashSet<SyncableProperties.Type> updatedProperties )
         {
-            //  Default is just the name from the passed updated property
-            string ret = syncedProperty.Property.ToString();
+            StringBuilder sb = new StringBuilder();
 
-            // if we're not doing detailed values, just return the default, short property section
-            if (!m_detailedPropertyValues) return ret;
-
-            // We are called two ways: either we are passed a list of synced properties
-            //    or we have to fetch the one for this UUID.
-            HashSet<SyncedProperty> properties = syncedProperties;
-            // if we were not passed properties, get the currently outbound updated properties
-            if (properties == null)
+            // For each of the updated properties, make an entry with the property name and, optionally, the value
+            foreach (SyncableProperties.Type synt in updatedProperties)
             {
-                SyncInfoBase sib = m_SyncInfoManager.GetSyncInfo(sopUUID);
-                if (sib != null)
-                {
-                    Dictionary<SyncableProperties.Type, SyncedProperty> currentlySyncedProperties = sib.CurrentlySyncedProperties;
-                    properties = new HashSet<SyncedProperty>();
-                    foreach (KeyValuePair<SyncableProperties.Type, SyncedProperty> kvp in currentlySyncedProperties)
-                    {
-                        properties.Add(kvp.Value);
-                    }
-                }
-            }
-            if (properties != null)
-            {
-                StringBuilder sb = new StringBuilder();
-                foreach (SyncedProperty synp in properties)
-                {
-                    // if this is not one of the updated properties, don't output anything
-                    if (!updatedProperties.Contains(synp.Property)) continue;
+                if (sb.Length != 0) sb.Append("/");
+                sb.Append(synt.ToString());
 
+                if (m_detailedPropertyValues && currentlySynced != null)
+                {
+                    SyncedProperty synp = currentlySynced[synt];
+                    string sVal = "";
                     try
                     {
-                        // put the name of the property
-                        if (sb.Length != 0) sb.Append("/");
-                        sb.Append(synp.Property.ToString());
-
-                        string sVal = null;
-
                         // There are some properties that we don't want to output
                         //   or that we want to format specially.
                         switch (synp.Property)
@@ -1998,17 +2359,12 @@ namespace DSG.RegionSync
                                                     LogHeader, synp.Property.ToString(), e);
                     }
                 }
-                // So the fields are still separated by commas, replace all the commas in the values
-                ret = sb.ToString().Replace(", ", ";");
             }
 
-            return ret;
+            // So the fields are still separated by commas, replace all the commas in the values
+            return sb.ToString().Replace(", ", ";");
         }
-         // END DSG DEBUG
-
-        #endregion //Sync message handlers
-
-        #region Remote Event handlers
+        // END DSG DEBUG
 
         #endregion //Sync message handlers
 
@@ -2427,7 +2783,7 @@ namespace DSG.RegionSync
         {
             // If the scene presence update event was triggered by a call from RegionSyncModule, then we don't need to handle it.
             // Changes to scene presence that are actually local will not have originated from this module or thread.
-            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.UpdatedProperties))
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.UpdatedProperties) || IsLocallyGeneratedEvent(SyncMsg.MsgType.NewObject))
                 return;
 
             UUID uuid = part.UUID;
@@ -2466,8 +2822,10 @@ namespace DSG.RegionSync
             EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
         }
 
-        //private int m_updateTick = 0;
-        //private StringBuilder m_updateLoopLogSB;
+        private int m_updateTick = 0;
+        private StringBuilder m_updateLoopLogSB; //the logged information needs better formatting to be written to logfile, TODO
+        private bool m_updateThreadDelayLog = false; 
+
         /// <summary>
         /// Triggered periodically to send out sync messages that include 
         /// prim and scene presence properties that have been updated since last SyncOut.
@@ -2495,6 +2853,17 @@ namespace DSG.RegionSync
                 });
             }
 
+            //If no updates to send, or not connecting with other nodes, check to see if we need to send KeepAlive messages; 
+            if (m_propertyUpdates.Count == 0 || !IsSyncingWithOtherSyncNodes())
+            {
+                ForAllSyncConnectors(delegate(SyncConnector connector)
+                {
+                    connector.KeepAlive(m_syncMsgKeepAlive);
+
+                });
+                return;
+            }
+
 
             // Existing value of 1 indicates that updates are currently being sent so skip updates this pass
             if (Interlocked.Exchange(ref m_sendingPropertyUpdates, 1) == 1)
@@ -2503,177 +2872,205 @@ namespace DSG.RegionSync
                 return;
             }
 
-            //m_updateTick++;
+            TimeSpan span; 
+            DateTime startTime= DateTime.Now;
+            int avWorkerThread, avPortThread;
+            if (m_updateThreadDelayLog)
+            {
+                m_updateTick++;
+                //bool tickLog = false;
+                m_updateLoopLogSB = new StringBuilder("Update tick " + m_updateTick);
+            }
 
+            Dictionary<UUID, HashSet<SyncableProperties.Type>> updates;
             lock (m_propertyUpdateLock)
             {
-                /*
-                bool tickLog = false;
-                DateTime startTime = DateTime.Now;
-                if (m_propertyUpdates.Count > 0)
-                {
-                    tickLog = true;
-                    //m_log.InfoFormat("SyncOutPrimUpdates - tick {0}: START the thread for SyncOutUpdates, {1} prims, ", m_updateTick, m_propertyUpdates.Count);
-                    m_updateLoopLogSB = new StringBuilder(m_updateTick.ToString());
-                }
-                 * */ 
-
                 //copy the updated  property list, and clear m_propertyUpdates immediately for future use
-                Dictionary<UUID, HashSet<SyncableProperties.Type>> updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
+                updates = new Dictionary<UUID, HashSet<SyncableProperties.Type>>(m_propertyUpdates);
                 m_propertyUpdates.Clear();
+            }
 
-                // Starting a new thread to prepare sync message and enqueue it to SyncConnectors
-                // Might not be syncing right now or have any updates, but the worker thread will determine that just before the send
-                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            if (m_updateThreadDelayLog)
+            {
+                //Log locking delays
+                DateTime LockEndTime = DateTime.Now;
+                span = LockEndTime - startTime;
+                System.Threading.ThreadPool.GetAvailableThreads(out avWorkerThread, out avPortThread);
+                m_updateLoopLogSB.Append(", after lock, " + span.TotalMilliseconds + ", avWorkThread, " + avWorkerThread + " , avIOPortThread," + avPortThread);
+            }
+
+            // Starting a new thread to prepare sync message and enqueue it to SyncConnectors
+            // Might not be syncing right now or have any updates, but the worker thread will determine that just before the send
+            //System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            Util.FireAndForget(delegate
+            {
+                if (m_updateThreadDelayLog)
                 {
-                    // If syncing with other nodes, send updates
-                    if(IsSyncingWithOtherSyncNodes())
+                    DateTime ThreadStartWorkingTime = DateTime.Now;
+                    span = ThreadStartWorkingTime - startTime;
+                    System.Threading.ThreadPool.GetAvailableThreads(out avWorkerThread, out avPortThread);
+                    m_updateLoopLogSB.Append(", into worker thread, " + span.TotalMilliseconds + ", avWorkThread, " + avWorkerThread + " , avIOPortThread," + avPortThread);
+                }
+
+                // If syncing with other nodes, send updates
+                if (IsSyncingWithOtherSyncNodes())
+                {
+                    int updateIndex = 0;
+                    foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
                     {
-            			int updateIndex = 0;
-                        foreach (KeyValuePair<UUID, HashSet<SyncableProperties.Type>> update in updates)
+                        UUID uuid = update.Key;
+                        HashSet<SyncableProperties.Type> updatedProperties = update.Value;
+
+                        // Skip if the uuid is no longer in the local Scene or if the part is being deleted
+                        //if ((sp == null) && (sop == null || sop.ParentGroup == null || sop.ParentGroup.IsDeleted))
+                        //    continue;
+
+                        //Sync the SOP data and cached property values in SyncInfoManager again
+                        //HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(sop, update.Value);
+                        //updatedProperties.UnionWith(propertiesWithSyncInfoUpdated);
+
+                        HashSet<string> syncIDs = null;
+                        try
                         {
-                            UUID uuid = update.Key;
-                            HashSet<SyncableProperties.Type> updatedProperties = update.Value;
-
-                            // Skip if the uuid is no longer in the local Scene or if the part is being deleted
-                            //if ((sp == null) && (sop == null || sop.ParentGroup == null || sop.ParentGroup.IsDeleted))
-                            //    continue;
-
-                            //Sync the SOP data and cached property values in SyncInfoManager again
-                            //HashSet<SyncableProperties.Type> propertiesWithSyncInfoUpdated = m_SyncInfoManager.UpdateSyncInfoByLocal(sop, update.Value);
-                            //updatedProperties.UnionWith(propertiesWithSyncInfoUpdated);
-
-                            HashSet<string> syncIDs = null;
-                            try
+                            syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
+                            if (syncIDs == null)
                             {
-                                syncIDs = m_SyncInfoManager.GetLastUpdatedSyncIDs(uuid, updatedProperties);
+                                // If we don't find any updated properties, don't generate an update message.
+                                // This usually happens when an object was deleted after some updates were generated for it.
+                                // The there-is-something-to-update flag is still set but there is no info in the sync cache.
+                                continue;
+                            }
 
-                                /*
+                            /*
+                            if (m_updateThreadDelayLog)
+                            {
                                 //Log encoding delays
-                                if (tickLog)
-                                {
-                                    DateTime encodeEndTime = DateTime.Now;
-                                    TimeSpan span = encodeEndTime - startTime;
-                                    m_updateLoopLogSB.Append(",update-" +updateIndex+"," + span.TotalMilliseconds.ToString());
-                                }
-                                 * */
+                                DateTime encodeEndTime = DateTime.Now;
+                                span = encodeEndTime - startTime;
+                                m_updateLoopLogSB.Append(", update#" + updateIndex + ", before encoding, " + span.TotalMilliseconds.ToString());
+                            }
+                             * */ 
 
-                                SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(this, uuid, updatedProperties);
+                            SyncMsgUpdatedProperties msg = new SyncMsgUpdatedProperties(this, uuid, updatedProperties);
 
-                                /*
+                            if (m_updateThreadDelayLog)
+                            {
                                 //Log encoding delays
-                                if (tickLog)
-                                {
-                                    DateTime syncMsgendTime = DateTime.Now;
-                                    TimeSpan span = syncMsgendTime - startTime;
-                                    m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
-                                }
-                                 * */ 
+                                DateTime syncMsgendTime = DateTime.Now;
+                                span = syncMsgendTime - startTime;
+                                m_updateLoopLogSB.Append(", update#" + updateIndex + ", after creating SyncMsgUpdatedProperties msg, " + span.TotalMilliseconds.ToString());
+                            }
 
-                                // Returns false if not crossing
-                                HashSet<SyncConnector> syncConnectors = new HashSet<SyncConnector>();
-                                SyncInfoBase sib;
-                                if (InfoManager.SyncInfoExists(uuid))
+                            HashSet<SyncConnector> syncConnectors = new HashSet<SyncConnector>();
+                            SyncInfoBase sib;
+                            if (InfoManager.SyncInfoExists(uuid))
+                            {
+                                // Ignore updates about a "thing" that has already left this actor. Avoids generating crossing duplicates.
+                                if (!m_quarkManager.LeftQuarks.ContainsKey(uuid) || !m_quarkManager.LeftQuarks[uuid])
                                 {
-                                    // Ignore updates about a "thing" that has already left this actor. Avoids generating crossing duplicates.
-                                    if (!m_quarkManager.LeftQuarks.ContainsKey(uuid) || !m_quarkManager.LeftQuarks[uuid])
+                                    // Returns false if not crossing
+                                    if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
                                     {
-                                        if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
-                                        {
-                                            // Quarks have not changed
-                                            sib = m_SyncInfoManager.GetSyncInfo(uuid);
-                                            syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
-                                            // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
-                                        }
-                                        else
-                                        {
-                                            // Crossed quarks. Do not send update, it will be embedded in the QuarkCrossing message.
-                                            sib = m_SyncInfoManager.GetSyncInfo(uuid);
-                                            // m_log.WarnFormat("{0}: Crossing from {1} to {2}", LogHeader, sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
-                                            m_quarkManager.QuarkCrossingUpdate(sib, updatedProperties);
-                                        }
-                                    }
-                                }
-
-                                // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
-                                foreach (SyncConnector connector in syncConnectors)
-                                {
-                                    //If the updated properties are from the same actor, the no need to send this sync message to that actor
-                                    if (syncIDs.Count == 1)
-                                    {
-                                        if (syncIDs.Contains(connector.otherSideActorID))
-                                        {
-                                            //m_log.DebugFormat("Skip sending to {0}", connector.otherSideActorID);
-                                            continue;
-                                        }
-
+                                        // Quarks have not changed
+                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                        syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
+                                        // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
                                     }
                                     else
                                     {
-                                        //debug
-                                        /*
-                                        string logstr="";
-                                        foreach (string sid in syncIDs)
-                                        {
-                                            logstr += sid+",";
-                                        }
-                                        m_log.DebugFormat("Updates from {0}", logstr);
-                                         * */
+                                        // Crossed quarks. Do not send update, it will be embedded in the QuarkCrossing message.
+                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
+                                        // m_log.WarnFormat("{0}: Crossing from {1} to {2}", LogHeader, sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
+                                        m_quarkManager.QuarkCrossingUpdate(sib, updatedProperties);
                                     }
-                                    // Prepare the data for output. If more updated properties are added later,
-                                    //     the data is rebuilt. Calling this here means the conversion is usually done on this
-                                    //     worker thread and not the send thread and that log messages have the correct len.
-                                    msg.ConvertOut(this);
-                                    connector.EnqueueOutgoingUpdate(uuid, msg);
                                 }
+                            }
 
-                                /*
-                                //Log encoding delays
-                                if (tickLog)
+                            // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
+                            foreach (SyncConnector connector in syncConnectors)
+                            {
+                                //If the updated properties are from the same actor, the no need to send this sync message to that actor
+                                if (syncIDs != null && syncIDs.Count == 1)
                                 {
-                                    DateTime syncConnectorendTime = DateTime.Now;
-                                    TimeSpan span = syncConnectorendTime - startTime;
-                                    m_updateLoopLogSB.Append("," + span.TotalMilliseconds.ToString());
+                                    if (syncIDs.Contains(connector.otherSideActorID))
+                                    {
+                                        //m_log.DebugFormat("Skip sending to {0}", connector.otherSideActorID);
+                                        continue;
+                                    }
                                 }
-                                 * */
-                            }
-                            catch (Exception e)
-                            {
-                                m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e);
-                            }
-                            
-                            updateIndex++;
-                            
-                        }
+                                else
+                                {
+                                    //debug
+                                    /*
+                                    string logstr="";
+                                    foreach (string sid in syncIDs)
+                                    {
+                                        logstr += sid+",";
+                                    }
+                                    m_log.DebugFormat("Updates from {0}", logstr);
+                                        * */
+                                }
+                                // Prepare the data for output. If more updated properties are added later,
+                                //     the data is rebuilt. Calling this here means the conversion is usually done on this
+                                //     worker thread and not the send thread and that log messages have the correct len.
+                                msg.ConvertOut(this);
 
-                        //If no updates to send out, see if SyncConnectors need to send KeeyAlive
-                        if (updates.Count == 0)
+                                if (m_updateThreadDelayLog)
+                                {
+                                    //Log encoding delays
+                                    DateTime syncConnectorConvertOutTime = DateTime.Now;
+                                    span = syncConnectorConvertOutTime - startTime;
+                                    m_updateLoopLogSB.Append(" , connector "+connector.otherSideActorID+" after ConvertOut, " + span.TotalMilliseconds.ToString());
+                                }
+
+                                connector.EnqueueOutgoingUpdate(uuid, msg);
+                            }
+
+                            if (m_updateThreadDelayLog)
+                            {
+                                //Log encoding delays
+                                DateTime syncConnectorendTime = DateTime.Now;
+                                span = syncConnectorendTime - startTime;
+                                m_updateLoopLogSB.Append(", after sending to all connectors, " + span.TotalMilliseconds.ToString());
+                            }
+
+                        }
+                        catch (Exception e)
                         {
-
-                            //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
-                            //sent is longer than SyncConnector.KeeyAliveMaxInterval)
-                            foreach (SyncConnector syncConnector in m_syncConnectors)
-                            {
-                                syncConnector.KeepAlive(m_syncMsgKeepAlive);
-                            }
+                            m_log.ErrorFormat("{0} Error in EncodeProperties for {1}: {2}", LogHeader, uuid, e);
                         }
+
+                        updateIndex++;
+
                     }
 
-                    /*
-                    if (tickLog)
+                    //If no updates to send out, see if SyncConnectors need to send KeeyAlive
+                    //Each SyncConnector sends out a KeepAlive message if needed (time since last time anything is 
+                    //sent is longer than SyncConnector.KeeyAliveMaxInterval)
+                    ForAllSyncConnectors(delegate(SyncConnector connector)
                     {
-                        DateTime endTime = DateTime.Now;
-                        TimeSpan span = endTime - startTime;
-                        m_updateLoopLogSB.Append(", total-span " + span.TotalMilliseconds.ToString());
-                        //m_log.InfoFormat("SyncOutUpdates - tick {0}: END the thread for SyncOutUpdates, time span {1}",
-                        //    m_updateTick, span.Milliseconds);
-                    }
-                     * */ 
+                        connector.KeepAlive(m_syncMsgKeepAlive);
 
-                    // Indicate that the current batch of updates has been completed
-                    Interlocked.Exchange(ref m_sendingPropertyUpdates, 0);
-                });
-            }
+                    });
+
+                }
+
+                if (m_updateThreadDelayLog)
+                {
+                    DateTime endTime = DateTime.Now;
+                    span = endTime - startTime;
+                    m_updateLoopLogSB.Append(", total-span,  " + span.TotalMilliseconds.ToString());
+                    if (span.TotalMilliseconds > 10)
+                    {
+                        m_log.WarnFormat("Update sending thread takes too long -- {0}", m_updateLoopLogSB.ToString());
+                    }
+                }
+
+
+                // Indicate that the current batch of updates has been completed
+                Interlocked.Exchange(ref m_sendingPropertyUpdates, 0);
+            });
+
 
             CheckTerrainTainted();
         }
@@ -2748,6 +3145,13 @@ namespace DSG.RegionSync
                     m_propertyUpdates[uuid].UnionWith(updatedProperties);
             }
         }
+
+        // Return the current time in system ticks.
+        public static long NowTicks()
+        {
+            return DateTime.UtcNow.Ticks + RegionSyncModule.UpdateTimeDisplacementFudgeTicks;
+        }
+
     }
 
     ///////////////////////////////////////////////////////////////////////////

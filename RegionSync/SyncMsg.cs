@@ -73,10 +73,12 @@ public abstract class SyncMsg
         GetObjects,
         GetPresences,
         GetRegionInfo,
+        GetEnvironment,
         
         // SIM <-> CM
         Terrain,
         RegionInfo,
+        Environment,
         
         NewObject,       // objects
         RemovedObject,   // objects
@@ -133,7 +135,7 @@ public abstract class SyncMsg
     ///              msg.HandleIn(pRegionContext, pConnectorContext);
     /// The processing progression on sending is:
     ///       Someone creates a message of the desired type. For instance:
-    ///              msg = new SyncMsgTimeStamp(DateTime.UtcNow.Ticks);
+    ///              msg = new SyncMsgTimeStamp(RegionSyncModule.NowTicks());
     ///       The message can be operated on as its methods allow (like adding updates, for instance).
     ///       Before sending, the local variables are converted into binary for sending via:
     ///              msg.ConvertOut(pRegionContext)
@@ -221,8 +223,10 @@ public abstract class SyncMsg
             case MsgType.GetObjects:        ret = new SyncMsgGetObjects(length, data);           break;
             case MsgType.GetPresences:      ret = new SyncMsgGetPresences(length, data);         break;
             case MsgType.GetRegionInfo:     ret = new SyncMsgGetRegionInfo(length, data);        break;
+            case MsgType.GetEnvironment:    ret = new SyncMsgGetEnvironment(length, data);       break;
             case MsgType.Terrain:           ret = new SyncMsgTerrain(length, data);              break;
             case MsgType.RegionInfo:        ret = new SyncMsgRegionInfo(length, data);           break;
+            case MsgType.Environment:       ret = new SyncMsgEnvironment(length, data);          break;
             case MsgType.NewObject:         ret = new SyncMsgNewObject(length, data);            break;
             case MsgType.RemovedObject:     ret = new SyncMsgRemovedObject(length, data);        break;
             case MsgType.LinkObject:        ret = new SyncMsgLinkObject(length, data);           break;
@@ -514,7 +518,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         if (!pRegionContext.InfoManager.SyncInfoExists(sog.RootPart.UUID))
         {
             m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sog.RootPart.Name, sog.RootPart.UUID);
-            pRegionContext.InfoManager.InsertSyncInfoLocal(sog.RootPart.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+            pRegionContext.InfoManager.InsertSyncInfoLocal(sog.RootPart.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
         }
 
         OSDMap data = new OSDMap();
@@ -532,7 +536,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     m_log.ErrorFormat("{0}: EncodeSceneObject -- SOP {1},{2} not in SyncInfoManager's record yet", 
                                 LogHeader, part.Name, part.UUID);
                     //This should not happen, but we deal with it by inserting a newly created PrimSynInfo
-                    pRegionContext.InfoManager.InsertSyncInfoLocal(part.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+                    pRegionContext.InfoManager.InsertSyncInfoLocal(part.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
                 }
                 OSDMap partData = pRegionContext.InfoManager.EncodeProperties(part.UUID, part.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
                 otherPartsArray.Add(partData);
@@ -558,7 +562,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         if (!pRegionContext.InfoManager.SyncInfoExists(sp.UUID))
         {
             m_log.ErrorFormat("{0}: ERROR: EncodeScenePresence -- SP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sp.Name, sp.UUID);
-            pRegionContext.InfoManager.InsertSyncInfoLocal(sp.UUID, DateTime.UtcNow.Ticks, pRegionContext.SyncID);
+            pRegionContext.InfoManager.InsertSyncInfoLocal(sp.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
         }
 
         OSDMap data = new OSDMap();
@@ -753,7 +757,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
                 pRegionContext.ForgetLocallyGeneratedEvent();
 
                 // Do our own detail logging after we know which properties are actually updated (in propertiesUpdated)
-                pRegionContext.DetailedUpdateLogging(Uuid, propertiesUpdated, SyncedProperties, "RecUpdateN", ConnectorContext.otherSideActorID, DataLength);
+                pRegionContext.DetailedUpdateLogging(Uuid, propertiesUpdated, "RecUpdateN", ConnectorContext.otherSideActorID, DataLength);
 
                 // Relay the update properties
                 if (pRegionContext.IsSyncRelay)
@@ -829,7 +833,94 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
     public override void LogTransmission(SyncConnector pConnectorContext)
     {
         if (RegionContext != null)
-            RegionContext.DetailedUpdateLogging(Uuid, SyncableProperties, null, "SendUpdate", pConnectorContext.otherSideActorID, DataLength);
+            RegionContext.DetailedUpdateLogging(Uuid, SyncableProperties, "SendUpdate", pConnectorContext.otherSideActorID, DataLength);
+    }
+}
+// ====================================================================================================
+// Send to have other side send us their environment info.
+// If received, send our environment info.
+public class SyncMsgGetEnvironment: SyncMsgOSDMapData
+{
+    public override string DetailLogTagRcv { get { return "RcvGetEnvi"; } }
+    public override string DetailLogTagSnd { get { return "SndGetEnvi"; } }
+
+    public SyncMsgGetEnvironment(RegionSyncModule pRegionContext)
+        : base(MsgType.GetEnvironment, pRegionContext)
+    {
+    }
+    public SyncMsgGetEnvironment(int pLength, byte[] pData)
+        : base(MsgType.GetEnvironment, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
+    {
+        return base.ConvertIn(pRegionContext);
+    }
+    public override bool HandleIn(RegionSyncModule pRegionContext)
+    {
+        if (base.HandleIn(pRegionContext))
+        {
+            string environment = pRegionContext.Scene.SimulationDataService.LoadRegionEnvironmentSettings(pRegionContext.Scene.RegionInfo.RegionID);
+            SyncMsgEnvironment msg = new SyncMsgEnvironment(pRegionContext, environment);
+            msg.ConvertOut(pRegionContext);
+            ConnectorContext.ImmediateOutgoingMsg(msg);
+        }
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        return base.ConvertOut(pRegionContext);
+    }
+}
+// ====================================================================================================
+// Sent to tell the other end our environment info.
+// When received, it is the other side's environment info.
+public class SyncMsgEnvironment: SyncMsgOSDMapData
+{
+    public override string DetailLogTagRcv { get { return "RcvEnviron"; } }
+    public override string DetailLogTagSnd { get { return "SndEnviron"; } }
+
+    public string Env { get; set; }
+
+    public SyncMsgEnvironment(RegionSyncModule pRegionContext, string env)
+        : base(MsgType.Environment, pRegionContext)
+    {
+        Env = env;
+    }
+    public SyncMsgEnvironment(int pLength, byte[] pData)
+        : base(MsgType.Environment, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
+    {
+        return base.ConvertIn(pRegionContext);
+    }
+    public override bool HandleIn(RegionSyncModule pRegionContext)
+    {
+        if (base.HandleIn(pRegionContext))
+        {
+            Env = DataMap["environment"].AsString();
+            RegionContext.Scene.SimulationDataService.StoreRegionEnvironmentSettings(RegionContext.Scene.RegionInfo.RegionID, Env);
+        }
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        lock (m_dataLock)
+        {
+            if (Dir == Direction.Out && DataMap == null)
+            {
+                OSDMap data = new OSDMap(1);
+                data["environment"] = OSD.FromString(Env);
+                DataMap = data;
+            }
+        }
+        return base.ConvertOut(pRegionContext);
+    }
+    // Logs the whole string of parameters received. Only happens once per region connect.
+    public override void LogReception(RegionSyncModule pRegionContext, SyncConnector pConnectorContext)
+    {
+        pRegionContext.DetailedUpdateWrite(DetailLogTagRcv, ZeroUUID, 0, ZeroUUID, DataMap.ToString(), DataLength);
     }
 }
 // ====================================================================================================
@@ -948,9 +1039,13 @@ public class SyncMsgRegionInfo : SyncMsgOSDMapData
             RegInfo.EstateSettings.FixedSun = DataMap["estateFixedSun"].AsBoolean();
             RegInfo.EstateSettings.PublicAccess = DataMap["publicAccess"].AsBoolean();
 
-            IEstateModule estate = pRegionContext.Scene.RequestModuleInterface<IEstateModule>();
+            IEstateModule estate = RegionContext.Scene.RequestModuleInterface<IEstateModule>();
             if (estate != null)
+            {
                 estate.sendRegionHandshakeToAll();
+                estate.TriggerEstateInfoChange();
+            }
+            RegionContext.Scene.TriggerEstateSunUpdate();
         }
         return true;
     }
@@ -1298,6 +1393,7 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
     {
         if (base.HandleIn(pRegionContext))
         {
+            pRegionContext.RememberLocallyGeneratedEvent(MType);
             // If this is a relay node, forward the message
             if (pRegionContext.IsSyncRelay)
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, 
@@ -1813,8 +1909,9 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             // Add the decoded circuit to local scene
             pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
 
-            // Create a client and add it to the local scene
-            IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, acd.startpos);
+            // Create a client and add it to the local scene at the position of the last update from sync cache
+            Vector3 currentPos = (Vector3)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
+            IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
             SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
             // Might need to trigger something here to send new client messages to connected clients
         }
@@ -2211,8 +2308,8 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
 
 public class SyncMsgKeepAlive : SyncMsgOSDMapData
 {
-    public override string DetailLogTagRcv { get { return "RcvKeepAlive"; } }
-    public override string DetailLogTagSnd { get { return "SndKeepAlive"; } }
+    public override string DetailLogTagRcv { get { return "RcvKpAlive"; } }
+    public override string DetailLogTagSnd { get { return "SndKpAlive"; } }
 
     //public string RegName;
 
@@ -3098,7 +3195,7 @@ public class SyncMsgScriptCollidingStart : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptCollidingStart received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptCollidingStart received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptCollidingStart(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3137,7 +3234,7 @@ public class SyncMsgScriptColliding : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptColliding received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptColliding received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptColliding(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3174,7 +3271,7 @@ public class SyncMsgScriptCollidingEnd : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptCollidingEnd received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptCollidingEnd received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptCollidingEnd(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3211,7 +3308,7 @@ public class SyncMsgScriptLandCollidingStart : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptLandCollidingStart received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptLandCollidingStart received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptLandCollidingStart(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3248,7 +3345,7 @@ public class SyncMsgScriptLandColliding : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptLandColliding received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptLandColliding received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptLandColliding(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -3285,7 +3382,7 @@ public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
             ColliderArgs CollidingMessage = new ColliderArgs();
             CollidingMessage.Colliders = Colliders;
 
-            m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", CollideeID);
+            // m_log.DebugFormat("ScriptLandCollidingEnd received for {0}", CollideeID);
             pRegionContext.RememberLocallyGeneratedEvent(MType, CollideeID, CollidingMessage);
             pRegionContext.Scene.EventManager.TriggerScriptLandCollidingEnd(CollideeID, CollidingMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();

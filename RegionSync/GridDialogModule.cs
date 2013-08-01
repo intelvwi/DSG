@@ -194,14 +194,14 @@ namespace DSG.RegionSync
                     if (upd.RegionID == prevRegionID)
                     {
                         //Dialog content undelivered
-                        m_log.WarnFormat("Couldn't deliver dialog to {0}" + avatarID);
+                        m_log.WarnFormat("Couldn't deliver dialog to {0}", avatarID);
                         return;
                     }
                 }
                 else
                 {
                     //Dialog content undelivered
-                    m_log.WarnFormat("Couldn't deliver dialog to {0}" + avatarID);
+                    m_log.WarnFormat("Couldn't deliver dialog to {0}", avatarID);
                     return;
                 }
             }
@@ -223,7 +223,7 @@ namespace DSG.RegionSync
                     if (!imresult)
                     {
                         SendGridDialogViaXMLRPCAsync(avatarID, objectName, objectID, ownerID, ownerFirstName, ownerLastName, message, textureID, ch, buttonlabels, prevRegionID);
-                        m_log.WarnFormat("Couldn't deliver dialog to {0}" + avatarID);
+                        m_log.WarnFormat("Couldn't deliver dialog to {0}", avatarID);
                         return;
                     }
                 }
@@ -291,7 +291,8 @@ namespace DSG.RegionSync
             }
             catch (WebException e)
             {
-                m_log.ErrorFormat("[GRID INSTANT MESSAGE]: Error sending grid_dialog to {0} the host didn't respond " + e.ToString(), reginfo.ServerURI.ToString());
+                m_log.ErrorFormat("[GRID INSTANT MESSAGE]: Error sending grid_dialog to {0} the host didn't respond " + e.ToString(),
+                                            reginfo.ServerURI.ToString());
             }
 
             return false;

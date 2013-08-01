@@ -85,8 +85,7 @@ namespace DSG.RegionSync
                     Object initValue = GetPropertyValue(sp, property);
                     if (initValue != null)
                     {
-                        SyncedProperty syncInfo = new SyncedProperty(property, initValue, initUpdateTimestamp, syncID);
-                        CurrentlySyncedProperties.Add(property, syncInfo);
+                        CurrentlySyncedProperties.Add(property, new SyncedProperty(property, initValue, initUpdateTimestamp, syncID));
                     }
                 }
             }
@@ -186,14 +185,6 @@ namespace DSG.RegionSync
             return propertiesUpdatedByLocal;
         }
 
-        public void SetPhyscActorProperties(ScenePresence sp)
-        {
-            foreach (SyncableProperties.Type property in SyncableProperties.PhysActorProperties)
-            {
-                SetPropertyValue(sp, property);
-            }
-        }
-
         const float ROTATION_TOLERANCE = 0.01f;
         const float VELOCITY_TOLERANCE = 0.001f;
         const float POSITION_TOLERANCE = 0.05f;
@@ -222,13 +213,17 @@ namespace DSG.RegionSync
             // Check to see if this property is in the sync cache for this object.
             // If not, add it and initialize value to value in ScenePresence.
             bool ret = false;
-            if (!CurrentlySyncedProperties.ContainsKey(property))
+
+            SyncedProperty syncedProperty;
+            CurrentlySyncedProperties.TryGetValue(property, out syncedProperty);
+
+            // If synced property is not in cache, add it now
+            if (syncedProperty == null)
             {
                 Object initValue = GetPropertyValue(sp, property);
                 if (initValue != null)
                 {
-                    SyncedProperty syncInfo = new SyncedProperty(property, initValue, lastUpdateByLocalTS, syncID);
-                    CurrentlySyncedProperties.Add(property, syncInfo);
+                    CurrentlySyncedProperties.Add(property, new SyncedProperty(property, initValue, lastUpdateByLocalTS, syncID));
                     ret = true;
                 }
                 return ret;
@@ -239,8 +234,6 @@ namespace DSG.RegionSync
             // if so (although ideally should not happen, but due to things likc clock not so perfectly 
             // sync'ed, it might happen), overwrite SP's value with what's maintained
             // in SyncInfo; otherwise, copy SP's data to SyncInfo.
-
-            SyncedProperty syncedProperty = CurrentlySyncedProperties[property];
             Object value = GetPropertyValue(sp, property);
 
             // If both null, no update needed
@@ -279,7 +272,7 @@ namespace DSG.RegionSync
                                         string cachedRealRegionName = (string)(CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
                                         if (cachedRealRegionName != Scene.Name && sp.Animator.Animations.ToArray().Length == 0)
                                         {
-                                            // If this is not the originating region for this presence or there is no additional
+                                            // If this is not the originating region for this presence and there is no additional
                                             //   animations being added, this simulator does not change the animation.
                                             // THIS IS A HORRIBLE KLUDGE. FIGURE OUT THE REAL SOLUTION!!
                                             // The problem is that animations are changed by every simulator (setting default
@@ -299,8 +292,11 @@ namespace DSG.RegionSync
                                         }
                                         else
                                         {
+                                            // If locally storing a new value of the animation, don't check for the time.
                                             // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal. Not equal anims. spID={1}, sp.Anim={2}, lastAnim={3}",
                                             //                     LogHeader, sp.LocalId, sp.Animator.Animations, lastAnimations); // DEBUG DEBUG
+                                            syncedProperty.UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
+                                            return true;
                                         }
                                     }
                                     break;
@@ -344,7 +340,7 @@ namespace DSG.RegionSync
                         if (lastUpdateByLocalTS >= syncedProperty.LastUpdateTimeStamp)
                         {
                             // DebugLog.DebugFormat("{0} CompareValue_UpdateByLocal (property={1}): TS >= lastTS (updating SyncInfo)", LogHeader, property);
-                            CurrentlySyncedProperties[property].UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
+                            syncedProperty.UpdateSyncInfoByLocal(lastUpdateByLocalTS, syncID, value);
                             return true;
                         }
                     }
@@ -362,6 +358,8 @@ namespace DSG.RegionSync
                         LogHeader, this.UUID.ToString());
                 return;
             }
+
+            // If we received a change in animations, need to send out the change.
 
             // Here is where we may need to force sending of updated properties, appearance, etc
             sp.Updated = true;
@@ -499,10 +497,10 @@ namespace DSG.RegionSync
             return null;
         }
 
-        public override void SetPropertyValue(SyncableProperties.Type property)
+        public override void SetPropertyValue(SyncedProperty syncedPropertyValue)
         {
             ScenePresence sp = (ScenePresence)SceneThing;
-            SetPropertyValue(sp, property);
+            SetPropertyValue(sp, syncedPropertyValue);
         }
 
         /// <summary>
@@ -511,17 +509,25 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="sp"></param>
         /// <param name="property"></param>
-        private void SetPropertyValue(ScenePresence sp, SyncableProperties.Type property)
+        private void SetPropertyValue(ScenePresence sp, SyncedProperty syncedProperty)
         {
             if (sp == null) return;
 
-            if (!CurrentlySyncedProperties.ContainsKey(property))
+            SyncableProperties.Type property = syncedProperty.Property;
+
+            if (syncedProperty == null)
             {
                 DebugLog.ErrorFormat("{0}: SetPropertyValue: property {1} not in sync cache for uuid {2}. ", LogHeader, property, UUID);
                 return;
             }
 
-            SyncedProperty pSyncInfo = CurrentlySyncedProperties[property];
+            SetPropertyValue(sp, property, syncedProperty);
+        }
+
+        private void SetPropertyValue(ScenePresence sp, SyncableProperties.Type property, SyncedProperty pSyncInfo)
+        {
+            if (sp == null || pSyncInfo == null) return;
+
             Object pValue = pSyncInfo.LastUpdateValue;
             switch (property)
             {

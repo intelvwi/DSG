@@ -61,12 +61,7 @@ namespace DSG.RegionSync
 {
     public class RegionSyncAvatar : IClientAPI, IClientCore
     {
-        private uint movementFlag = 0;
-        private short flyState = 0;
         private Quaternion bodyDirection = Quaternion.Identity;
-        private short count = 0;
-        private short frame = 0;
-
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
 // disable warning: public events, part of the public API
@@ -113,6 +108,7 @@ namespace DSG.RegionSync
         public event Action<IClientAPI, bool> OnCompleteMovementToRegion;
         public event UpdateAgent OnPreAgentUpdate;
         public event UpdateAgent OnAgentUpdate;
+        public event UpdateAgent OnAgentCameraUpdate;
         public event AgentRequestSit OnAgentRequestSit;
         public event AgentSit OnAgentSit;
         public event AvatarPickerRequest OnAvatarPickerRequest;
@@ -363,8 +359,11 @@ namespace DSG.RegionSync
 
         public void Close(bool force)
         {
-            m_log.WarnFormat("[REGION SYNC AVATAR] Close called on dummy client ({0})", Name);
+            if (!IsActive && !force)
+                return;
+            //m_log.WarnFormat("[REGION SYNC AVATAR] Close called on dummy client ({0})", Name);
             //throw new NotImplementedException("Attempting to close a RegionSyncAvatar is not supported.");
+            m_scene.RemoveClient(AgentId, false);
         }
 
         public bool AgentUpdate(AgentUpdateArgs arg)
@@ -541,7 +540,7 @@ namespace DSG.RegionSync
 
             if (msgTransferModule != null)
             {
-                msgTransferModule.SendInstantMessage(im, delegate(bool success) { if (!success) m_log.Warn("SendInstanceMessage unsuccessful"); });
+                msgTransferModule.SendInstantMessage(im, delegate(bool success) { if (!success) m_log.Warn("SendInstantMessage unsuccessful"); });
             }
         }
 
@@ -1337,6 +1336,10 @@ namespace DSG.RegionSync
         public void StopFlying(ISceneEntity p)
         {
             throw new System.NotImplementedException();
+        }
+
+        public void SendAgentTerseUpdate(ISceneEntity presence)
+        {
         }
 
         public void SendPlacesReply(UUID queryID, UUID transactionID, PlacesReplyData[] data)

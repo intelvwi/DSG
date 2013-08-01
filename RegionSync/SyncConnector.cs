@@ -238,6 +238,7 @@ namespace DSG.RegionSync
                 m_send_loop.Join();
 
                 m_syncState = SyncConnectorState.Idle;
+                m_tcpConnection = null;
             });
         }
 
@@ -274,11 +275,14 @@ namespace DSG.RegionSync
                 {
                     SyncMsg msg = m_outQ.Dequeue();
 
-                    // Do any conversion if it was not done earlier (on a friendlier thread)
-                    msg.ConvertOut(m_regionSyncModule);
+                    if (msg != null)
+                    {
+                        // Do any conversion if it was not done earlier (on a friendlier thread)
+                        msg.ConvertOut(m_regionSyncModule);
 
-                    if (m_collectingStats) currentQueue.Event(-1);
-                    Send(msg);
+                        if (m_collectingStats) currentQueue.Event(-1);
+                        Send(msg);
+                    }
                 }
             }
             catch (Exception e)
