@@ -1497,7 +1497,9 @@ public class SyncMsgRemovedObject : SyncMsgOSDMapData
             if (pRegionContext.IsSyncRelay)
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
 
-            SceneObjectGroup sog = pRegionContext.Scene.GetGroupByPrim(Uuid);
+            SceneObjectGroup sog;
+            if (!pRegionContext.Scene.TryGetSceneObjectGroup(Uuid, out sog))
+                sog = pRegionContext.Scene.GetGroupByPrim(Uuid);
 
             if (sog != null)
             {
