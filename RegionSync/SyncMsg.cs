@@ -510,6 +510,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         OSDMap data = new OSDMap();
         data["uuid"] = OSD.FromUUID(sog.UUID);
         data["absPosition"] = OSD.FromVector3(sog.AbsolutePosition);
+        // EncodeProperties can return null but it should never do that for adding an object
         data["RootPart"] = pRegionContext.InfoManager.EncodeProperties(sog.RootPart.UUID, sog.RootPart.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
 
         OSDArray otherPartsArray = new OSDArray();
@@ -524,6 +525,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     //This should not happen, but we deal with it by inserting a newly created PrimSynInfo
                     pRegionContext.InfoManager.InsertSyncInfo(part.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
                 }
+                // EncodeProperties can return null but it should never do that for adding an object
                 OSDMap partData = pRegionContext.InfoManager.EncodeProperties(part.UUID, part.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
                 otherPartsArray.Add(partData);
             }
@@ -647,6 +649,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         OSDMap data = new OSDMap();
         data["uuid"] = OSD.FromUUID(sp.UUID);
         data["absPosition"] = OSD.FromVector3(sp.AbsolutePosition);
+        // EncodeProperties can return null but it should never do that for adding a presence
         data["ScenePresence"] = pRegionContext.InfoManager.EncodeProperties(sp.UUID, SyncableProperties.AvatarProperties);
 
         return data;
@@ -748,6 +751,8 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
             if (Dir == Direction.Out && DataMap == null)
             {
                 DataMap = pRegionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+                if (DataMap == null)
+                    return false;
                 // m_log.DebugFormat("{0} SyncMsgUpdatedProperties.ConvertOut, syncProp={1}, DataMap={2}", LogHeader, SyncableProperties, DataMap);
             }
         }
@@ -814,7 +819,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
 // ====================================================================================================
 // Send to have other side send us their environment info.
 // If received, send our environment info.
-public class SyncMsgGetEnvironment: SyncMsgOSDMapData
+public class SyncMsgGetEnvironment: SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetEnvi"; } }
     public override string DetailLogTagSnd { get { return "SndGetEnvi"; } }
@@ -901,7 +906,7 @@ public class SyncMsgEnvironment: SyncMsgOSDMapData
 // ====================================================================================================
 // Send to have other side send us their region info.
 // If received, send our region info.
-public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
+public class SyncMsgGetRegionInfo : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetRegn"; } }
     public override string DetailLogTagSnd { get { return "SndGetRegn"; } }
@@ -1145,7 +1150,7 @@ public class SyncMsgTimeStamp : SyncMsgOSDMapData
 // ====================================================================================================
 // Sending asks the other end to send us information about the terrain.
 // When received, send back information about the terrain.
-public class SyncMsgGetTerrain : SyncMsgOSDMapData
+public class SyncMsgGetTerrain : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetTerr"; } }
     public override string DetailLogTagSnd { get { return "SndGetTerr"; } }
@@ -1242,7 +1247,7 @@ public class SyncMsgTerrain : SyncMsgOSDMapData
     }
 }
 // ====================================================================================================
-public class SyncMsgGetObjects : SyncMsgOSDMapData
+public class SyncMsgGetObjects : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetObjj"; } }
     public override string DetailLogTagSnd { get { return "SndGetObjj"; } }
@@ -1280,7 +1285,7 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
     }
 }
 // ====================================================================================================
-public class SyncMsgGetPresences : SyncMsgOSDMapData
+public class SyncMsgGetPresences : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetPres"; } }
     public override string DetailLogTagSnd { get { return "SndGetPres"; } }
@@ -2244,7 +2249,7 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     }
 }
 
-public class SyncMsgKeepAlive : SyncMsgOSDMapData
+public class SyncMsgKeepAlive : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvKpAlive"; } }
     public override string DetailLogTagSnd { get { return "SndKpAlive"; } }
@@ -2353,9 +2358,12 @@ public class SyncMsgNewScript : SyncMsgEvent
             if (Dir == Direction.Out && DataMap == null)
             {
                 OSDMap data = pRegionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
-                //syncData already includes uuid, add agentID and itemID next
-                data["agentID"] = OSD.FromUUID(AgentID);
-                data["itemID"] = OSD.FromUUID(ItemID);
+                if (data != null)
+                {
+                    //syncData already includes uuid, add agentID and itemID next
+                    data["agentID"] = OSD.FromUUID(AgentID);
+                    data["itemID"] = OSD.FromUUID(ItemID);
+                }
                 DataMap = data;
             }
         }

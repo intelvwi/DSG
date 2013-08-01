@@ -267,11 +267,12 @@ namespace DSG.RegionSync
 
                     if (msg != null)
                     {
-                        // Do any conversion if it was not done earlier (on a friendlier thread)
-                        msg.ConvertOut(m_regionSyncModule);
-
                         if (m_collectingStats) currentQueue.Event(-1);
-                        Send(msg);
+                        // Do any conversion if it was not done earlier (on a friendlier thread)
+                        if (msg.ConvertOut(m_regionSyncModule))
+                        {
+                            Send(msg);
+                        }
                     }
                 }
             }
@@ -315,6 +316,11 @@ namespace DSG.RegionSync
 
             if (m_collectingStats)
                 currentQueue.Event(1);
+        }
+
+        public void RemoveUpdate(UUID uuid)
+        {
+            m_outQ.RemoveUpdate(uuid);
         }
 
         //Send out a messge directly. This should only by called for short messages that are not sent frequently.

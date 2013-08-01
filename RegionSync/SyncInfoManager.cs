@@ -196,7 +196,7 @@ namespace DSG.RegionSync
             }
 
             // DebugLog.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0} not in m_syncedUUIDs.", uuid);
-            return new OSDMap();
+            return null;
         }
 
         public HashSet<string> GetLastUpdatedSyncIDs(UUID uuid, HashSet<SyncableProperties.Type> properties)

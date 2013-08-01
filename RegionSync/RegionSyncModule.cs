@@ -627,9 +627,13 @@ namespace DSG.RegionSync
             }
 
             SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
-            msg.ConvertOut(this);
-            //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
+            if (msg.ConvertOut(this))
+            {
+                //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
+                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg);
+                // Remove the updated for this uuid from all connectors where it might already be queued since we are deleting the object
+                RemoveUpdatesFromSyncConnectors(sog.UUID);
+            }
         }
 
         private void SyncLinkObject(SceneObjectGroup linkedGroup, SceneObjectPart root, List<SceneObjectPart> children)
@@ -1215,6 +1219,16 @@ namespace DSG.RegionSync
             }
         }
 
+        public void RemoveUpdatesFromSyncConnectors(UUID uuid)
+        {
+            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
+
+            foreach (SyncConnector connector in syncConnectors)
+            {
+                connector.RemoveUpdate(uuid);
+            }
+        }
+
         /// <summary>
         /// Send some special updates to other sync nodes, including: 
         /// NewObject, RemoveObject, LinkObject, NewPresence. The sync messages are sent out right
@@ -1241,7 +1255,8 @@ namespace DSG.RegionSync
         public void SendSceneEventToRelevantSyncConnectors(string init_actorID, SyncMsg rsm, SceneObjectGroup sog)
         {
             // Convert the message from data fields to a block of data to send.
-            rsm.ConvertOut(this);
+            if (!rsm.ConvertOut(this))
+                return;
 
             //TODO: need to pick connectors based on sog position (quark it resides in)
             List<SyncConnector> syncConnectors = GetSyncConnectorsForSceneEvents(init_actorID, rsm, sog);
@@ -2685,6 +2700,7 @@ namespace DSG.RegionSync
         /// Triggered periodically to send out sync messages that include 
         /// prim and scene presence properties that have been updated since last SyncOut.
         /// </summary>
+        static int syncOutCounter = 0;
         private void SyncOutUpdates(Scene scene)
         {
             //we are riding on this periodic events to check if there are un-handled sync event messages
@@ -2723,7 +2739,9 @@ namespace DSG.RegionSync
             // Existing value of 1 indicates that updates are currently being sent so skip updates this pass
             if (Interlocked.Exchange(ref m_sendingPropertyUpdates, 1) == 1)
             {
-                m_log.WarnFormat("{0} SyncOutUpdates(): An update thread is already running.", LogHeader);
+                if( syncOutCounter++ > 10 )
+                    m_log.WarnFormat("{0} SyncOutUpdates(): An update thread is already running.", LogHeader);
+                syncOutCounter = 0;
                 return;
             }
 
@@ -2846,17 +2864,17 @@ namespace DSG.RegionSync
                                 // Prepare the data for output. If more updated properties are added later,
                                 //     the data is rebuilt. Calling this here means the conversion is usually done on this
                                 //     worker thread and not the send thread and that log messages have the correct len.
-                                msg.ConvertOut(this);
-
-                                if (m_updateThreadDelayLog)
+                                if (msg.ConvertOut(this))
                                 {
-                                    //Log encoding delays
-                                    DateTime syncConnectorConvertOutTime = DateTime.Now;
-                                    span = syncConnectorConvertOutTime - startTime;
-                                    m_updateLoopLogSB.Append(" , connector "+connector.otherSideActorID+" after ConvertOut, " + span.TotalMilliseconds.ToString());
+                                    if (m_updateThreadDelayLog)
+                                    {
+                                        //Log encoding delays
+                                        DateTime syncConnectorConvertOutTime = DateTime.Now;
+                                        span = syncConnectorConvertOutTime - startTime;
+                                        m_updateLoopLogSB.Append(" , connector " + connector.otherSideActorID + " after ConvertOut, " + span.TotalMilliseconds.ToString());
+                                    }
+                                    connector.EnqueueOutgoingUpdate(uuid, msg);
                                 }
-
-                                connector.EnqueueOutgoingUpdate(uuid, msg);
                             }
 
                             if (m_updateThreadDelayLog)
