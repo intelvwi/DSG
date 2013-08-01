@@ -567,7 +567,13 @@ namespace DSG.RegionSync
         private void OnRemovePresence(UUID uuid)
         {
             // m_log.WarnFormat("{0} OnRemovePresence called for {1}", LogHeader, uuid);
-            // First, remove from SyncInfoManager's record.
+
+            // If the SP is not in the sync cache then don't remove and don't send any messages
+            if (!m_SyncInfoManager.SyncInfoExists(uuid) ||
+                !IsSyncingWithOtherSyncNodes())
+                return;
+
+            // Remove SyncInfoManager record for the presence
             m_SyncInfoManager.RemoveSyncInfo(uuid);
 
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
@@ -619,7 +625,7 @@ namespace DSG.RegionSync
                 !m_SyncInfoManager.SyncInfoExists(sog.RootPart.UUID))
                 return;
 
-            //First, remove from SyncInfoManager records for each part in the SOG
+            // Remove SyncInfoManager records for each part in the SOG
             foreach (SceneObjectPart part in sog.Parts)
             {
                 m_SyncInfoManager.RemoveSyncInfo(part.UUID);
