@@ -783,6 +783,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
             SyncableProperties.Union(pNewSyncableProperties);
             // Any output data buffers must be rebuilt
             DataMap = null;
+            DataLength = 0;
             m_data = null;
         }
     }
