@@ -614,16 +614,15 @@ namespace DSG.RegionSync
 
         private void OnObjectBeingRemovedFromScene(SceneObjectGroup sog)
         {
-            //First, remove from SyncInfoManager's record.
+            // If not syncing or if SOG is not in sync cache then do nothing
+            if (!IsSyncingWithOtherSyncNodes() ||
+                !m_SyncInfoManager.SyncInfoExists(sog.RootPart.UUID))
+                return;
+
+            //First, remove from SyncInfoManager records for each part in the SOG
             foreach (SceneObjectPart part in sog.Parts)
             {
                 m_SyncInfoManager.RemoveSyncInfo(part.UUID);
-            }
-
-            if (!IsSyncingWithOtherSyncNodes())
-            {
-                //no SyncConnector connected. Do nothing.
-                return;
             }
 
             SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
@@ -2254,7 +2253,7 @@ namespace DSG.RegionSync
         #region RememberLocallyGeneratedEvents
 
         [ThreadStatic]
-        static string LocallyGeneratedSignature;
+        static SyncMsg.MsgType LocallyGeneratedSignature;
 
         /// <summary>
         /// There is a problem where events that call On*Event might be because we triggered
@@ -2281,7 +2280,7 @@ namespace DSG.RegionSync
             // We also rely on every Trigger*Event generating an On*Event.
             // It is possible that some event handling routine might generate
             // an event of the same type. This would cause an event to disappear.
-            LocallyGeneratedSignature = CreateLocallyGeneratedEventSignature(msgtype, parms);
+            LocallyGeneratedSignature = msgtype; // CreateLocallyGeneratedEventSignature(msgtype, parms);
             // m_log.DebugFormat("{0} RememberLocallyGeneratedEvent. Remembering={1}", LogHeader, LocallyGeneratedSignature);      // DEBUG DEBUG
             return;
         }
@@ -2296,7 +2295,7 @@ namespace DSG.RegionSync
         {
             bool ret = false;
             // m_log.DebugFormat("{0} IsLocallyGeneratedEvent. Checking remembered={1} against {2}", LogHeader, LocallyGeneratedSignature, msgtype);      // DEBUG DEBUG
-            if (LocallyGeneratedSignature == CreateLocallyGeneratedEventSignature(msgtype, parms))
+            if (LocallyGeneratedSignature == msgtype)//CreateLocallyGeneratedEventSignature(msgtype, parms))
             {
                 ret = true;
             }
@@ -2308,7 +2307,7 @@ namespace DSG.RegionSync
         /// </summary>
         public void ForgetLocallyGeneratedEvent()
         {
-            LocallyGeneratedSignature = "";
+            LocallyGeneratedSignature = SyncMsg.MsgType.Null;
         }
 
         /// <summary>
