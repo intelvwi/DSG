@@ -1880,9 +1880,13 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
             // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
             acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
-            // PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
+            PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
             // Fake like we're not a user so normal teleport processing will not happen.
-            PresenceType pt = PresenceType.Npc;
+            // No. If we make the presence an NPC, then we cannot prevent the local scene from rezzing a duplicate set of attachments. 
+            // So, ScenePresence will be added with the original presence type. NPC presences will always get duplicate attachments which will need
+            // to be fixed to support NPC presences in DSG regions. We can fix that eventually with a DSGAttachmentsModule which will only rez for 
+            // presences added by the local scene. Then, we can go back to all Region Sync Avatars being NPCs.
+            // PresenceType pt = PresenceType.Npc;
 
             // Add the decoded circuit to local scene
             pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
@@ -1891,6 +1895,8 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             Vector3 currentPos = (Vector3)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
             IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
             SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
+            // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
+            ((ScenePresence)SyncInfo.SceneThing).m_originRegionID = pRegionContext.Scene.RegionInfo.RegionID;
             // Might need to trigger something here to send new client messages to connected clients
         }
         return true;
