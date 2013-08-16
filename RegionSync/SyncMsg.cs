@@ -1871,6 +1871,14 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             if (pRegionContext.IsSyncRelay)
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this);
 
+            // If we receive a new presence that for some reason indicates this region is its "real region" then ignore it.
+            // Maybe we should even send out a message to remove the avatar from other actors? 
+            if ((string)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue) == RegionContext.Scene.Name)
+            {
+                m_log.WarnFormat("{0}: Attempt to handle NewPresence message with RealRegion = {1}", LogHeader, RegionContext.Scene.Name);
+                return false;
+            }
+
             //Add the SyncInfo to SyncInfoManager
             pRegionContext.InfoManager.InsertSyncInfo(SyncInfo.UUID, SyncInfo);
 
