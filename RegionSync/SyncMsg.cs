@@ -1902,9 +1902,19 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             // Create a client and add it to the local scene at the position of the last update from sync cache
             Vector3 currentPos = (Vector3)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
             IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
-            SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
+            try
+            {
+                SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
+            }
+            catch (Exception e)
+            {
+                m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
+            }
             // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
             ((ScenePresence)SyncInfo.SceneThing).m_originRegionID = pRegionContext.Scene.RegionInfo.RegionID;
+            // Now that we have a presence and a client, tell the region sync "client" to finish connecting. 
+            ((RegionSyncAvatar)client).PostCreateRegionSyncAvatar();
+            
             // Might need to trigger something here to send new client messages to connected clients
         }
         return true;

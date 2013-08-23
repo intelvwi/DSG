@@ -761,6 +761,21 @@ namespace DSG.RegionSync
 
         public virtual void SendRegionHandshake(RegionInfo regionInfo, RegionHandshakeArgs args)
         {
+            /*
+            if (OnRegionHandShakeReply != null)
+            {
+                OnRegionHandShakeReply(this);
+            }
+
+            if (OnCompleteMovementToRegion != null)
+            {
+                OnCompleteMovementToRegion(this, true);
+            }
+             */
+        }
+
+        public void PostCreateRegionSyncAvatar()
+        {
             if (OnRegionHandShakeReply != null)
             {
                 OnRegionHandShakeReply(this);
