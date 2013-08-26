@@ -277,11 +277,12 @@ namespace DSG.RegionSync
 
                     if (msg != null)
                     {
-                        // Do any conversion if it was not done earlier (on a friendlier thread)
-                        msg.ConvertOut(m_regionSyncModule);
-
                         if (m_collectingStats) currentQueue.Event(-1);
-                        Send(msg);
+                        // Do any conversion if it was not done earlier (on a friendlier thread)
+                        if (msg.ConvertOut(m_regionSyncModule))
+                        {
+                            Send(msg);
+                        }
                     }
                 }
             }
@@ -325,6 +326,11 @@ namespace DSG.RegionSync
 
             if (m_collectingStats)
                 currentQueue.Event(1);
+        }
+
+        public void RemoveUpdate(UUID uuid)
+        {
+            m_outQ.RemoveUpdate(uuid);
         }
 
         //Send out a messge directly. This should only by called for short messages that are not sent frequently.
@@ -398,22 +404,9 @@ namespace DSG.RegionSync
                     Shutdown();
                     return;
                 }
-                // Try handling the message
-                try
-                {
-                    HandleMessage(msg);
-                }
-                catch (Exception e)
-                {
-                    if (msg == null)
-                    {
-                        m_log.ErrorFormat("{0} Exception handling msg: NULL MESSAGE: {1}", LogHeader, e);
-                    }
-                    else
-                    {
-                        m_log.ErrorFormat("{0} Exception handling msg: type={1},len={2}: {3}", LogHeader, msg.MType, msg.DataLength, e);
-                    }
-                }
+
+                // Handle message
+                HandleMessage(msg);
             }
         }
 
@@ -424,10 +417,38 @@ namespace DSG.RegionSync
             CollectReceiveStat(msg.MType.ToString(), msg.DataLength);
 
             // TODO: Consider doing the data unpacking on a different thread than the input reader thread
-            msg.ConvertIn(m_regionSyncModule);
+            try
+            {
+                msg.ConvertIn(m_regionSyncModule);
+            }
+            catch (Exception e)
+            {
+                if (msg == null)
+                {
+                    m_log.ErrorFormat("{0} Exception converting msg: NULL MESSAGE: {1}", LogHeader, e);
+                }
+                else
+                {
+                    m_log.ErrorFormat("{0} Exception converting msg: type={1},len={2}: {3}", LogHeader, msg.MType, msg.DataLength, e);
+                }
+            }
 
             // TODO: Consider doing the message processing on a different thread than the input reader thread
-            msg.HandleIn(m_regionSyncModule);
+            try
+            {
+                msg.HandleIn(m_regionSyncModule);
+            }
+            catch (Exception e)
+            {
+                if (msg == null)
+                {
+                    m_log.ErrorFormat("{0} Exception handling msg: NULL MESSAGE: {1}", LogHeader, e);
+                }
+                else
+                {
+                    m_log.ErrorFormat("{0} Exception handling msg: type={1},len={2}: {3}", LogHeader, msg.MType, msg.DataLength, e);
+                }
+            }
 
             // If this is an initialization message, print out info and start stats gathering if initialized enough
             if (msg.MType == SyncMsg.MsgType.RegionName || msg.MType == SyncMsg.MsgType.ActorID)

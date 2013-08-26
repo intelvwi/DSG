@@ -582,6 +582,10 @@ namespace DSG.RegionSync
         private void OnRemovePresence(UUID uuid)
         {
             // m_log.WarnFormat("{0} OnRemovePresence called for {1}", LogHeader, uuid);
+            // If the SP is not in the sync cache then don't remove and don't send any messages
+            if (!m_SyncInfoManager.SyncInfoExists(uuid) ||
+                !IsSyncingWithOtherSyncNodes())
+                return;
 
             // Note: There are two scenarios of OnRemovePresence being called. 
             // 1) Presence is being removed because client viewer. 
@@ -592,6 +596,7 @@ namespace DSG.RegionSync
             // We check for it with the IsLocallyGeneratedEvent. If it is local, just return, no need to propagate
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPresenceCrossing))
                 return;
+
             m_log.WarnFormat("{0}: OnRemovePresence: UUID {1}, Thread ID {2}", LogHeader, uuid, Thread.CurrentThread.ManagedThreadId);
             SyncMsgRemovedPresence msg = new SyncMsgRemovedPresence(this, uuid);
             SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(uuid).CurQuark.QuarkName);
@@ -677,9 +682,12 @@ namespace DSG.RegionSync
                     if (m_quarkManager == null || m_quarkManager.IsInActiveQuark(quarkName))
                     {
                         SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);
-                        msg.ConvertOut(this);
-                        //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-                        SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
+                        if (msg.ConvertOut(this))
+                        {
+                            //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
+                            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
+                            RemoveUpdatesFromSyncConnectors(sog.UUID);
+                        }
                     }
                 }
                 else
@@ -1310,6 +1318,16 @@ namespace DSG.RegionSync
                     // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
                     connector.ImmediateOutgoingMsg(syncMsg);
                 }
+            }
+        }
+
+        public void RemoveUpdatesFromSyncConnectors(UUID uuid)
+        {
+            HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates();
+
+            foreach (SyncConnector connector in syncConnectors)
+            {
+                connector.RemoveUpdate(uuid);
             }
         }
 
@@ -2100,10 +2118,13 @@ namespace DSG.RegionSync
                 {
                     UUID uuid = sp.UUID;
                     SyncInfoPresence sip = (SyncInfoPresence)(m_SyncInfoManager.GetSyncInfo(uuid));
-                    string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
-                    if (!connectedRegions.Contains(cachedRealRegionName))
+                    if (sip != null)
                     {
-                        avatarsToRemove.Add(uuid);
+                        string cachedRealRegionName = (string)(sip.CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue);
+                        if (!connectedRegions.Contains(cachedRealRegionName))
+                        {
+                            avatarsToRemove.Add(uuid);
+                        }
                     }
 
                 });
@@ -2378,7 +2399,7 @@ namespace DSG.RegionSync
         #region RememberLocallyGeneratedEvents
 
         [ThreadStatic]
-        static string LocallyGeneratedSignature;
+        static SyncMsg.MsgType LocallyGeneratedSignature;
 
         /// <summary>
         /// There is a problem where events that call On*Event might be because we triggered
@@ -2405,7 +2426,7 @@ namespace DSG.RegionSync
             // We also rely on every Trigger*Event generating an On*Event.
             // It is possible that some event handling routine might generate
             // an event of the same type. This would cause an event to disappear.
-            LocallyGeneratedSignature = CreateLocallyGeneratedEventSignature(msgtype, parms);
+            LocallyGeneratedSignature = msgtype; // CreateLocallyGeneratedEventSignature(msgtype, parms);
             // m_log.DebugFormat("{0} RememberLocallyGeneratedEvent. Remembering={1}", LogHeader, LocallyGeneratedSignature);      // DEBUG DEBUG
             return;
         }
@@ -2420,7 +2441,7 @@ namespace DSG.RegionSync
         {
             bool ret = false;
             // m_log.DebugFormat("{0} IsLocallyGeneratedEvent. Checking remembered={1} against {2}", LogHeader, LocallyGeneratedSignature, msgtype);      // DEBUG DEBUG
-            if (LocallyGeneratedSignature == CreateLocallyGeneratedEventSignature(msgtype, parms))
+            if (LocallyGeneratedSignature == msgtype)//CreateLocallyGeneratedEventSignature(msgtype, parms))
             {
                 ret = true;
             }
@@ -2432,7 +2453,7 @@ namespace DSG.RegionSync
         /// </summary>
         public void ForgetLocallyGeneratedEvent()
         {
-            LocallyGeneratedSignature = "";
+            LocallyGeneratedSignature = SyncMsg.MsgType.Null;
         }
 
         /// <summary>
@@ -2833,6 +2854,7 @@ namespace DSG.RegionSync
         /// Triggered periodically to send out sync messages that include 
         /// prim and scene presence properties that have been updated since last SyncOut.
         /// </summary>
+        static int syncOutCounter = 0;
         private void SyncOutUpdates(Scene scene)
         {
             //we are riding on this periodic events to check if there are un-handled sync event messages
@@ -2871,7 +2893,9 @@ namespace DSG.RegionSync
             // Existing value of 1 indicates that updates are currently being sent so skip updates this pass
             if (Interlocked.Exchange(ref m_sendingPropertyUpdates, 1) == 1)
             {
-                m_log.WarnFormat("{0} SyncOutUpdates(): An update thread is already running.", LogHeader);
+                if( syncOutCounter++ > 10 )
+                    m_log.WarnFormat("{0} SyncOutUpdates(): An update thread is already running.", LogHeader);
+                syncOutCounter = 0;
                 return;
             }
 
@@ -3016,17 +3040,17 @@ namespace DSG.RegionSync
                                 // Prepare the data for output. If more updated properties are added later,
                                 //     the data is rebuilt. Calling this here means the conversion is usually done on this
                                 //     worker thread and not the send thread and that log messages have the correct len.
-                                msg.ConvertOut(this);
-
-                                if (m_updateThreadDelayLog)
+                                if (msg.ConvertOut(this))
                                 {
-                                    //Log encoding delays
-                                    DateTime syncConnectorConvertOutTime = DateTime.Now;
-                                    span = syncConnectorConvertOutTime - startTime;
-                                    m_updateLoopLogSB.Append(" , connector "+connector.otherSideActorID+" after ConvertOut, " + span.TotalMilliseconds.ToString());
+                                    if (m_updateThreadDelayLog)
+                                    {
+                                        //Log encoding delays
+                                        DateTime syncConnectorConvertOutTime = DateTime.Now;
+                                        span = syncConnectorConvertOutTime - startTime;
+                                        m_updateLoopLogSB.Append(" , connector " + connector.otherSideActorID + " after ConvertOut, " + span.TotalMilliseconds.ToString());
+                                    }
+                                    connector.EnqueueOutgoingUpdate(uuid, msg);
                                 }
-
-                                connector.EnqueueOutgoingUpdate(uuid, msg);
                             }
 
                             if (m_updateThreadDelayLog)

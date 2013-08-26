@@ -523,7 +523,8 @@ public abstract class SyncMsgOSDMapData : SyncMsg
 
         OSDMap data = new OSDMap();
         data["uuid"] = OSD.FromUUID(sog.UUID);
-        data["absPosition"] = OSDMap.FromVector3(sog.AbsolutePosition);
+        data["absPosition"] = OSD.FromVector3(sog.AbsolutePosition);
+        // EncodeProperties can return null but it should never do that for adding an object
         data["RootPart"] = pRegionContext.InfoManager.EncodeProperties(sog.RootPart.UUID, sog.RootPart.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
 
         OSDArray otherPartsArray = new OSDArray();
@@ -538,6 +539,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     //This should not happen, but we deal with it by inserting a newly created PrimSynInfo
                     pRegionContext.InfoManager.InsertSyncInfoLocal(part.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
                 }
+                // EncodeProperties can return null but it should never do that for adding an object
                 OSDMap partData = pRegionContext.InfoManager.EncodeProperties(part.UUID, part.PhysActor == null ? SyncableProperties.NonPhysActorProperties : SyncableProperties.FullUpdateProperties);
                 otherPartsArray.Add(partData);
             }
@@ -550,29 +552,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
 
         return data;
     }
-    /// <summary>
-    /// Encode a SP. Values of each part's properties are copied from SyncInfo, instead of from SP's data. 
-    /// If the SyncInfo is not maintained by SyncInfoManager yet, add it first.
-    /// </summary>
-    /// <param name="sog"></param>
-    /// <returns></returns>
-    protected OSDMap EncodeScenePresence(ScenePresence sp, RegionSyncModule pRegionContext)
-    {
-        //This should not happen, but we deal with it by inserting it now
-        if (!pRegionContext.InfoManager.SyncInfoExists(sp.UUID))
-        {
-            m_log.ErrorFormat("{0}: ERROR: EncodeScenePresence -- SP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sp.Name, sp.UUID);
-            pRegionContext.InfoManager.InsertSyncInfoLocal(sp.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
-        }
 
-        OSDMap data = new OSDMap();
-        data["uuid"] = OSD.FromUUID(sp.UUID);
-        data["absPosition"] = OSDMap.FromVector3(sp.AbsolutePosition);
-        data["ScenePresence"] = pRegionContext.InfoManager.EncodeProperties(sp.UUID, SyncableProperties.AvatarProperties);
-
-        return data;
-    }
-    
     /// <summary>
     /// Decode & create a SOG data structure. Due to the fact that PhysActor
     /// is only created when SOG.AttachToScene() is called, the returned SOG
@@ -590,13 +570,14 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         bool ret = true;
 
         try{
-            UUID uuid = ((OSDMap)data["RootPart"])["uuid"].AsUUID();
+            OSDMap rootPart = (OSDMap)data["RootPart"];
+            UUID uuid = rootPart["uuid"].AsUUID();
+            OSDArray properties = (OSDArray)rootPart["properties"];
 
-            OSDMap propertyData = (OSDMap)((OSDMap)data["RootPart"])["propertyData"];
             //m_log.WarnFormat("{0} DecodeSceneObject for RootPart uuid: {1}", LogHeader, uuid);
 
             //Decode and copy to the list of PrimSyncInfo
-            SyncInfoPrim sip = new SyncInfoPrim(uuid, propertyData, scene);
+            SyncInfoPrim sip = new SyncInfoPrim(uuid, properties, scene);
             SceneObjectPart root = (SceneObjectPart)sip.SceneThing;
 
             sog.SetRootPart(root);
@@ -611,13 +592,13 @@ public abstract class SyncMsgOSDMapData : SyncMsg
             {
                 //int otherPartsCount = data["OtherPartsCount"].AsInteger();
                 OSDArray otherPartsArray = (OSDArray)data["OtherParts"];
-                for (int i = 0; i < otherPartsArray.Count; i++)
+                foreach (OSDMap otherPart in otherPartsArray)
                 {
-                    uuid = ((OSDMap)otherPartsArray[i])["uuid"].AsUUID();
-                    propertyData = (OSDMap)((OSDMap)otherPartsArray[i])["propertyData"];
+                    uuid = otherPart["uuid"].AsUUID();
+                    properties = (OSDArray)otherPart["properties"];
 
                     //m_log.WarnFormat("{0} DecodeSceneObject for OtherParts[{1}] uuid: {2}", LogHeader, i, uuid);
-                    sip = new SyncInfoPrim(uuid, propertyData, scene);
+                    sip = new SyncInfoPrim(uuid, properties, scene);
                     SceneObjectPart part = (SceneObjectPart)sip.SceneThing;
 
                     if (part == null)
@@ -632,14 +613,6 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     syncInfos.Add(part.UUID, sip);
                 }
             }
-
-            // Handled inline above because SyncInfoBase does not have SetGroupProperties.
-            /*
-            foreach (SceneObjectPart part in sog.Parts)
-            {
-                syncInfos[part.UUID].SetGroupProperties(part);
-            }
-            */
 
             sog.IsAttachment = data["IsAttachment"].AsBoolean();
             sog.AttachedAvatar = data["AttachedAvatar"].AsUUID();
@@ -672,29 +645,48 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         return ret;
     }
 
+    /// <summary>
+    /// Encode a SP. Values of each part's properties are copied from SyncInfo, instead of from SP's data. 
+    /// If the SyncInfo is not maintained by SyncInfoManager yet, add it first.
+    /// </summary>
+    /// <param name="sog"></param>
+    /// <returns></returns>
+    protected OSDMap EncodeScenePresence(ScenePresence sp, RegionSyncModule pRegionContext)
+    {
+        //This should not happen, but we deal with it by inserting it now
+        if (!pRegionContext.InfoManager.SyncInfoExists(sp.UUID))
+        {
+            m_log.ErrorFormat("{0}: ERROR: EncodeScenePresence -- SP {1},{2} not in SyncInfoManager's record yet. Adding.", LogHeader, sp.Name, sp.UUID);
+            pRegionContext.InfoManager.InsertSyncInfoLocal(sp.UUID, RegionSyncModule.NowTicks(), pRegionContext.SyncID);
+        }
+
+        OSDMap data = new OSDMap();
+        data["uuid"] = OSD.FromUUID(sp.UUID);
+        data["absPosition"] = OSD.FromVector3(sp.AbsolutePosition);
+        // EncodeProperties can return null but it should never do that for adding a presence
+        data["ScenePresence"] = pRegionContext.InfoManager.EncodeProperties(sp.UUID, SyncableProperties.AvatarProperties);
+
+        return data;
+    }
+
     // Decodes scene presence data into sync info
     protected void DecodeScenePresence(OSDMap data, out SyncInfoBase syncInfo, Scene scene)
     {
-        syncInfo = null;
-        if (!data.ContainsKey("ScenePresence"))
-        {
-            m_log.ErrorFormat("{0}: DecodeScenePresence, no ScenePresence found in the OSDMap", LogHeader);
-            return;
-        }
-
-        OSDMap presenceData = (OSDMap)data["ScenePresence"];
-
         //Decode the syncInfo
         try
         {
-            syncInfo = new SyncInfoPresence(presenceData["uuid"], (OSDMap)presenceData["propertyData"], scene);
+            UUID uuid = data["uuid"].AsUUID();
+            OSDMap presenceData = (OSDMap)data["ScenePresence"];
+            OSDArray properties = (OSDArray)presenceData["properties"];
+            syncInfo = new SyncInfoPresence(uuid, (OSDArray)properties, scene);
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            m_log.ErrorFormat("{0} DecodeScenePresence caught exception: {1}", LogHeader, e);
-            return;
+            m_log.ErrorFormat("{0}: DecodeScenePresence missing required data", LogHeader);
+            syncInfo = null;
         }
     }
+
     #endregion // Encode/DecodeSceneObject and Encode/DecodeScenePresence
 }
 
@@ -725,7 +717,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
         {
             ret = true;
             // Decode synced properties from the message
-            SyncedProperties = SyncedProperty.DecodeProperties(DataMap);
+            SyncedProperties = SyncInfoBase.DecodeSyncedProperties(DataMap);
             if (SyncedProperties == null)
             {
                 m_log.ErrorFormat("{0} UpdatedProperties.ConvertIn could not get syncedProperties", LogHeader);
@@ -773,6 +765,8 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
             if (Dir == Direction.Out && DataMap == null)
             {
                 DataMap = pRegionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
+                if (DataMap == null)
+                    return false;
                 // m_log.DebugFormat("{0} SyncMsgUpdatedProperties.ConvertOut, syncProp={1}, DataMap={2}", LogHeader, SyncableProperties, DataMap);
             }
         }
@@ -803,6 +797,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
             SyncableProperties.Union(pNewSyncableProperties);
             // Any output data buffers must be rebuilt
             DataMap = null;
+            DataLength = 0;
             m_data = null;
         }
     }
@@ -839,7 +834,7 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
 // ====================================================================================================
 // Send to have other side send us their environment info.
 // If received, send our environment info.
-public class SyncMsgGetEnvironment: SyncMsgOSDMapData
+public class SyncMsgGetEnvironment: SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetEnvi"; } }
     public override string DetailLogTagSnd { get { return "SndGetEnvi"; } }
@@ -926,7 +921,7 @@ public class SyncMsgEnvironment: SyncMsgOSDMapData
 // ====================================================================================================
 // Send to have other side send us their region info.
 // If received, send our region info.
-public class SyncMsgGetRegionInfo : SyncMsgOSDMapData
+public class SyncMsgGetRegionInfo : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetRegn"; } }
     public override string DetailLogTagSnd { get { return "SndGetRegn"; } }
@@ -1170,7 +1165,7 @@ public class SyncMsgTimeStamp : SyncMsgOSDMapData
 // ====================================================================================================
 // Sending asks the other end to send us information about the terrain.
 // When received, send back information about the terrain.
-public class SyncMsgGetTerrain : SyncMsgOSDMapData
+public class SyncMsgGetTerrain : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetTerr"; } }
     public override string DetailLogTagSnd { get { return "SndGetTerr"; } }
@@ -1271,7 +1266,7 @@ public class SyncMsgTerrain : SyncMsgOSDMapData
     }
 }
 // ====================================================================================================
-public class SyncMsgGetObjects : SyncMsgOSDMapData
+public class SyncMsgGetObjects : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetObjj"; } }
     public override string DetailLogTagSnd { get { return "SndGetObjj"; } }
@@ -1290,6 +1285,7 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
     }
     public override bool HandleIn(RegionSyncModule pRegionContext)
     {
+        m_log.WarnFormat("{0}: Started sending objects", LogHeader);
         if (base.HandleIn(pRegionContext))
         {
             pRegionContext.Scene.ForEachSOG(delegate(SceneObjectGroup sog)
@@ -1299,6 +1295,7 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
                 ConnectorContext.ImmediateOutgoingMsg(msg);
             });
         }
+        m_log.WarnFormat("{0}: Done sending objects", LogHeader);
         return true;
     }
     public override bool ConvertOut(RegionSyncModule pRegionContext)
@@ -1307,7 +1304,7 @@ public class SyncMsgGetObjects : SyncMsgOSDMapData
     }
 }
 // ====================================================================================================
-public class SyncMsgGetPresences : SyncMsgOSDMapData
+public class SyncMsgGetPresences : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvGetPres"; } }
     public override string DetailLogTagSnd { get { return "SndGetPres"; } }
@@ -1405,6 +1402,7 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
 
             // Add the decoded object to Scene
             // This will invoke OnObjectAddedToScene but the syncinfo has already been created so that's a NOP
+            pRegionContext.Scene.EventManager.TriggerParcelPrimCountTainted();
             pRegionContext.Scene.AddNewSceneObject(SOG, true);
 
             // If it's an attachment, connect this to the presence
@@ -1516,7 +1514,6 @@ public class SyncMsgRemovedObject : SyncMsgOSDMapData
         if (base.HandleIn(pRegionContext))
         {
             SceneObjectGroup sog = pRegionContext.Scene.GetGroupByPrim(Uuid);
-
             if (sog != null)
             {
                 // If this is a relay node, forward the message
@@ -1895,6 +1892,14 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             if (pRegionContext.IsSyncRelay)
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, SyncInfo.CurQuark.QuarkName);
 
+            // If we receive a new presence that for some reason indicates this region is its "real region" then ignore it.
+            // Maybe we should even send out a message to remove the avatar from other actors? 
+            if ((string)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.RealRegion].LastUpdateValue) == RegionContext.Scene.Name)
+            {
+                m_log.WarnFormat("{0}: Attempt to handle NewPresence message with RealRegion = {1}", LogHeader, RegionContext.Scene.Name);
+                return false;
+            }
+
             //Add the SyncInfo to SyncInfoManager
             pRegionContext.InfoManager.InsertSyncInfoRemote(SyncInfo.UUID, SyncInfo);
 
@@ -1905,6 +1910,12 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
             acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
             PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
+            // Fake like we're not a user so normal teleport processing will not happen.
+            // No. If we make the presence an NPC, then we cannot prevent the local scene from rezzing a duplicate set of attachments. 
+            // So, ScenePresence will be added with the original presence type. NPC presences will always get duplicate attachments which will need
+            // to be fixed to support NPC presences in DSG regions. We can fix that eventually with a DSGAttachmentsModule which will only rez for 
+            // presences added by the local scene. Then, we can go back to all Region Sync Avatars being NPCs.
+            // PresenceType pt = PresenceType.Npc;
 
             // Add the decoded circuit to local scene
             pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
@@ -1912,7 +1923,19 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             // Create a client and add it to the local scene at the position of the last update from sync cache
             Vector3 currentPos = (Vector3)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
             IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
-            SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
+            try
+            {
+                SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
+            }
+            catch (Exception e)
+            {
+                m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
+            }
+            // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
+            ((ScenePresence)SyncInfo.SceneThing).m_originRegionID = pRegionContext.Scene.RegionInfo.RegionID;
+            // Now that we have a presence and a client, tell the region sync "client" to finish connecting. 
+            ((RegionSyncAvatar)client).PostCreateRegionSyncAvatar();
+            
             // Might need to trigger something here to send new client messages to connected clients
         }
         return true;
@@ -2306,7 +2329,7 @@ public abstract class SyncMsgEvent : SyncMsgOSDMapData
     }
 }
 
-public class SyncMsgKeepAlive : SyncMsgOSDMapData
+public class SyncMsgKeepAlive : SyncMsg
 {
     public override string DetailLogTagRcv { get { return "RcvKpAlive"; } }
     public override string DetailLogTagSnd { get { return "SndKpAlive"; } }
@@ -2380,7 +2403,7 @@ public class SyncMsgNewScript : SyncMsgEvent
             ItemID = DataMap["itemID"].AsUUID();
             if (pRegionContext.IsSyncRelay)
                 QuarkName = pRegionContext.InfoManager.GetSyncInfo(Uuid).CurQuark.QuarkName;
-            UpdatedProperties = SyncedProperty.DecodeProperties(DataMap);
+            UpdatedProperties = SyncInfoBase.DecodeSyncedProperties(DataMap);
             ret = true;
         }
         return ret;
@@ -2417,9 +2440,12 @@ public class SyncMsgNewScript : SyncMsgEvent
             if (Dir == Direction.Out && DataMap == null)
             {
                 OSDMap data = pRegionContext.InfoManager.EncodeProperties(Uuid, SyncableProperties);
-                //syncData already includes uuid, add agentID and itemID next
-                data["agentID"] = OSD.FromUUID(AgentID);
-                data["itemID"] = OSD.FromUUID(ItemID);
+                if (data != null)
+                {
+                    //syncData already includes uuid, add agentID and itemID next
+                    data["agentID"] = OSD.FromUUID(AgentID);
+                    data["itemID"] = OSD.FromUUID(ItemID);
+                }
                 DataMap = data;
             }
         }
@@ -3610,7 +3636,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                 return true;
             }
 
-            SyncedProperties = SyncedProperty.DecodeProperties(DataMap);
+            SyncedProperties = SyncInfoBase.DecodeSyncedProperties(DataMap);
             if (DataMap.ContainsKey("FULL-SOG"))
                 DecodeSceneObject((OSDMap)DataMap["FULL-SOG"], out m_sog, out m_parts, pRegionContext.Scene);
             if (m_sog == null || m_parts == null)
@@ -3817,7 +3843,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                 m_leftMyQuarks = true;
             
             // Updated SP properties
-            SyncedProperties = SyncedProperty.DecodeProperties(DataMap);
+            SyncedProperties = SyncInfoBase.DecodeSyncedProperties(DataMap);
             ret = true;
         }
         return ret;

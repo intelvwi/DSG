@@ -185,23 +185,20 @@ namespace DSG.RegionSync
         {
             // m_log.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0}", uuid);
             SyncInfoBase thisSyncInfo = null;
-            bool found = false;
             lock (m_syncLock)
             {
-                found = m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo);
+                m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo);
             }
-            if (found)
+            if (thisSyncInfo != null)
             {
                 OSDMap data = new OSDMap();
-                data["uuid"] = OSDMap.FromUUID(uuid);
-                //OSDMap propertyData = m_syncedUUIDs[uuid].EncodeSyncedProperties(propertiesToEncode);
-                OSDMap propertyData = thisSyncInfo.EncodeSyncedProperties(propertiesToEncode);
-                data["propertyData"] = propertyData;
+                data["uuid"] = OSD.FromUUID(uuid);
+                data["properties"] = thisSyncInfo.EncodeSyncedProperties(propertiesToEncode);
                 return data;
             }
 
-            // m_log.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0} not in m_syncedUUIDs.", uuid);
-            return new OSDMap();
+            // DebugLog.WarnFormat("[SYNC INFO MANAGER] EncodeProperties SyncInfo for {0} not in m_syncedUUIDs.", uuid);
+            return null;
         }
 
         public HashSet<string> GetLastUpdatedSyncIDs(UUID uuid, HashSet<SyncableProperties.Type> properties)
@@ -270,8 +267,18 @@ namespace DSG.RegionSync
         {
             // m_log.WarnFormat("[SYNC INFO MANAGER] GetSyncInfo for uuid {0}", uuid);
             // Should never be called unless SyncInfo has already been added
+            //lock (m_syncLock)
+            //    return m_syncedUUIDs[uuid];
+            SyncInfoBase thisSyncInfo = null;
+            bool found = false;
             lock (m_syncLock)
-                return m_syncedUUIDs[uuid];
+            {
+                found = m_syncedUUIDs.TryGetValue(uuid, out thisSyncInfo);
+            }
+            if (found)
+                return thisSyncInfo;
+            else
+                return null;
         }
 
         public bool UpdateInActiveQuark(SyncInfoBase syncInfo)

@@ -92,10 +92,11 @@ namespace DSG.RegionSync
         }
 
         // Constructor used for initializing SyncInfo from remote (OSDMap) data before syncing it locally
-        public SyncInfoPrim(UUID id, OSDMap syncInfoData, Scene scene)
+        public SyncInfoPrim(UUID id, OSDArray properties, Scene scene)
         {
             UUID = id;
             Scene = scene;
+            bool hasGroupPosition = false;
 
             // Create an SOP based on the set of decoded properties
             // The SOP will be stored internally and someone will add it to the scene later
@@ -108,30 +109,22 @@ namespace DSG.RegionSync
             {
                 // Decode syncInfoData into CurrentlySyncedProperties
                 CurrentlySyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
-                HashSet<SyncableProperties.Type> full = SyncableProperties.FullUpdateProperties;
-                //if (!full.Contains(SyncableProperties.Type.Position))
-                //    m_log.ErrorFormat("{0} SyncableProperties.FullUpdateProperties missing Position!", LogHeader);
-
-                // If prim has object group position, that supercedes the object part's position. Use Position otherwise
-                bool hasGroupPosition = false;
-                foreach(KeyValuePair<string, OSD> kvp in syncInfoData)
+                foreach(OSDArray property in properties)
                 {
                     // Parse each property from the key in the map we received
-                    SyncableProperties.Type property = (SyncableProperties.Type) Enum.Parse(typeof(SyncableProperties.Type), kvp.Key);
-                    SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)(kvp.Value));
-
-                    //m_log.WarnFormat("{0}: Adding property {1} to CurrentlySyncedProperties", LogHeader, property);
-                    CurrentlySyncedProperties.Add(property, syncedProperty);
-                        
-                    // Initialize PrevQuark and CurQuark
-                    if (property == SyncableProperties.Type.GroupPosition)
-                        PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
-                    else if (property == SyncableProperties.Type.Position && hasGroupPosition == false)
-                        PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
-
+                    SyncedProperty syncedProperty = new SyncedProperty(property);
+                    CurrentlySyncedProperties.Add(syncedProperty.Property, syncedProperty);
                     try
                     {
                         SetPropertyValue((SceneObjectPart)SceneThing, syncedProperty);
+                            // Initialize PrevQuark and CurQuark
+                        if (syncedProperty.Property == SyncableProperties.Type.GroupPosition)
+                        {
+                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
+                            hasGroupPosition = true;
+                        }
+                        else if (syncedProperty.Property == SyncableProperties.Type.Position && hasGroupPosition == false)
+                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
                     }
                     catch (Exception e)
                     {
@@ -639,6 +632,9 @@ namespace DSG.RegionSync
             SyncableProperties.Type property = pSyncInfo.Property;
             Object LastUpdateValue = pSyncInfo.LastUpdateValue;
 
+            // Do not generate undo information for this update
+            part.IgnoreUndoUpdate = true;
+
             switch (property)
             {
                 ///////////////////////
@@ -969,6 +965,9 @@ namespace DSG.RegionSync
                         part.ParentGroup.IsSelected = (bool)LastUpdateValue;
                     break;
             }
+
+            // Do not generate undo information for this update
+            part.IgnoreUndoUpdate = false;
 
             //Calling ScheduleFullUpdate to trigger enqueuing updates for sync'ing (relay sync nodes need to do so)
             //part.ScheduleFullUpdate(new List<SyncableProperties.Type>() { property }); 

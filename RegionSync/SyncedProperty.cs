@@ -81,17 +81,6 @@ namespace DSG.RegionSync
         public SyncableProperties.Type Property { get; private set; }
 
         // Constructor
-        public SyncedProperty(SyncableProperties.Type property)
-        {
-            Property = property;
-        }
-
-        // Copy Constructor
-        public SyncedProperty(SyncedProperty other)
-            : this(other.Property, other.LastUpdateValue, other.LastUpdateTimeStamp, other.LastUpdateSyncID) 
-        { }
-
-        // Constructor
         public SyncedProperty(SyncableProperties.Type property, Object initValue, long initTS, string syncID)
         {
             Property = property;
@@ -101,14 +90,13 @@ namespace DSG.RegionSync
         }
 
         /// <summary>
-        /// Initialize from data in given OSDMap.
+        /// Initialize from data in given OSDArray.
         /// </summary>
         /// <param name="property"></param>
         /// <param name="syncData"></param>
-        public SyncedProperty(SyncableProperties.Type property, OSDMap syncData)
+        public SyncedProperty(OSDArray syncData)
         {
-            Property = property;
-            FromOSDMap(syncData);
+            FromOSDArray(syncData);
         }
 
         public static string SyncIDTieBreak(string aID, string bID)
@@ -208,14 +196,15 @@ namespace DSG.RegionSync
         /// </summary>
         /// <param name="property"></param>
         /// <returns></returns>
-        public OSDMap ToOSDMap()
+        public OSDArray ToOSDArray()
         {
-            //m_log.WarnFormat("[SYNCED PROPERTY] ToOSDMap called for property {0}", Property.ToString());
+            //DebugLog.WarnFormat("[SYNCED PROPERTY] ToOSDArray called for property {0}", Property.ToString());
             lock (m_lock)
             {
-                OSDMap propertyData = new OSDMap();
-                propertyData["LastUpdateTimeStamp"] = LastUpdateTimeStamp;
-                propertyData["LastUpdateSyncID"] = LastUpdateSyncID;
+                OSDArray propertyData = new OSDArray();
+                propertyData.Add(OSD.FromInteger((uint)Property));
+                propertyData.Add(OSD.FromLong(LastUpdateTimeStamp));
+                propertyData.Add(OSD.FromString(LastUpdateSyncID));
 
                 OSD value = null;
                 switch (Property)
@@ -372,10 +361,10 @@ namespace DSG.RegionSync
                         break;
 
                     default:
-                        DebugLog.WarnFormat("[SYNCED PROPERTY] ToOSDMap: No handler for property {0} ", Property);
+                        DebugLog.WarnFormat("[SYNCED PROPERTY] ToOSDArray: No handler for property {0} ", Property);
                         break;
                 }
-                propertyData["Value"] = value;
+                propertyData.Add(value);
                 return propertyData;
             }
         }
@@ -385,16 +374,13 @@ namespace DSG.RegionSync
         /// be called in initialization time (e.g. from constructor).
         /// </summary>
         /// <param name="propertyData"></param>
-        private void FromOSDMap(OSDMap propertyData)
+        private void FromOSDArray(OSDArray propertyData)
         {
-            LastUpdateTimeStamp = propertyData["LastUpdateTimeStamp"].AsLong();
-            LastUpdateSyncID = propertyData["LastUpdateSyncID"].AsString();
+            Property = (SyncableProperties.Type)(propertyData[0].AsInteger());
+            LastUpdateTimeStamp = propertyData[1].AsLong();
+            LastUpdateSyncID = propertyData[2].AsString();
 
-            //We do not test if propertyData.ContainsKey("Value"), since Jason
-            //serialization seems does not include a value if it's equals to
-            //the default value. So just let Jason decoding to set the value 
-            //either by reading out of the OSDMap, or set to default value.
-            OSD value = propertyData["Value"];
+            OSD value = propertyData[3];
             switch (Property)
             {
                 ///////////////////////////////////////
@@ -546,48 +532,9 @@ namespace DSG.RegionSync
                     break;
 
                 default:
-                    DebugLog.WarnFormat("[SYNCED PROPERTY] FromOSDMap: No handler for property {0} ", Property);
+                    DebugLog.WarnFormat("[SYNCED PROPERTY] FromOSDArray: No handler for property {0} ", Property);
                     break;
             }
-        }
-
-        public static HashSet<SyncedProperty> DecodeProperties(OSDMap data)
-        {
-            HashSet<SyncedProperty> syncedProperties = new HashSet<SyncedProperty>();
-            if (!data.ContainsKey("propertyData"))
-            {
-                DebugLog.WarnFormat("DecodeProperties: propertyData is missing");
-                return syncedProperties;
-            }
-            syncedProperties = DecodePropertiesSyncInfo((OSDMap)data["propertyData"]);
-
-            return syncedProperties;
-        }
-
-        /// <summary>
-        /// Decode a set of SyncedProperty from OSDMap.
-        /// </summary>
-        /// <param name="syncInfoData"></param>
-        public static HashSet<SyncedProperty> DecodePropertiesSyncInfo(OSDMap syncInfoData)
-        {
-            HashSet<SyncedProperty> syncedProperties = new HashSet<SyncedProperty>();
-
-            foreach (string propertyString in syncInfoData.Keys)
-            {
-                //convert string to enum
-                SyncableProperties.Type property;
-                try
-                {
-                     property = (SyncableProperties.Type)Enum.Parse(typeof(SyncableProperties.Type), propertyString, true);
-                }
-                catch (Exception e)
-                {
-                    DebugLog.WarnFormat("[SYNCED PROPERTY] Invalid enum type: {0}. {1}", propertyString, e.ToString());
-                    continue;
-                }
-                syncedProperties.Add(new SyncedProperty(property, (OSDMap)syncInfoData[propertyString]));
-            }
-            return syncedProperties;
         }
     }
 }

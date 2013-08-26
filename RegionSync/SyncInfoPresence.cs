@@ -95,7 +95,7 @@ namespace DSG.RegionSync
         /// <param name="id">UUID of the scene presence</param>
         /// <param name="syncInfoData">Initial sync data</param>
         /// <param name="scene">The local scene</param>
-        public SyncInfoPresence(UUID id, OSDMap syncInfoData, Scene scene)
+        public SyncInfoPresence(UUID id, OSDArray properties, Scene scene)
         {
             // m_log.WarnFormat("[SYNC INFO PRESENCE] Constructing SyncInfoPresence (from map) for uuid {0}", id);
 
@@ -104,31 +104,18 @@ namespace DSG.RegionSync
 
             lock (m_syncLock)
             {
+                // Decode syncInfoData into CurrentlySyncedProperties
                 CurrentlySyncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
-                foreach (SyncableProperties.Type property in SyncableProperties.AvatarProperties)
+                foreach (OSD property in properties)
                 {
-                    if (syncInfoData.ContainsKey(property.ToString()))
+                    // Parse each property from the key in the map we received
+                    SyncedProperty syncedProperty = new SyncedProperty((OSDArray)property);
+                    CurrentlySyncedProperties.Add(syncedProperty.Property, syncedProperty);
+                    if (syncedProperty.Property == SyncableProperties.Type.AbsolutePosition)
                     {
-                        SyncedProperty syncedProperty = new SyncedProperty(property, (OSDMap)syncInfoData[property.ToString()]);
-                        CurrentlySyncedProperties.Add(property, syncedProperty);
-                        if (property == SyncableProperties.Type.AbsolutePosition)
-                        {
-                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
-                        }
-                    }
-                    else
-                    {
-                        DebugLog.ErrorFormat("[SYNC INFO PRESENCE] SyncInfoPresence: Property {0} not included in the given OSDMap", property);
+                         PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
                     }
                 }
-                // ?? Should I really start as SyncQuark 0?
-                // There was no absolute position information. Start curquark and syncquark as 0.
-                /*
-                if (!(CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.AbsolutePosition)))
-                {
-                    PrevQuark = CurQuark = new SyncQuark(new Vector3(0,0,0));
-                }
-                 * */
             }
         }
         

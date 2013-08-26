@@ -102,6 +102,14 @@ namespace DSG.RegionSync
             return ret;
         }
 
+        public void RemoveUpdate(UUID uuid)
+        {
+            lock (m_syncRoot)
+            {
+                m_updates.Remove(uuid);
+            }
+        }
+
         // Add a message to the first of the queue.
         public void QueueMessageFirst(SyncMsg update)
         {
@@ -131,8 +139,8 @@ namespace DSG.RegionSync
                     if (m_queue.Count > 0)
                     {
                         UUID id = m_queue.Dequeue();
-                        update = m_updates[id];
-                        m_updates.Remove(id);
+                        if (m_updates.TryGetValue(id, out update))
+                            m_updates.Remove(id);
                     }
                 }
             }

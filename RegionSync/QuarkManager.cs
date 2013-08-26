@@ -376,31 +376,6 @@ namespace DSG.RegionSync
             return quarksOutput;
         }
 
-        /// <summary>
-        /// Register with the grid service of the quarks that this sync node operates on.
-        /// A sync node that is a non-leaf node in the topology must call this function.
-        /// </summary>
-        /// <returns></returns>
-        public bool RegisterSyncQuarksWithGridService()
-        {
-            //TODO: register all quarks with one registration requests, instead of 
-            //one request for each quark
-
-            bool allRegisteredSuccessfully = true;
-
-            //Only active quarks should be registered with Grid Service
-            foreach (KeyValuePair<string, SyncQuark> quark in m_activeQuarkSet)
-            {
-                if (!m_regionSyncModule.Scene.GridService.RegisterQuark(m_regionSyncModule.ActorID, quark.Value.QuarkLocX, quark.Value.QuarkLocX))
-                {
-                    allRegisteredSuccessfully = false;
-                    m_log.WarnFormat("[SYNC MANAGER]: Failure registering quark {0}", quark.Value.QuarkName);
-                }
-
-            }
-            return allRegisteredSuccessfully;
-        }
-
         #endregion // QuarkRegistration
 
         #region QuarkSubscriptions
@@ -598,7 +573,6 @@ namespace DSG.RegionSync
                 syncMsg.ConvertOut(m_regionSyncModule);
                 m_regionSyncModule.SendSyncMessage(syncMsg, sip.PrevQuark.QuarkName ,sip.CurQuark.QuarkName);
             }
-            TriggerPresenceQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sp);
             // if the presence is not in the quarks I manage, remove it from the scenegraph
             if (leavingMyQuarks)
             {
@@ -642,8 +616,6 @@ namespace DSG.RegionSync
                 m_regionSyncModule.SendSyncMessage(syncMsg,sip.PrevQuark.QuarkName,sip.CurQuark.QuarkName);
             }
 
-            TriggerPrimQuarkCrossingEvent(sip.CurQuark.QuarkName, sip.PrevQuark.QuarkName, sop);
-
             // if the prim is not in the quarks I manage, remove it from the scenegraph
             if (leavingMyQuarks)
             {
@@ -670,44 +642,6 @@ namespace DSG.RegionSync
             return true;
         }
 
-        public void TriggerPresenceQuarkCrossingEvent(string curQuark, string preQuark, ScenePresence sp)
-        {
-            //Trigger the quark-crossing event, so that local modules can get it 
-            EventManager.QuarkCrossingType crossingType = EventManager.QuarkCrossingType.Unknown;
-            bool curQuarkIsActive = IsInActiveQuark(curQuark);
-            bool preQuarkIsActive = IsInActiveQuark(preQuark);
-
-            if (preQuarkIsActive && curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.ActiveToActive;
-            else if (preQuarkIsActive && !curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.ActiveToPassive;
-            else if (!preQuarkIsActive && curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.PassiveToActive;
-            else if (!preQuarkIsActive && !curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.PassiveToPassive;
-
-            m_regionSyncModule.Scene.EventManager.TriggerPresenceQuarkCrossing(curQuark, preQuark, sp, crossingType);
-        }
-
-        public void TriggerPrimQuarkCrossingEvent(string curQuark, string preQuark, SceneObjectPart sop)
-        {
-            //Trigger the quark-crossing event, so that local modules can get it 
-            EventManager.QuarkCrossingType crossingType = EventManager.QuarkCrossingType.Unknown;
-            bool curQuarkIsActive = IsInActiveQuark(curQuark);
-            bool preQuarkIsActive = IsInActiveQuark(preQuark);
-
-            if (preQuarkIsActive && curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.ActiveToActive;
-            else if (preQuarkIsActive && !curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.ActiveToPassive;
-            else if (!preQuarkIsActive && curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.PassiveToActive;
-            else if (!preQuarkIsActive && !curQuarkIsActive)
-                crossingType = EventManager.QuarkCrossingType.PassiveToPassive;
-
-            m_regionSyncModule.Scene.EventManager.TriggerPrimQuarkCrossing(curQuark, preQuark, sop, crossingType);
-        }
-        
         #endregion //QuarkCrossing
     }
 }
