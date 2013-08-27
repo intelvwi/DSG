@@ -125,7 +125,6 @@ namespace DSG.RegionSync
             }
 
             IsSyncRelay =  m_sysConfig.GetBoolean("IsHub", false);
-            m_hasLocalSyncListener = m_sysConfig.GetBoolean("HasLocalSync", false);
             // Ticks are 100ns increments. Convert fudge seconds into ticks.
             UpdateTimeDisplacementFudgeTicks = m_sysConfig.GetLong("UpdateTimeDisplacementFudgeSeconds", 0) * 10000000L;
 
@@ -300,7 +299,7 @@ namespace DSG.RegionSync
             QuarkManager.m_log = m_log;
             m_quarkManager = new QuarkManager(this);
 
-            if (m_hasLocalSyncListener)
+            if (IsSyncRelay)
             {
                 m_log.Warn(LogHeader + " Starting Sync - Sync listener is local");
                 if (m_localSyncListener != null && m_localSyncListener.IsListening)
@@ -1188,10 +1187,6 @@ namespace DSG.RegionSync
         //logging of the timing and delays in the update loop
         private Logging.LogWriter m_updateLoopLog;
        
-
-        private bool m_hasLocalSyncListener = false;
-        //private RegionSyncListenerInfo m_localSyncListenerInfo 
-
         // Keeps track of all connceted Sync Servers. The string is to make sure we don't start two sync connectors to the same server.
         private Dictionary<RegionSyncListenerInfo, SyncConnector> m_remoteSyncListeners = new Dictionary<RegionSyncListenerInfo,SyncConnector>();
 

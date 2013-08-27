@@ -584,7 +584,8 @@ namespace DSG.RegionSync
                     {
                         // Removing a client triggers OnRemovePresence. I should only remove the client from this actor, not propagate it.
                         m_regionSyncModule.RememberLocallyGeneratedEvent(syncMsg.MType);
-                        m_regionSyncModule.Scene.RemoveClient(sp.UUID, false);
+                        m_regionSyncModule.Scene.IncomingCloseAgent(sp.UUID, true);
+                        //m_regionSyncModule.Scene.RemoveClient(sp.UUID, false);
                         m_regionSyncModule.ForgetLocallyGeneratedEvent();
                     }
                     catch (Exception e)

@@ -2008,7 +2008,8 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
             // Event issue: Calling RemoveClient starts a Remove Object event to remove the attachments, which
             // eventually become a remove object sync message. We need to remember this.
             pRegionContext.RememberLocallyGeneratedEvent(SyncMsg.MsgType.RemovedPresence, Uuid);
-            pRegionContext.Scene.RemoveClient(Uuid, false);
+            //pRegionContext.Scene.RemoveClient(Uuid, false);
+            pRegionContext.Scene.IncomingCloseAgent(Uuid, true);
             pRegionContext.ForgetLocallyGeneratedEvent();
         }
         return true;
@@ -3871,7 +3872,8 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                         {
                             // Removing a client triggers OnRemovePresence. I should only remove the client from this actor, not propagate it.
                             pRegionContext.RememberLocallyGeneratedEvent(MType);
-                            pRegionContext.Scene.RemoveClient(m_presenceUUID, false);
+                            //pRegionContext.Scene.RemoveClient(m_presenceUUID, false);
+                            pRegionContext.Scene.IncomingCloseAgent(m_presenceUUID, true);
                             pRegionContext.ForgetLocallyGeneratedEvent();
                         }
                         catch (Exception e)
@@ -3890,31 +3892,52 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                     pRegionContext.InfoManager.InsertSyncInfoRemote(m_presenceUUID, (SyncInfoBase)m_sip);
             
                     // Stolen from NewPresence handle
+
+
                     // Get ACD and PresenceType from decoded SyncInfoPresence
                     // NASTY CASTS AHEAD!
-                    m_quarkManager.LeftQuarks[m_presenceUUID] = false;
                     AgentCircuitData acd = new AgentCircuitData();
                     acd.UnpackAgentCircuitData((OSDMap)((m_sip).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
                     // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
                     acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
                     PresenceType pt = (PresenceType)(int)((m_sip).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
+                    // Fake like we're not a user so normal teleport processing will not happen.
+                    // No. If we make the presence an NPC, then we cannot prevent the local scene from rezzing a duplicate set of attachments. 
+                    // So, ScenePresence will be added with the original presence type. NPC presences will always get duplicate attachments which will need
+                    // to be fixed to support NPC presences in DSG regions. We can fix that eventually with a DSGAttachmentsModule which will only rez for 
+                    // presences added by the local scene. Then, we can go back to all Region Sync Avatars being NPCs.
+                    // PresenceType pt = PresenceType.Npc;
 
                     // Add the decoded circuit to local scene
                     pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
 
-                    // Create a client and add it to the local scene
-                    Vector3 startPos = (Vector3)m_sip.CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue;
-
+                    // Create a client and add it to the local scene at the position of the last update from sync cache
+                    Vector3 currentPos = (Vector3)((m_sip).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
                     Quaternion bodyDirection = (Quaternion)m_sip.CurrentlySyncedProperties[SyncableProperties.Type.Rotation].LastUpdateValue;
                     bool flyState = (bool)m_sip.CurrentlySyncedProperties[SyncableProperties.Type.Flying].LastUpdateValue;
-                    IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, startPos);
-                    m_sip.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
-                    // Might need to trigger something here to send new client messages to connected clients
-                    
+
+                    IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
+                    try
+                    {
+                        m_sip.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
+                    }
+                    catch (Exception e)
+                    {
+                        m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
+                    }
+
                     m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 2. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
                     m_sp = pRegionContext.Scene.GetScenePresence(m_presenceUUID);
                     m_sp.Rotation = bodyDirection;
-                    m_sp.Flying = flyState;
+                    
+                    if (m_sp.PhysicsActor != null)
+                        m_sp.Flying = flyState;
+
+                    // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
+                    ((ScenePresence)m_sip.SceneThing).m_originRegionID = pRegionContext.Scene.RegionInfo.RegionID;
+
+                    // Now that we have a presence and a client, tell the region sync "client" to finish connecting. 
+                    ((RegionSyncAvatar)client).PostCreateRegionSyncAvatar();
                     break;
                 case 3:
                     m_quarkManager.LeftQuarks[m_presenceUUID] = false;
