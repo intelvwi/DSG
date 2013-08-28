@@ -1274,7 +1274,7 @@ namespace DSG.RegionSync
                     if (!syncConnectorsSent.Contains(connector.ConnectorNum) && !connector.otherSideActorID.Equals(senderActorID))
                     {
                         m_log.DebugFormat("{0}: send DeLinkObject to {1}", LogHeader, connector.description);
-                        // connector.EnqueueOutgoingUpdate(sog.UUID, syncMsg);
+                        // connector.EnqueueOutgoingUpdate(sog.UUID, newMsg);
                         connector.ImmediateOutgoingMsg(syncMsg);
                         syncConnectorsSent.Add(connector.ConnectorNum);
                     }
@@ -1290,7 +1290,20 @@ namespace DSG.RegionSync
             {
                 if (!connector.otherSideActorID.Equals(init_actorID))
                 {
-                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
+                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, newMsg.DataLength);
+                    connector.ImmediateOutgoingMsg(syncMsg);
+                }
+            }
+        }
+
+        // If sync connectors are already known
+        public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg, HashSet<SyncConnector> syncConnectors)
+        {
+            foreach (SyncConnector connector in syncConnectors)
+            {
+                if (!connector.otherSideActorID.Equals(init_actorID))
+                {
+                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, newMsg.DataLength);
                     connector.ImmediateOutgoingMsg(syncMsg);
                 }
             }
@@ -1302,7 +1315,7 @@ namespace DSG.RegionSync
         /// away, without being enqueued as normal update messages.
         /// </summary>
         /// <param name="sog"></param>
-        /// <param name="syncMsg"></param>
+        /// <param name="newMsg"></param>
         public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg, string curQuark)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(curQuark);
@@ -1310,7 +1323,7 @@ namespace DSG.RegionSync
             {
                 if (!connector.otherSideActorID.Equals(init_actorID) && QuarkManager.IsInActiveQuark(curQuark))
                 {
-                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
+                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, newMsg.DataLength);
                     connector.ImmediateOutgoingMsg(syncMsg);
                 }
             }
@@ -1332,7 +1345,7 @@ namespace DSG.RegionSync
         /// 
         /// </summary>
         /// <param name="sog"></param>
-        /// <param name="syncMsg"></param>
+        /// <param name="newMsg"></param>
         public void SendSpecialUpdateToRelevantSyncConnectors(string init_actorID, SyncMsg syncMsg, string prevQuark, string curQuark)
         {
             HashSet<SyncConnector> syncConnectors = GetSyncConnectorsForUpdates(prevQuark,curQuark);
@@ -1340,7 +1353,7 @@ namespace DSG.RegionSync
             {
                 if (!connector.otherSideActorID.Equals(init_actorID) && QuarkManager.IsInActiveQuark(curQuark))
                 {
-                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, syncMsg.DataLength);
+                    // DetailedUpdateWrite(logReason, sendingUUID, 0, m_zeroUUID, connector.otherSideActorID, newMsg.DataLength);
                     connector.ImmediateOutgoingMsg(syncMsg);
                 }
             }
@@ -2046,6 +2059,19 @@ namespace DSG.RegionSync
             {
                 syncConnector.ImmediateOutgoingMsg(msg);
             }, null, null);
+        }
+
+        /// <summary>
+        /// 
+        /// 
+        /// </summary>
+        /// <param name="msg"></param>
+        public void SendSyncMessageTo(SyncMsg msg, HashSet<SyncConnector> connectors)
+        {
+            foreach (SyncConnector syncConnector in connectors)
+            {
+                syncConnector.ImmediateOutgoingMsg(msg);
+            }
         }
 
         private void ForAllSyncConnectors(Action<SyncConnector> action)

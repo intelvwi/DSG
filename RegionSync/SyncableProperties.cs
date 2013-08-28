@@ -153,7 +153,11 @@ namespace DSG.RegionSync
             RealRegion,
             AllowMovement,
             PresenceType,
-            Rotation
+            Rotation,
+
+            // DSG MetaProperties
+            PreviousQuark,
+            CurrentQuark
         }
 
         public readonly static HashSet<SyncableProperties.Type> TerseUpdateProperties = SyncableProperties.GetTerseUpdateProperties();
@@ -247,6 +251,8 @@ namespace DSG.RegionSync
             groupProperties.Add(SyncableProperties.Type.AttachedAvatar);
             groupProperties.Add(SyncableProperties.Type.AttachmentPoint);
             groupProperties.Add(SyncableProperties.Type.IsAttachment);
+            groupProperties.Add(SyncableProperties.Type.PreviousQuark);
+            groupProperties.Add(SyncableProperties.Type.CurrentQuark);
             return groupProperties;
         }
 
@@ -264,7 +270,9 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.Position);
             allProperties.Add(SyncableProperties.Type.AbsolutePosition);
             allProperties.Add(SyncableProperties.Type.PA_Acceleration);
-
+            allProperties.Add(SyncableProperties.Type.PreviousQuark);
+            allProperties.Add(SyncableProperties.Type.CurrentQuark);
+            
             return allProperties;
         }
 
@@ -285,6 +293,8 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.Flying);
             allProperties.Add(SyncableProperties.Type.PresenceType);
             allProperties.Add(SyncableProperties.Type.IsColliding);
+            allProperties.Add(SyncableProperties.Type.PreviousQuark);
+            allProperties.Add(SyncableProperties.Type.CurrentQuark);
 
             return allProperties;
         }
@@ -308,6 +318,8 @@ namespace DSG.RegionSync
             allProperties.Add(SyncableProperties.Type.Flying);
             // allProperties.Add(SyncableProperties.Type.PresenceType);
             allProperties.Add(SyncableProperties.Type.IsColliding);
+            allProperties.Add(SyncableProperties.Type.PreviousQuark);
+            allProperties.Add(SyncableProperties.Type.CurrentQuark);
 
             return allProperties;
         }
@@ -321,6 +333,8 @@ namespace DSG.RegionSync
             HashSet<SyncableProperties.Type> allProperties = new HashSet<SyncableProperties.Type>();
             allProperties.Add(SyncableProperties.Type.AbsolutePosition);
             allProperties.Add(SyncableProperties.Type.GroupPosition);
+            allProperties.Add(SyncableProperties.Type.PreviousQuark);
+            allProperties.Add(SyncableProperties.Type.CurrentQuark);
 
             return allProperties;
         }

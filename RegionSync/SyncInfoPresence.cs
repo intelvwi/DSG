@@ -111,10 +111,19 @@ namespace DSG.RegionSync
                     // Parse each property from the key in the map we received
                     SyncedProperty syncedProperty = new SyncedProperty((OSDArray)property);
                     CurrentlySyncedProperties.Add(syncedProperty.Property, syncedProperty);
-                    if (syncedProperty.Property == SyncableProperties.Type.AbsolutePosition)
-                    {
-                         PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
-                    }
+                }
+
+                if (CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.CurrentQuark) && CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.PreviousQuark))
+                {
+                    CurQuark = (SyncQuark)CurrentlySyncedProperties[SyncableProperties.Type.CurrentQuark].LastUpdateValue;
+                    PrevQuark = (SyncQuark)CurrentlySyncedProperties[SyncableProperties.Type.PreviousQuark].LastUpdateValue;
+                }
+                else
+                {
+                    // TODO: This should not happen, leaving the check for debugging purposes. Delete when tested thoroughly. 
+                    DebugLog.ErrorFormat("{0}: Did not receive quark information in encoded SyncInfoPresence. Defaulting to Absolute Position quark.", LogHeader);
+                    CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue));
+                    PrevQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue));
                 }
             }
         }
@@ -478,6 +487,10 @@ namespace DSG.RegionSync
                     return (int)sp.PresenceType;
                 case SyncableProperties.Type.IsColliding:
                     return sp.IsColliding;
+                case SyncableProperties.Type.PreviousQuark:
+                    return PrevQuark;
+                case SyncableProperties.Type.CurrentQuark:
+                    return CurQuark;
             }
 
             //m_log.ErrorFormat("{0}: GetPropertyValue could not get property {1} from {2}", LogHeader, property.ToString(), sp.UUID);
@@ -581,6 +594,12 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.IsColliding:
                     if(sp.PhysicsActor != null)
                         sp.IsColliding = (bool)pValue;
+                    break;
+                case SyncableProperties.Type.PreviousQuark:
+                    PrevQuark = (SyncQuark)pValue;
+                    break;
+                case SyncableProperties.Type.CurrentQuark:
+                    CurQuark = (SyncQuark)pValue;
                     break;
             }
 

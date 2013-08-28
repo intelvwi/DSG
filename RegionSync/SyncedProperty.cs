@@ -342,6 +342,15 @@ namespace DSG.RegionSync
                         break;
 
                     ////////////////////////////
+                    // SyncQuark properties
+                    ////////////////////////////
+
+                    case SyncableProperties.Type.PreviousQuark:
+                    case SyncableProperties.Type.CurrentQuark:
+                        value = OSD.FromString((string)((SyncQuark)LastUpdateValue).QuarkName);
+                        break;
+
+                    ////////////////////////////
                     // byte[] (binary data) type properties
                     ////////////////////////////
                     case SyncableProperties.Type.ParticleSystem:
@@ -511,6 +520,15 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.TouchName:
                     LastUpdateValue = value.AsString();
                     break;
+
+                ////////////////////////////
+                // SyncQuark properties
+                ////////////////////////////
+                case SyncableProperties.Type.PreviousQuark:
+                case SyncableProperties.Type.CurrentQuark:
+                    LastUpdateValue = new SyncQuark(value.AsString());
+                    break;
+                
 
                 ////////////////////////////
                 // byte[] (binary data) type properties

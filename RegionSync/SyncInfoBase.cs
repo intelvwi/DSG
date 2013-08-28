@@ -171,6 +171,22 @@ namespace DSG.RegionSync
             return syncedProperties;
         }
 
+        // OSDMap -> HashSet<SyncedProperty>
+        public static Dictionary<SyncableProperties.Type,SyncedProperty> DecodeSyncedPropertiesAsDictionary(OSDMap data)
+        {
+            // data["properties"] is an OSDArray of OSDArrays.
+            // For each array, construct a new SyncedProperty
+            OSDArray properties = (OSDArray)data["properties"];
+            Dictionary<SyncableProperties.Type, SyncedProperty> syncedProperties = new Dictionary<SyncableProperties.Type, SyncedProperty>();
+
+            foreach (OSDArray property in properties)
+            {
+                SyncedProperty sp = new SyncedProperty(property);
+                syncedProperties[sp.Property] = sp;
+            }
+            return syncedProperties;
+        }
+        
         public HashSet<string> GetLastUpdateSyncIDs(HashSet<SyncableProperties.Type> propertiesToSync)
         {
             HashSet<string> syncIDs = new HashSet<string>();

@@ -110,6 +110,23 @@ namespace DSG.RegionSync
         }
 
     }
+
+    public class Actor
+    {
+        public HashSet<SyncQuark> ActiveQuarks = null;
+        public HashSet<SyncQuark> PassiveQuarks = null;
+        public HashSet<SyncQuark> AllQuarks
+        {
+            get
+            {
+                HashSet<SyncQuark> allQuarks = new HashSet<SyncQuark>();
+                allQuarks.UnionWith(ActiveQuarks);
+                allQuarks.UnionWith(PassiveQuarks);
+                return allQuarks;
+            }
+        }
+    }
+
     public class QuarkManager
     {
         private static string LogHeader = "[QUARKMANAGER]";
@@ -158,13 +175,19 @@ namespace DSG.RegionSync
             get { return m_passiveQuarkSet; }
         }
 
-
+        private Dictionary<SyncConnector, Actor> m_actorSubscriptions = new Dictionary<SyncConnector, Actor>();
+        public Dictionary<SyncConnector, Actor> ActorSubscriptions
+        {
+            get { return m_actorSubscriptions; }
+        }
 
         private Dictionary<string, QuarkPublisher> m_quarkSubscriptions = new Dictionary<string,QuarkPublisher>();
         public Dictionary<string, QuarkPublisher> QuarkSubscriptions
         {
             get { return m_quarkSubscriptions; }
         }
+
+
         RegionSyncModule m_regionSyncModule;
 
         #region QuarkRegistration
@@ -381,7 +404,6 @@ namespace DSG.RegionSync
         #region QuarkSubscriptions
         public void AddPassiveSubscription(SyncConnector connector, string quarkName)
         {
-
             m_quarkSubscriptions[quarkName].AddPassiveSubscriber(connector);
         }
 
@@ -489,10 +511,16 @@ namespace DSG.RegionSync
                 {
                     if (currentQuarkName != sib.CurQuark.QuarkName)
                     {
-                        // If we are not in the same quark as we used to be, remember where we were
-                        SyncQuark currentQuark = new SyncQuark(spLoc);
                         sib.PrevQuark = sib.CurQuark;
-                        sib.CurQuark = currentQuark;
+                        sib.CurQuark = new SyncQuark(spLoc);
+
+                        // Inform SyncInfoBase to update the previous and current quark synced properties
+                        long ts = RegionSyncModule.NowTicks();
+                        HashSet<SyncableProperties.Type> quarkTypes = new HashSet<SyncableProperties.Type>();
+                        quarkTypes.Add(SyncableProperties.Type.PreviousQuark);
+                        quarkTypes.Add(SyncableProperties.Type.CurrentQuark);
+
+                        sib.UpdatePropertiesByLocal(sib.UUID, quarkTypes, ts, m_regionSyncModule.SyncID);
                         ret = true;
                     }
                 }
@@ -512,12 +540,20 @@ namespace DSG.RegionSync
                 {
                     // Note that all SOPs in a linkset are in the quark of the root SOP (ie, always using GroupPosition).
                     // Someday see if a better design is possible for spacialy large linksets.
-                    SyncQuark currentQuark = new SyncQuark(sog.RootPart.GroupPosition);
-                    if (!currentQuark.Equals(sib.CurQuark))
+                    Vector3 sogPos = sog.RootPart.GroupPosition;
+                    string currentQuarkName = SyncQuark.GetQuarkNameByPosition(sogPos);
+                    if (currentQuarkName != sib.CurQuark.QuarkName)
                     {
-                        // If we are not in the same quark as we used to be, remember where we were
                         sib.PrevQuark = sib.CurQuark;
-                        sib.CurQuark = currentQuark;
+                        sib.CurQuark = new SyncQuark(sogPos);
+
+                        // Inform SyncInfoBase to update the previous and current quark synced properties
+                        long ts = RegionSyncModule.NowTicks();
+                        HashSet <SyncableProperties.Type> quarkTypes = new HashSet<SyncableProperties.Type>();
+                        quarkTypes.Add(SyncableProperties.Type.PreviousQuark);
+                        quarkTypes.Add(SyncableProperties.Type.CurrentQuark);
+                        
+                        sib.UpdatePropertiesByLocal(sib.UUID, quarkTypes, ts, m_regionSyncModule.SyncID);
                         ret = true;
                     }
                 }
@@ -541,6 +577,9 @@ namespace DSG.RegionSync
         public bool QuarkCrossingUpdate(SyncInfoBase syncInfo, HashSet<SyncableProperties.Type> updatedProperties)
         {
             bool ret = false;
+            // Add Previous and Current quark to list of updated properties, since quarks have just changed
+            updatedProperties.Add(SyncableProperties.Type.PreviousQuark);
+            updatedProperties.Add(SyncableProperties.Type.CurrentQuark);
             ScenePresence sp = m_regionSyncModule.Scene.GetScenePresence(syncInfo.UUID);
             if (sp != null)
             {
@@ -566,13 +605,26 @@ namespace DSG.RegionSync
             bool leavingMyQuarks = !(IsInActiveQuark(sip.CurQuark.QuarkName) || IsInPassiveQuark(sip.CurQuark.QuarkName));
             if (leavingMyQuarks)
                 LeftQuarks[sp.UUID] = true;
-            SyncMsgPresenceQuarkCrossing syncMsg = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties);
-            if (syncMsg != null)
+
+            HashSet<SyncConnector> actorsNeedFull = new HashSet<SyncConnector>();
+            HashSet<SyncConnector> actorsNeedUpdate = new HashSet<SyncConnector>();
+            RequiresFullObject(sip.PrevQuark, sip.CurQuark, ref actorsNeedFull, ref actorsNeedUpdate);
+            SyncMsgPresenceQuarkCrossing syncMsgFull = null;
+            SyncMsgPresenceQuarkCrossing syncMsgUpdate = null;
+
+            if (actorsNeedFull.Count > 0)
             {
-                // Convert out now, so we won't risk the scene being deleted before we have created the message.
-                syncMsg.ConvertOut(m_regionSyncModule);
-                m_regionSyncModule.SendSyncMessage(syncMsg, sip.PrevQuark.QuarkName ,sip.CurQuark.QuarkName);
+                syncMsgFull = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties, true);
+                syncMsgFull.ConvertOut(m_regionSyncModule);
+                m_regionSyncModule.SendSyncMessageTo(syncMsgFull, actorsNeedFull);
             }
+            if (actorsNeedUpdate.Count > 0)
+            {
+                syncMsgUpdate = new SyncMsgPresenceQuarkCrossing(m_regionSyncModule, sp, updatedProperties, false);
+                syncMsgUpdate.ConvertOut(m_regionSyncModule);
+                m_regionSyncModule.SendSyncMessageTo(syncMsgUpdate, actorsNeedUpdate);
+            }
+
             // if the presence is not in the quarks I manage, remove it from the scenegraph
             if (leavingMyQuarks)
             {
@@ -583,7 +635,7 @@ namespace DSG.RegionSync
                     try
                     {
                         // Removing a client triggers OnRemovePresence. I should only remove the client from this actor, not propagate it.
-                        m_regionSyncModule.RememberLocallyGeneratedEvent(syncMsg.MType);
+                        m_regionSyncModule.RememberLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPresenceCrossing);
                         m_regionSyncModule.Scene.IncomingCloseAgent(sp.UUID, true);
                         //m_regionSyncModule.Scene.RemoveClient(sp.UUID, false);
                         m_regionSyncModule.ForgetLocallyGeneratedEvent();
@@ -609,12 +661,24 @@ namespace DSG.RegionSync
             
             // If not in my active or passive quarks, delete all reference to it from scene and sync info.
             bool leavingMyQuarks = !(IsInActiveQuark(sip.CurQuark.QuarkName) || IsInPassiveQuark(sip.CurQuark.QuarkName));
-            SyncMsgPrimQuarkCrossing syncMsg = new SyncMsgPrimQuarkCrossing(m_regionSyncModule, sop, updatedProperties);
-            if (syncMsg != null)
+            
+            HashSet<SyncConnector> actorsNeedFull = new HashSet<SyncConnector>();
+            HashSet<SyncConnector> actorsNeedUpdate = new HashSet<SyncConnector>();
+            RequiresFullObject(sip.PrevQuark, sip.CurQuark, ref actorsNeedFull, ref actorsNeedUpdate);
+            SyncMsgPrimQuarkCrossing syncMsgFull = null;
+            SyncMsgPrimQuarkCrossing syncMsgUpdate = null;
+
+            if (actorsNeedFull.Count > 0)
             {
-                // Need to convert out now, so there is no delay between encoding the prim and sending it out. 
-                syncMsg.ConvertOut(m_regionSyncModule);
-                m_regionSyncModule.SendSyncMessage(syncMsg,sip.PrevQuark.QuarkName,sip.CurQuark.QuarkName);
+                syncMsgFull = new SyncMsgPrimQuarkCrossing(m_regionSyncModule, sop, updatedProperties, true);
+                syncMsgFull.ConvertOut(m_regionSyncModule);
+                m_regionSyncModule.SendSyncMessageTo(syncMsgFull, actorsNeedFull);
+            }
+            if (actorsNeedUpdate.Count > 0)
+            {
+                syncMsgUpdate = new SyncMsgPrimQuarkCrossing(m_regionSyncModule, sop, updatedProperties, false);
+                syncMsgUpdate.ConvertOut(m_regionSyncModule);
+                m_regionSyncModule.SendSyncMessageTo(syncMsgUpdate, actorsNeedUpdate);
             }
 
             // if the prim is not in the quarks I manage, remove it from the scenegraph
@@ -643,6 +707,29 @@ namespace DSG.RegionSync
             return true;
         }
 
+        // Returns a list of sync connectors of actors that require a full object
+        public void RequiresFullObject(SyncQuark prevQuark, SyncQuark curQuark, ref HashSet<SyncConnector> full, ref HashSet<SyncConnector> update)
+        {
+            QuarkPublisher prev = null;
+            QuarkPublisher cur = null;
+
+            if (m_quarkSubscriptions.TryGetValue(prevQuark.QuarkName, out prev))
+                full.UnionWith(prev.ActiveSubscribers);
+            if (m_quarkSubscriptions.TryGetValue(curQuark.QuarkName, out cur))
+                full.UnionWith(cur.ActiveSubscribers);
+
+            foreach (SyncConnector actor in full)
+            {
+                // If the actor has previous quark, he falls into code case 1 (object leaving quarks) or 3 (object moving between two quarks in the same actor).
+                // No need for a full update in this case.
+                if (m_actorSubscriptions[actor].AllQuarks.Contains(prevQuark))
+                {
+                    // Remove this actor from the list of actors that need full objects
+                    full.Remove(actor);
+                    update.Add(actor);
+                }
+            }
+        }
         #endregion //QuarkCrossing
     }
 }

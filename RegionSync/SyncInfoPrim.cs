@@ -96,7 +96,6 @@ namespace DSG.RegionSync
         {
             UUID = id;
             Scene = scene;
-            bool hasGroupPosition = false;
 
             // Create an SOP based on the set of decoded properties
             // The SOP will be stored internally and someone will add it to the scene later
@@ -117,14 +116,6 @@ namespace DSG.RegionSync
                     try
                     {
                         SetPropertyValue((SceneObjectPart)SceneThing, syncedProperty);
-                            // Initialize PrevQuark and CurQuark
-                        if (syncedProperty.Property == SyncableProperties.Type.GroupPosition)
-                        {
-                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
-                            hasGroupPosition = true;
-                        }
-                        else if (syncedProperty.Property == SyncableProperties.Type.Position && hasGroupPosition == false)
-                            PrevQuark = CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)syncedProperty.LastUpdateValue));
                     }
                     catch (Exception e)
                     {
@@ -134,15 +125,19 @@ namespace DSG.RegionSync
                         DebugLog.ErrorFormat("{0}: Error setting SOP property {1}: {2}", LogHeader, property, e.Message);
                     }
                 }
-                // ?? Should I really start as SyncQuark 0?
-                // There was no position information for prim. Start curquark and syncquark as 0.
-                /*
-                if (!(CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.GroupPosition) || 
-                    CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.Position)))
+
+                if (CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.CurrentQuark) && CurrentlySyncedProperties.ContainsKey(SyncableProperties.Type.PreviousQuark))
                 {
-                    PrevQuark = CurQuark = new SyncQuark(new Vector3(0,0,0));
+                    CurQuark = (SyncQuark)CurrentlySyncedProperties[SyncableProperties.Type.CurrentQuark].LastUpdateValue;
+                    PrevQuark = (SyncQuark)CurrentlySyncedProperties[SyncableProperties.Type.PreviousQuark].LastUpdateValue;
                 }
-                 */
+                else
+                {
+                    // TODO: This should not happen, leaving the check for debugging purposes. Delete when tested thoroughly. 
+                    DebugLog.ErrorFormat("{0}: Did not receive quark information in encoded SyncInfoPrim. Defaulting to Absolute Position quark.", LogHeader);
+                    CurQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateValue));
+                    PrevQuark = new SyncQuark(SyncQuark.GetQuarkNameByPosition((Vector3)CurrentlySyncedProperties[SyncableProperties.Type.GroupPosition].LastUpdateValue));
+                }
             }
         }
 
@@ -415,6 +410,8 @@ namespace DSG.RegionSync
                     return part.CreatorData;
                 case SyncableProperties.Type.CreatorID:
                     return part.CreatorID;
+                case SyncableProperties.Type.CurrentQuark:
+                    return CurQuark;
                 case SyncableProperties.Type.Description:
                     return part.Description;
                 case SyncableProperties.Type.EveryoneMask:
@@ -465,6 +462,8 @@ namespace DSG.RegionSync
                     return part.ParticleSystem;//.Clone()
                 case SyncableProperties.Type.PassTouches:
                     return part.PassTouches;
+                case SyncableProperties.Type.PreviousQuark:
+                    return PrevQuark;
                 case SyncableProperties.Type.RotationOffset:
                     return part.RotationOffset;
                 case SyncableProperties.Type.SalePrice:
@@ -729,6 +728,9 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.CreatorID:
                     part.CreatorID = (UUID)LastUpdateValue;
                     break;
+                case SyncableProperties.Type.CurrentQuark:
+                    CurQuark = (SyncQuark)LastUpdateValue;
+                    break;
                 case SyncableProperties.Type.Description:
                     part.Description = (string)LastUpdateValue;
                     break;
@@ -805,6 +807,9 @@ namespace DSG.RegionSync
                     break;
                 case SyncableProperties.Type.PassTouches:
                     part.PassTouches = (bool)LastUpdateValue;
+                    break;
+                case SyncableProperties.Type.PreviousQuark:
+                    PrevQuark = (SyncQuark)LastUpdateValue;
                     break;
                 case SyncableProperties.Type.RotationOffset:
                     part.RotationOffset = (Quaternion)LastUpdateValue;
@@ -1278,6 +1283,15 @@ namespace DSG.RegionSync
                                 case SyncableProperties.Type.TouchName:
                                     estimateBytes += ((string)syncedProperty.LastUpdateValue).Length;
                                     break;
+
+                                ////////////////////////////
+                                //SOP properties, quarks
+                                ////////////////////////////
+                                case SyncableProperties.Type.PreviousQuark:
+                                case SyncableProperties.Type.CurrentQuark:
+                                    estimateBytes += ((SyncQuark)syncedProperty.LastUpdateValue).QuarkName.Length;
+                                    break;
+
                                 ////////////////////////////
                                 //SOP properties, byte[]  types
                                 ////////////////////////////
