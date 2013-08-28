@@ -1983,6 +1983,7 @@ public class SyncMsgRemovedPresence : SyncMsgOSDMapData
             }
 
             // This limits synced avatars to real clients (no npcs) until we sync PresenceType field
+            ((ScenePresence)(((SyncInfoPresence)(pRegionContext.InfoManager.GetSyncInfo(Uuid))).SceneThing)).LifecycleState = ScenePresenceState.Removing;
             pRegionContext.Scene.RemoveClient(Uuid, false);
         }
         return true;
