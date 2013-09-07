@@ -732,6 +732,8 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
                 // Update local sync info and scene object/presence
                 pRegionContext.RememberLocallyGeneratedEvent(MType);
                 HashSet<SyncableProperties.Type> propertiesUpdated = pRegionContext.InfoManager.UpdateSyncInfoBySync(Uuid, SyncedProperties);
+                if (propertiesUpdated.Contains(RegionSync.SyncableProperties.Type.AvatarAppearance))
+                    m_log.DebugFormat("{0} SyncMsgUpdatedProperties:HandleIn AvatarAppearance for uuid {1}", LogHeader, Uuid);
                 pRegionContext.ForgetLocallyGeneratedEvent();
 
                 // Do our own detail logging after we know which properties are actually updated (in propertiesUpdated)

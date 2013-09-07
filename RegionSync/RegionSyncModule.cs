@@ -2951,6 +2951,7 @@ namespace DSG.RegionSync
             
             //Enqueue the set of changed properties
             EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
+            m_log.DebugFormat("{0}: OnAvatarAppearanceChange enqueued updated AvatarAppearance property for uuid {1}", LogHeader, uuid);
         }
 
         private void OnScenePresenceUpdated(ScenePresence sp)
@@ -2977,7 +2978,9 @@ namespace DSG.RegionSync
 
             //Enqueue the set of changed properties
             EnqueueUpdatedProperty(uuid, propertiesWithSyncInfoUpdated);
-            //m_log.Warn("OnScenePresenceUpdated C");
+
+            if(propertiesWithSyncInfoUpdated.Contains(SyncableProperties.Type.AvatarAppearance))
+                m_log.DebugFormat("{0}: OnScenePresenceUpdated enqueued updated AvatarAppearance property for uuid {1}", LogHeader, uuid);
         }
 
         #endregion //Presence Property Sync management

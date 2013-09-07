@@ -550,6 +550,8 @@ namespace DSG.RegionSync
                     break;
                 case SyncableProperties.Type.AvatarAppearance:
                     sp.Appearance.Unpack((OSDMap)pValue);
+                    sp.SendAppearanceToAllOtherAgents();
+                    DebugLog.WarnFormat("{0} Received updated AvatarAppearance for uuid {1}.", LogHeader, sp.UUID);
                     break;
                 case SyncableProperties.Type.Animations:
                     UpdateAvatarAnimations(sp, (OSDArray)pValue);
@@ -572,7 +574,7 @@ namespace DSG.RegionSync
                     sp.Flying = (bool)pValue;
                     break;
                 case SyncableProperties.Type.PresenceType:
-                    DebugLog.Warn("[SYNC INFO PRESENCE] Received updated PresenceType. Not implemented");
+                    DebugLog.WarnFormat("{0} Received updated PresenceType for uuid {1}. Not implemented", LogHeader, sp.UUID);
                     break;
                 case SyncableProperties.Type.IsColliding:
                     if(sp.PhysicsActor != null)
