@@ -2564,7 +2564,7 @@ public class SyncMsgChatFromClient : SyncMsgEvent
         bool ret = false;
         if (base.HandleIn(pRegionContext))
         {
-            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromClient {0}:{1}", args.From, args.Message);
+            m_log.DebugFormat("{0} SyncMsgChatFromClient: {1} : {2}", LogHeader, ChatMessage.From, ChatMessage.Message);
             if (ChatMessage.Sender is RegionSyncAvatar)
                 ((RegionSyncAvatar)ChatMessage.Sender).SyncChatFromClient(ChatMessage);
             ret = true;
@@ -2614,7 +2614,7 @@ public class SyncMsgChatFromWorld : SyncMsgEvent
     {
         if (base.HandleIn(pRegionContext))
         {
-            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromWorld {0}:{1}", args.From, args.Message);
+            m_log.DebugFormat("{0} SyncMsgChatFromWorld: {1} : {2}", LogHeader, ChatMessage.From, ChatMessage.Message);
             pRegionContext.RememberLocallyGeneratedEvent(MsgType.ChatFromWorld, ChatMessage);
             // Let ChatModule get the event and deliver it to avatars
             pRegionContext.Scene.EventManager.TriggerOnChatFromWorld(ChatMessage.SenderObject, ChatMessage);
@@ -2665,7 +2665,7 @@ public class SyncMsgChatBroadcast : SyncMsgEvent
     {
         if (base.HandleIn(pRegionContext))
         {
-            //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatBroadcast {0}:{1}", args.From, args.Message);
+            m_log.DebugFormat("{0} SyncMsgChatBroadcast: {1} : {2}", LogHeader, ChatMessage.From, ChatMessage.Message);
             pRegionContext.RememberLocallyGeneratedEvent(MsgType.ChatBroadcast, ChatMessage);
             pRegionContext.Scene.EventManager.TriggerOnChatBroadcast(ChatMessage.SenderObject, ChatMessage);
             pRegionContext.ForgetLocallyGeneratedEvent();

@@ -2402,6 +2402,7 @@ namespace DSG.RegionSync
         private void OnLocalChatBroadcast(Object sender, OSChatMessage chat)
         {
             
+            m_log.DebugFormat("{0} OnLocalChatBroadcast: {1}: {2}", LogHeader, chat.From, chat.Message);
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ChatBroadcast, sender, chat))
                 return;
 
@@ -2416,6 +2417,8 @@ namespace DSG.RegionSync
             //if (IsLocallyGeneratedEvent(SymmetricSyncMessage.MsgType.ChatFromClient, sender, chat))
             //    return;
 
+            m_log.DebugFormat("{0} OnLocalChatFromClient: {1}: {2}", LogHeader, chat.From, chat.Message);
+
             SyncMsgChatFromClient msg = new SyncMsgChatFromClient(this, chat);
             SendSceneEvent(msg);
         }
@@ -2425,6 +2428,7 @@ namespace DSG.RegionSync
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ChatFromWorld, sender, chat))
                 return;
 
+            m_log.DebugFormat("{0} OnLocalChatFromWorld: {1}: {2}", LogHeader, chat.From, chat.Message);
             //m_log.WarnFormat("RegionSyncModule.OnLocalChatFromWorld {0}:{1}", chat.From, chat.Message);
             SyncMsgChatFromWorld msg = new SyncMsgChatFromWorld(this, chat);
             SendSceneEvent(msg);
