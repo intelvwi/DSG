@@ -125,6 +125,7 @@ namespace DSG.RegionSync
             }
 
             IsSyncRelay =  m_sysConfig.GetBoolean("IsHub", false);
+            IsRoot = m_sysConfig.GetBoolean("IsRoot", false);
             // Ticks are 100ns increments. Convert fudge seconds into ticks.
             UpdateTimeDisplacementFudgeTicks = m_sysConfig.GetLong("UpdateTimeDisplacementFudgeSeconds", 0) * 10000000L;
 
@@ -312,15 +313,20 @@ namespace DSG.RegionSync
                 }
             }
 
-            if (m_synced)
+            if (!IsRoot)
             {
-                m_log.Warn(LogHeader + " Starting Initial Sync...");
-                DoInitialSync();
+                if (m_synced)
+                {
+                    m_log.Warn(LogHeader + " Starting Initial Sync...");
+                    DoInitialSync();
+                }
+                else
+                {
+                    m_log.Warn(LogHeader + " No where to sync to yet.");
+                }
             }
             else
-            {
-                m_log.Warn(LogHeader + " No where to sync to yet.");
-            }
+                m_log.Warn(LogHeader + " Root started");
 
             /* ??
             else
@@ -512,6 +518,7 @@ namespace DSG.RegionSync
         public string SyncID { get; private set; }
         private bool Active { get; set; }
         public bool IsSyncRelay { get; private set; }
+        public bool IsRoot { get; private set; }
         private bool TerrainIsTainted { get; set; }
 
         private SyncMsgKeepAlive m_syncMsgKeepAlive;
@@ -611,8 +618,6 @@ namespace DSG.RegionSync
         private void OnObjectAddedToScene(SceneObjectGroup sog)
         {
             UUID uuid = sog.UUID;
-            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPrimCrossing, sog.UUID))
-                return;
             // m_log.DebugFormat("{0} OnObjectAddedToScene uuid={1}", LogHeader, uuid);
 
             // If the SOG is already in the sync cache, then don't add it and don't sync it.
@@ -684,7 +689,7 @@ namespace DSG.RegionSync
                         if (msg.ConvertOut(this))
                         {
                             //m_log.DebugFormat("{0}: Send DeleteObject out for {1},{2}", Scene.RegionInfo.RegionName, sog.Name, sog.UUID);
-                            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, m_SyncInfoManager.GetSyncInfo(sog.RootPart.UUID).CurQuark.QuarkName);
+                            SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
                             RemoveUpdatesFromSyncConnectors(sog.UUID);
                         }
                     }
@@ -1996,7 +2001,18 @@ namespace DSG.RegionSync
         private void DoInitialSync()
         {
             Scene.DeleteAllSceneObjects();
-            
+
+            //Very first thing, send out our quark list to the node we just initialized connections,
+            //to notify it what we are covering. Note: this list could be different from what the 
+            //other side is operating on.
+            //---------------- NOTE: ----------------
+            //Our current implementation is creating one message for all quarks that need to receiving
+            //incoming updates, and send it to all parents; receiver should filter out quarks that
+            //is not in the receiver's regitration list -- not an optimized solution, which should
+            //customize the message for each parent. We may optimize it later, low priority for now though.
+            //OSDMap quarkData = m_quarkManager.CreateQuarkSubscriptionMessageArgs();
+            SendSyncMessageAll(new SyncMsgQuarkSubscription(this, true));
+
             SendSyncMessageAll(new SyncMsgActorID(this, ActorID));
             // SendSyncMessage(new SyncMsgActorType(ActorType.ToString());
             // SendSyncMessage(new SyncMsgSyncID(m_syncID));
@@ -2012,18 +2028,6 @@ namespace DSG.RegionSync
             SendSyncMessageAll(new SyncMsgGetTerrain(this));
             SendSyncMessageAll(new SyncMsgGetPresences(this));
             SendSyncMessageAll(new SyncMsgGetObjects(this));
-
-            //Very first thing, send out our quark list to the node we just initialized connections,
-            //to notify it what we are covering. Note: this list could be different from what the 
-            //other side is operating on.
-            //---------------- NOTE: ----------------
-            //Our current implementation is creating one message for all quarks that need to receiving
-            //incoming updates, and send it to all parents; receiver should filter out quarks that
-            //is not in the receiver's regitration list -- not an optimized solution, which should
-            //customize the message for each parent. We may optimize it later, low priority for now though.
-            //OSDMap quarkData = m_quarkManager.CreateQuarkSubscriptionMessageArgs();
-            SendSyncMessageAll(new SyncMsgQuarkSubscription(this,true));
-
 
             //We'll deal with Event a bit later
 
@@ -2711,7 +2715,6 @@ namespace DSG.RegionSync
 
         private void OnLocalScriptCollidingStart(uint localID, ColliderArgs colliders)
         {
-            m_log.WarnFormat("{0}: OnLocalScriptCollidingStart", LogHeader);
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptCollidingStart, localID, colliders))
                 return;
 
@@ -2730,7 +2733,6 @@ namespace DSG.RegionSync
 
         private void OnLocalScriptCollidingEnd(uint localID, ColliderArgs colliders)
         {
-            m_log.WarnFormat("{0}: OnLocalScriptCollidingEnd", LogHeader);
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptCollidingEnd, localID, colliders))
                 return;
 
@@ -2751,7 +2753,6 @@ namespace DSG.RegionSync
         {
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.ScriptLandColliding, localID, colliders))
                 return;
-
             SyncMsgScriptLandColliding msg = new SyncMsgScriptLandColliding(this, GetSOPUUID(localID), localID, colliders.Colliders);
             SendSceneEvent(msg, m_SyncInfoManager.GetSyncInfo(GetSOPUUID(localID)).CurQuark.QuarkName);
         }
@@ -3016,18 +3017,17 @@ namespace DSG.RegionSync
                                 // Ignore updates about a "thing" that has already left this actor. Avoids generating crossing duplicates.
                                 if (!m_quarkManager.LeftQuarks.ContainsKey(uuid) || !m_quarkManager.LeftQuarks[uuid])
                                 {
+                                    sib = m_SyncInfoManager.GetSyncInfo(uuid);
                                     // Returns false if not crossing
                                     if (!m_quarkManager.UpdateQuarkLocation(uuid, updatedProperties))
                                     {
                                         // Quarks have not changed
-                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
                                         syncConnectors = GetSyncConnectorsForUpdates(sib.CurQuark.QuarkName);
                                         // m_log.WarnFormat("{0} SendUpdateToRelevantSyncConnectors: Sending update msg to {1} connectors", LogHeader, syncConnectors.Count);
                                     }
                                     else
                                     {
                                         // Crossed quarks. Do not send update, it will be embedded in the QuarkCrossing message.
-                                        sib = m_SyncInfoManager.GetSyncInfo(uuid);
                                         // m_log.WarnFormat("{0}: Crossing from {1} to {2}", LogHeader, sib.PrevQuark.QuarkName, sib.CurQuark.QuarkName);
                                         m_quarkManager.QuarkCrossingUpdate(sib, updatedProperties);
                                     }

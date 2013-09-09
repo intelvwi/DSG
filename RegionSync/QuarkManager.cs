@@ -113,8 +113,8 @@ namespace DSG.RegionSync
 
     public class Actor
     {
-        public HashSet<SyncQuark> ActiveQuarks = null;
-        public HashSet<SyncQuark> PassiveQuarks = null;
+        public HashSet<SyncQuark> ActiveQuarks = new HashSet<SyncQuark>();
+        public HashSet<SyncQuark> PassiveQuarks = new HashSet<SyncQuark>();
         public HashSet<SyncQuark> AllQuarks
         {
             get
@@ -712,13 +712,22 @@ namespace DSG.RegionSync
         {
             QuarkPublisher prev = null;
             QuarkPublisher cur = null;
+            HashSet<SyncConnector> full_iter = new HashSet<SyncConnector>();
+
+            if (!(full.Count == 0 && update.Count == 0))
+            {
+                full = new HashSet<SyncConnector>();
+                update = new HashSet<SyncConnector>();
+            }
 
             if (m_quarkSubscriptions.TryGetValue(prevQuark.QuarkName, out prev))
-                full.UnionWith(prev.ActiveSubscribers);
+                full_iter.UnionWith(prev.ActiveSubscribers);
             if (m_quarkSubscriptions.TryGetValue(curQuark.QuarkName, out cur))
-                full.UnionWith(cur.ActiveSubscribers);
+                full_iter.UnionWith(cur.ActiveSubscribers);
 
-            foreach (SyncConnector actor in full)
+            full.UnionWith(full_iter);
+
+            foreach (SyncConnector actor in full_iter)
             {
                 // If the actor has previous quark, he falls into code case 1 (object leaving quarks) or 3 (object moving between two quarks in the same actor).
                 // No need for a full update in this case.

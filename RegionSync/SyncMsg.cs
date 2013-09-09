@@ -57,6 +57,8 @@ using OpenMetaverse;
 using OpenMetaverse.StructuredData;
 
 using log4net;
+using System.Collections;
+using System.Xml;
 
 namespace DSG.RegionSync
 {
@@ -505,7 +507,132 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         return data;
     }
 
+
+    #region Activate SOG and SP
+    protected void ReactivateSOG(SceneObjectGroup SOG, Dictionary<UUID,SyncInfoBase> PartsSyncInfo)
+    {
+        // If it's an attachment, connect this to the presence
+        if (SOG.IsAttachmentCheckFull())
+        {
+            //m_log.WarnFormat("{0}: HandleSyncNewObject: Adding attachement to presence", LogHeader);
+            ScenePresence sp = RegionContext.Scene.GetScenePresence(SOG.AttachedAvatar);
+            if (sp != null)
+            {
+                sp.AddAttachment(SOG);
+                SOG.RootPart.SetParentLocalId(sp.LocalId);
+
+                // In case it is later dropped, don't let it get cleaned up
+                SOG.RootPart.RemFlag(PrimFlags.TemporaryOnRez);
+
+                SOG.HasGroupChanged = true;
+            }
+        }
+
+        /* Uncomment when quarks exist
+        //If we just keep a copy of the object in our local Scene,
+        //and is not supposed to operation on it (e.g. object in 
+        //passive quarks), then ignore the event.
+        if (!ToOperateOnObject(group))
+            return;
+         */
+
+        // Now that (if) the PhysActor of each part in sog has been created, set the PhysActor properties.
+        if (SOG.RootPart.PhysActor != null)
+        {
+            foreach (SyncInfoBase syncInfo in PartsSyncInfo.Values)
+            {
+                // m_log.DebugFormat("{0}: HandleSyncNewObject: setting physical properties", LogHeader);
+                syncInfo.SetPropertyValues(SyncableProperties.PhysActorProperties);
+            }
+        }
+        
+        SOG.CreateScriptInstances(0, false, RegionContext.Scene.DefaultScriptEngine, 0);
+
+        // Trigger aggregateScriptEventSubscriptions since it may access PhysActor to link collision events
+        foreach (SceneObjectPart part in SOG.Parts)
+        {
+            /*
+            List<TaskInventoryItem> scripts = part.Inventory.GetInventoryItems(InventoryType.LSL);
+            foreach (TaskInventoryItem item in scripts)
+            {
+                RegionContext.Scene.EventManager.TriggerStopScript(0, item.ItemID);
+                RegionContext.RememberLocallyGeneratedEvent(MsgType.ScriptReset, item.ItemID, SOG.UUID, true, item.AssetID);
+                RegionContext.Scene.EventManager.TriggerScriptReset(0, item.ItemID);
+                RegionContext.ForgetLocallyGeneratedEvent();
+                RegionContext.Scene.EventManager.TriggerStartScript(0, item.ItemID);
+            }
+             * */
+            //part.aggregateScriptEvents();
+            part.SubscribeForCollisionEvents();
+        }
+
+        SOG.ResumeScripts();
+        SOG.ScheduleGroupForFullUpdate();
+    }
+
+    protected void ReactivateSP(SyncInfoBase SyncInfo)
+    {
+        // Get ACD and PresenceType from decoded SyncInfoPresence
+        // NASTY CASTS AHEAD!
+        AgentCircuitData acd = new AgentCircuitData();
+        acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
+        // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
+        acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
+        PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
+        // Fake like we're not a user so normal teleport processing will not happen.
+        // No. If we make the presence an NPC, then we cannot prevent the local scene from rezzing a duplicate set of attachments. 
+        // So, ScenePresence will be added with the original presence type. NPC presences will always get duplicate attachments which will need
+        // to be fixed to support NPC presences in DSG regions. We can fix that eventually with a DSGAttachmentsModule which will only rez for 
+        // presences added by the local scene. Then, we can go back to all Region Sync Avatars being NPCs.
+        // PresenceType pt = PresenceType.Npc;
+
+        // Add the decoded circuit to local scene
+        RegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
+
+        // Create a client and add it to the local scene at the position of the last update from sync cache
+        Vector3 currentPos = (Vector3)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
+        Quaternion bodyDirection = (Quaternion)SyncInfo.CurrentlySyncedProperties[SyncableProperties.Type.Rotation].LastUpdateValue;
+        bool flyState = (bool)SyncInfo.CurrentlySyncedProperties[SyncableProperties.Type.Flying].LastUpdateValue;
+
+        IClientAPI client = new RegionSyncAvatar(acd.circuitcode, RegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
+        try
+        {
+            SyncInfo.SceneThing = RegionContext.Scene.AddNewClient(client, pt);
+        }
+        catch (Exception e)
+        {
+            m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
+        }
+
+        // Fix body rotation
+        ScenePresence sp = RegionContext.Scene.GetScenePresence(SyncInfo.UUID);
+        sp.Rotation = bodyDirection;
+
+        // Fix flying state (when crossing)
+        if (sp.PhysicsActor != null)
+            sp.Flying = flyState;
+        // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
+        ((ScenePresence)SyncInfo.SceneThing).m_originRegionID = RegionContext.Scene.RegionInfo.RegionID;
+        // Now that we have a presence and a client, tell the region sync "client" to finish connecting. 
+        ((RegionSyncAvatar)client).PostCreateRegionSyncAvatar();
+
+        // Might need to trigger something here to send new client messages to connected clients
+    }
+    #endregion // Activate SOG and SP
+
     #region Encode/DecodeSceneObject and Encode/DecodeScenePresence
+    
+    // Clones (shallow-copy) an OSDMap
+    protected OSDMap BuildNewMap(OSDMap oldMap)
+    {
+        OSDMap newMap = new OSDMap();
+        foreach (KeyValuePair<string, OSD> item in oldMap)
+        {
+            newMap[item.Key] = item.Value;
+        }
+        return newMap;
+    }
+
     /// <summary>
     /// Encode a SOG. Values of each part's properties are copied from SyncInfo, instead of from SOP's data. 
     /// If the SyncInfo is not maintained by SyncInfoManager yet, add it first.
@@ -549,7 +676,23 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         data["IsAttachment"] = OSD.FromBoolean(sog.IsAttachment);
         data["AttachedAvatar"] = OSD.FromUUID(sog.AttachedAvatar);
         data["AttachmentPoint"] = OSD.FromUInteger(sog.AttachmentPoint);
+        // Currently, when objects cross the script state is destroyed. This snippet can save the script state, but must run at the script actor.
+        // The physics actors are usually responsible for prim crossings, thus there is an open question of how to transport script states.
+        /*
+        if (sog.ScriptCount() > 0)
+        {
+            using (StringWriter sw = new StringWriter())
+            {
+                using (XmlTextWriter writer = new XmlTextWriter(sw))
+                {
+                    sog.SaveScriptedState(writer);
+                }
 
+                data["ScriptState"] = OSD.FromString(sw.ToString());
+            }
+        }
+         * */
+        
         return data;
     }
 
@@ -633,6 +776,16 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     //m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = {1}", LogHeader, sog.AttachmentPoint);
                 }
             }
+            // Currently, when objects cross the script state is destroyed. This snippet would load the script state.
+            // The physics actors are usually responsible for prim crossings, thus there is an open question of how to transport script states.
+            /*
+            if (data.ContainsKey("ScriptState"))
+            {
+                XmlDocument doc = new XmlDocument();
+                doc.LoadXml(data["ScriptState"].AsString());
+                sog.LoadScriptState(doc);
+            }
+             */
         }
         catch (Exception e)
         {
@@ -1288,11 +1441,15 @@ public class SyncMsgGetObjects : SyncMsg
         m_log.WarnFormat("{0}: Started sending objects", LogHeader);
         if (base.HandleIn(pRegionContext))
         {
+            HashSet<SyncQuark> allQuarks = pRegionContext.QuarkManager.ActorSubscriptions[ConnectorContext].AllQuarks;
             pRegionContext.Scene.ForEachSOG(delegate(SceneObjectGroup sog)
             {
-                SyncMsgNewObject msg = new SyncMsgNewObject(pRegionContext, sog);
-                msg.ConvertOut(pRegionContext);
-                ConnectorContext.ImmediateOutgoingMsg(msg);
+                if (allQuarks.Contains(new SyncQuark(sog.AbsolutePosition)))
+                {
+                    SyncMsgNewObject msg = new SyncMsgNewObject(pRegionContext, sog);
+                    msg.ConvertOut(pRegionContext);
+                    ConnectorContext.ImmediateOutgoingMsg(msg);
+                }
             });
         }
         m_log.WarnFormat("{0}: Done sending objects", LogHeader);
@@ -1325,19 +1482,23 @@ public class SyncMsgGetPresences : SyncMsg
     {
         if (base.HandleIn(pRegionContext))
         {
+            HashSet<SyncQuark> allQuarks = pRegionContext.QuarkManager.ActorSubscriptions[ConnectorContext].AllQuarks;
             EntityBase[] entities = pRegionContext.Scene.GetEntities();
             foreach (EntityBase e in entities)
             {
                 ScenePresence sp = e as ScenePresence;
                 if (sp != null)
                 {
-                    // This will sync the appearance that's currently in the agent circuit data.
-                    // If the avatar has updated their appearance since they connected, the original data will still be in ACD.
-                    // The ACD normally only gets updated when an avatar is moving between regions.
-                    SyncMsgNewPresence msg = new SyncMsgNewPresence(pRegionContext, sp);
-                    msg.ConvertOut(pRegionContext);
-                    // m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
-                    ConnectorContext.ImmediateOutgoingMsg(msg);
+                    if (allQuarks.Contains(new SyncQuark(sp.AbsolutePosition)))
+                    {
+                        // This will sync the appearance that's currently in the agent circuit data.
+                        // If the avatar has updated their appearance since they connected, the original data will still be in ACD.
+                        // The ACD normally only gets updated when an avatar is moving between regions.
+                        SyncMsgNewPresence msg = new SyncMsgNewPresence(pRegionContext, sp);
+                        msg.ConvertOut(pRegionContext);
+                        // m_log.DebugFormat("{0}: Send NewPresence message for {1} ({2})", LogHeader, sp.Name, sp.UUID);
+                        ConnectorContext.ImmediateOutgoingMsg(msg);
+                    }
                 }
             }
         }
@@ -1405,49 +1566,7 @@ public class SyncMsgNewObject : SyncMsgOSDMapData
             pRegionContext.Scene.EventManager.TriggerParcelPrimCountTainted();
             pRegionContext.Scene.AddNewSceneObject(SOG, true);
 
-            // If it's an attachment, connect this to the presence
-            if (SOG.IsAttachmentCheckFull())
-            {
-                //m_log.WarnFormat("{0}: HandleSyncNewObject: Adding attachement to presence", LogHeader);
-                ScenePresence sp = pRegionContext.Scene.GetScenePresence(SOG.AttachedAvatar);
-                if (sp != null)
-                {
-                    sp.AddAttachment(SOG);
-                    SOG.RootPart.SetParentLocalId(sp.LocalId);
-
-                    // In case it is later dropped, don't let it get cleaned up
-                    SOG.RootPart.RemFlag(PrimFlags.TemporaryOnRez);
-
-                    SOG.HasGroupChanged = true;
-                }
-            }
-
-            /* Uncomment when quarks exist
-            //If we just keep a copy of the object in our local Scene,
-            //and is not supposed to operation on it (e.g. object in 
-            //passive quarks), then ignore the event.
-            if (!ToOperateOnObject(group))
-                return;
-             */
-
-            // Now that (if) the PhysActor of each part in sog has been created, set the PhysActor properties.
-            if (SOG.RootPart.PhysActor != null)
-            {
-                foreach (SyncInfoBase syncInfo in SyncInfos.Values)
-                {
-                    // m_log.DebugFormat("{0}: HandleSyncNewObject: setting physical properties", LogHeader);
-                    syncInfo.SetPropertyValues(SyncableProperties.PhysActorProperties);
-                }
-            }
-
-            SOG.CreateScriptInstances(0, false, pRegionContext.Scene.DefaultScriptEngine, 0);
-            SOG.ResumeScripts();
-
-            // Trigger aggregateScriptEventSubscriptions since it may access PhysActor to link collision events
-            foreach (SceneObjectPart part in SOG.Parts)
-                part.aggregateScriptEvents();
-
-            SOG.ScheduleGroupForFullUpdate();
+            ReactivateSOG(SOG, SyncInfos);
         }
         return true;
     }
@@ -1902,41 +2021,7 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
 
             //Add the SyncInfo to SyncInfoManager
             pRegionContext.InfoManager.InsertSyncInfoRemote(SyncInfo.UUID, SyncInfo);
-
-            // Get ACD and PresenceType from decoded SyncInfoPresence
-            // NASTY CASTS AHEAD!
-            AgentCircuitData acd = new AgentCircuitData();
-            acd.UnpackAgentCircuitData((OSDMap)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
-            // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
-            acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
-            PresenceType pt = (PresenceType)(int)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
-            // Fake like we're not a user so normal teleport processing will not happen.
-            // No. If we make the presence an NPC, then we cannot prevent the local scene from rezzing a duplicate set of attachments. 
-            // So, ScenePresence will be added with the original presence type. NPC presences will always get duplicate attachments which will need
-            // to be fixed to support NPC presences in DSG regions. We can fix that eventually with a DSGAttachmentsModule which will only rez for 
-            // presences added by the local scene. Then, we can go back to all Region Sync Avatars being NPCs.
-            // PresenceType pt = PresenceType.Npc;
-
-            // Add the decoded circuit to local scene
-            pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
-
-            // Create a client and add it to the local scene at the position of the last update from sync cache
-            Vector3 currentPos = (Vector3)(((SyncInfoPresence)SyncInfo).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
-            IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
-            try
-            {
-                SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
-            }
-            catch (Exception e)
-            {
-                m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
-            }
-            // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
-            ((ScenePresence)SyncInfo.SceneThing).m_originRegionID = pRegionContext.Scene.RegionInfo.RegionID;
-            // Now that we have a presence and a client, tell the region sync "client" to finish connecting. 
-            ((RegionSyncAvatar)client).PostCreateRegionSyncAvatar();
-            
-            // Might need to trigger something here to send new client messages to connected clients
+            ReactivateSP(SyncInfo);
         }
         return true;
     }
@@ -2499,6 +2584,33 @@ public class SyncMsgUpdateScript : SyncMsgEvent
         if (base.HandleIn(pRegionContext))
         {
             //trigger the event in the local scene
+            
+            ArrayList errors = new ArrayList();
+            if (PrimID != UUID.Zero)
+            {
+                SceneObjectPart sop = pRegionContext.Scene.GetSceneObjectPart(PrimID);
+                // If Scene Object Part for prim is not here, just return.
+                if (sop == null)
+                    return true;
+                TaskInventoryItem taskItem = sop.Inventory.GetInventoryItem(ItemID);
+                taskItem.AssetID = AssetID;
+                sop.ParentGroup.UpdateInventoryItem(taskItem);
+                if (IsRunning)
+                {
+                    sop.Inventory.RemoveScriptInstance(ItemID, false);
+                    sop.Inventory.CreateScriptInstance(ItemID, 0, false, pRegionContext.Scene.DefaultScriptEngine, 0);
+                    errors = sop.Inventory.GetScriptErrors(ItemID);
+                }
+                sop.ParentGroup.ResumeScripts();
+                
+            }
+            else if (AgentID != UUID.Zero)
+            {
+                pRegionContext.ForgetLocallyGeneratedEvent();
+                throw new Exception("No prim ID in update script; Agent script updated unimplemented.");
+            }
+            if (errors.Count > 0)
+                m_log.ErrorFormat("{0}: Script errors detected! TODO: Send errors back to actor who created script", LogHeader);
             pRegionContext.RememberLocallyGeneratedEvent(MsgType.UpdateScript, AgentID, ItemID, PrimID, IsRunning, AssetID);
             pRegionContext.Scene.EventManager.TriggerUpdateScript(AgentID, ItemID, PrimID, IsRunning, AssetID);
             pRegionContext.ForgetLocallyGeneratedEvent();
@@ -2621,8 +2733,15 @@ public class SyncMsgChatFromClient : SyncMsgEvent
         if (base.HandleIn(pRegionContext))
         {
             //m_log.WarnFormat("RegionSyncModule.HandleRemoteEvent_OnChatFromClient {0}:{1}", args.From, args.Message);
-            if (ChatMessage.Sender is RegionSyncAvatar)
+            if (ChatMessage.Sender == null)
+            {
+                // Quark note: It is possible that the message comes from a quark this actor does not subscribe to. The OnChatFromClient should
+                // be responsible to handle cases where sender is null (e.g. IRC chat message). 
+                pRegionContext.Scene.EventManager.TriggerOnChatFromClient(null, ChatMessage);
+            }
+            else if (ChatMessage.Sender is RegionSyncAvatar)
                 ((RegionSyncAvatar)ChatMessage.Sender).SyncChatFromClient(ChatMessage);
+            
             ret = true;
         }
         return ret;
@@ -3087,12 +3206,21 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
                     RequeueCollisionsForNotFoundObjects(pRegionContext, collisionPart, CollidersNotFound);
                 }
             }
+            else
+            {
+                m_log.WarnFormat("{0}: Collision UUIDs was empty", LogHeader);
+            }
             ret = true;
         }
         return ret;
     }
     public override bool HandleIn(RegionSyncModule pRegionContext)
     {
+        if (Colliders == null || Colliders.Count == 0)
+        {
+            //m_log.WarnFormat("{0}: Could not find any colliders for {1}, discarding..", LogHeader, CollideeUUID);
+            return false;
+        }
         return base.HandleIn(pRegionContext);
     }
     public override bool ConvertOut(RegionSyncModule pRegionContext)
@@ -3110,7 +3238,6 @@ public abstract class SyncMsgEventCollision : SyncMsgEvent
 
                 data["uuid"] = OSD.FromUUID(CollideeUUID);
                 data["collisionUUIDs"] = collisionUUIDs;
-
                 DataMap = data;
                 // m_log.DebugFormat("{0} EventCollision.ConvertOut: data={1}", LogHeader, DataMap);   // DEBUG DEBUG
             }
@@ -3461,24 +3588,29 @@ public class SyncMsgQuarkSubscription : SyncMsgOSDMapData
     {
         if (base.HandleIn(pRegionContext))
         {
+            Actor actor = new Actor();
             foreach (SyncQuark quark in syncQuarks["Active"])
             {
                 if (!m_quarkManager.QuarkSubscriptions.ContainsKey(quark.QuarkName))
                     m_quarkManager.QuarkSubscriptions[quark.QuarkName] = new QuarkPublisher(quark);
                 m_quarkManager.QuarkSubscriptions[quark.QuarkName].AddActiveSubscriber(ConnectorContext);
+                actor.ActiveQuarks.Add(quark); 
             }
             foreach (SyncQuark quark in syncQuarks["Passive"])
             {
                 if (!m_quarkManager.QuarkSubscriptions.ContainsKey(quark.QuarkName))
                     m_quarkManager.QuarkSubscriptions[quark.QuarkName] = new QuarkPublisher(quark);
                 m_quarkManager.QuarkSubscriptions[quark.QuarkName].AddPassiveSubscriber(ConnectorContext);
+                actor.PassiveQuarks.Add(quark);
             }
+            m_quarkManager.ActorSubscriptions[ConnectorContext] = actor;
             if (m_reply)
             {
                 SyncMsgQuarkSubscription msg = new SyncMsgQuarkSubscription(pRegionContext,false);
                 msg.ConvertOut(pRegionContext);
                 ConnectorContext.ImmediateOutgoingMsg(msg);
             }
+            
         }
         return true;
     }
@@ -3660,28 +3792,42 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
             switch (casecode)
             {
                 case 0: // current is not our quark and we don't know about the object
-                    m_log.WarnFormat("{0}: Prim crossing: Case 0, from {1} to {2}", LogHeader,prevQuark,curQuark);
+                    //m_log.WarnFormat("{0}: Prim crossing: Case 0, from {1} to {2}", LogHeader,prevQuark,curQuark);
                     break;
                 case 1: // current is not our quark and we know about the object
                     // Mark for object for removal
                     m_toRemove = true;
-                    m_log.WarnFormat("{0}: Prim crossing: Case 1, from {1} to {2}", LogHeader, prevQuark, curQuark);
+                    //m_log.WarnFormat("{0}: Prim crossing: Case 1, from {1} to {2}", LogHeader, prevQuark, curQuark);
                     break;
                 case 2: // current is one of our quarks and we don't know about the object
+                    if (DataMap == null || !DataMap.ContainsKey("FULL-SOG"))
+                    {
+                        m_log.WarnFormat("{0}: Received prim {1} crossing but no full SOG was not encoded. SOG was likely deleted.",LogHeader,m_primUUID);
+                        return true;
+                    }
                     DecodeSceneObject((OSDMap)DataMap["FULL-SOG"], out m_sog, out m_parts, pRegionContext.Scene);
                     if (m_sog == null || m_parts == null)
                         throw new Exception("Could not retrieve Scene Object Group from Sync Crossing message.");
                     // The object is not in our scenegraph. We need to add it but this is not like a new object.
                     m_quarkManager.LeftQuarks[m_primUUID] = false;
+                    // Create the object
                     foreach(KeyValuePair<UUID,SyncInfoBase> part in m_parts)
                     {
                         pRegionContext.InfoManager.InsertSyncInfoRemote(part.Key, part.Value);
                     }
+
+                    // Update it with the latest properties
+                    if (pRegionContext.InfoManager.SyncInfoExists(m_primUUID))
+                    {
+                        pRegionContext.RememberLocallyGeneratedEvent(SyncMsg.MsgType.UpdatedProperties);
+                        pRegionContext.InfoManager.UpdateSyncInfoBySync(m_primUUID, new HashSet<SyncedProperty>(SyncedProperties.Values));
+                        pRegionContext.ForgetLocallyGeneratedEvent();
+                    }
+
                     m_sip = (SyncInfoPrim)pRegionContext.InfoManager.GetSyncInfo(m_primUUID);
-                    m_log.WarnFormat("{0}: Prim crossing: Case 2, from {1} to {2}", LogHeader, prevQuark, curQuark);
-                    pRegionContext.RememberLocallyGeneratedEvent(MType, m_sog.UUID);
+                    //m_log.WarnFormat("{0}: Prim crossing: Case 2, from {1} to {2}", LogHeader, prevQuark, curQuark);
                     pRegionContext.Scene.AddNewSceneObject(m_sog, true);
-                    pRegionContext.ForgetLocallyGeneratedEvent();
+                    ReactivateSOG(m_sog, m_parts);
                     break;
                 case 3:// current is one of our quarks and we know about the object
                     // This is just an update
@@ -3689,7 +3835,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                     m_quarkManager.LeftQuarks[m_primUUID] = false;
                     if (pRegionContext.InfoManager.SyncInfoExists(m_primUUID))
                     {
-                        pRegionContext.RememberLocallyGeneratedEvent(MType);
+                        pRegionContext.RememberLocallyGeneratedEvent(SyncMsg.MsgType.UpdatedProperties);
                         pRegionContext.InfoManager.UpdateSyncInfoBySync(m_primUUID, new HashSet<SyncedProperty>(SyncedProperties.Values));
                         pRegionContext.ForgetLocallyGeneratedEvent();
                     }
@@ -3697,7 +3843,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                     {
                         m_log.ErrorFormat("{0}: Knew about the SOP, but don't have SyncInfo", LogHeader);
                     }
-                    m_log.WarnFormat("{0}: Prim crossing: Case 3, from {1} to {2}", LogHeader, prevQuark, curQuark);
+                    //m_log.WarnFormat("{0}: Prim crossing: Case 3, from {1} to {2}", LogHeader, prevQuark, curQuark);
                     break;
             }            
             
@@ -3753,7 +3899,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, actorsNeedFull);
             if (actorsNeedUpdate.Count > 0)
             {
-                OSDMap newMap = new OSDMap(DataMap);
+                OSDMap newMap = BuildNewMap(DataMap);
                 newMap.Remove("FULL-SOG");
                 SyncMsgPrimQuarkCrossing newMsg = new SyncMsgPrimQuarkCrossing(pRegionContext, newMap);
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, newMsg, actorsNeedUpdate);
@@ -3765,7 +3911,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, actorsNeedUpdate);
             if (actorsNeedFull.Count > 0)
             {
-                OSDMap newMap = new OSDMap(DataMap);
+                OSDMap newMap = BuildNewMap(DataMap);
                 newMap["FULL-SOG"] = EncodeSceneObject(m_sog, pRegionContext);
                 SyncMsgPrimQuarkCrossing newMsg = new SyncMsgPrimQuarkCrossing(pRegionContext, newMap);
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, newMsg, actorsNeedFull);
@@ -3786,7 +3932,7 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
             if (m_encodeFull)
             {
                 if (m_sog == null)
-                    throw new Exception("Could not generate a full scene presence update; the Scene Presence is unkown");
+                    throw new Exception("Could not generate a full scene object group update; the SOG is unkown");
                 ret["FULL-SOG"] = EncodeSceneObject(m_sog, pRegionContext);
             }
             ret["primUUID"] = m_primUUID;
@@ -3889,54 +4035,18 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                     if (sib == null)
                         throw new Exception("Could not retrieve Scene Presence from Sync Crossing message.");
                     m_sip = (SyncInfoPresence)sib;
+
+                    // Create sync info
                     pRegionContext.InfoManager.InsertSyncInfoRemote(m_presenceUUID, (SyncInfoBase)m_sip);
+
+                    // Update with latest properties
+                    pRegionContext.RememberLocallyGeneratedEvent(SyncMsg.MsgType.UpdatedProperties);
+                    pRegionContext.InfoManager.UpdateSyncInfoBySync(m_presenceUUID, new HashSet<SyncedProperty>(SyncedProperties.Values));
+                    pRegionContext.ForgetLocallyGeneratedEvent();
+
                     m_quarkManager.LeftQuarks[m_presenceUUID] = false;
-            
-                    // Stolen from NewPresence handle
-                    // Get ACD and PresenceType from decoded SyncInfoPresence
-                    // NASTY CASTS AHEAD!
-                    AgentCircuitData acd = new AgentCircuitData();
-                    acd.UnpackAgentCircuitData((OSDMap)((m_sip).CurrentlySyncedProperties[SyncableProperties.Type.AgentCircuitData].LastUpdateValue));
-                    // Unset the ViaLogin flag since this presence is being added to the scene by sync (not via login)
-                    acd.teleportFlags &= ~(uint)TeleportFlags.ViaLogin;
-                    PresenceType pt = (PresenceType)(int)((m_sip).CurrentlySyncedProperties[SyncableProperties.Type.PresenceType].LastUpdateValue);
-                    // Fake like we're not a user so normal teleport processing will not happen.
-                    // No. If we make the presence an NPC, then we cannot prevent the local scene from rezzing a duplicate set of attachments. 
-                    // So, ScenePresence will be added with the original presence type. NPC presences will always get duplicate attachments which will need
-                    // to be fixed to support NPC presences in DSG regions. We can fix that eventually with a DSGAttachmentsModule which will only rez for 
-                    // presences added by the local scene. Then, we can go back to all Region Sync Avatars being NPCs.
-                    // PresenceType pt = PresenceType.Npc;
-
-                    // Add the decoded circuit to local scene
-                    pRegionContext.Scene.AuthenticateHandler.AddNewCircuit(acd.circuitcode, acd);
-
-                    // Create a client and add it to the local scene at the position of the last update from sync cache
-                    Vector3 currentPos = (Vector3)((m_sip).CurrentlySyncedProperties[SyncableProperties.Type.AbsolutePosition].LastUpdateValue);
-                    Quaternion bodyDirection = (Quaternion)m_sip.CurrentlySyncedProperties[SyncableProperties.Type.Rotation].LastUpdateValue;
-                    bool flyState = (bool)m_sip.CurrentlySyncedProperties[SyncableProperties.Type.Flying].LastUpdateValue;
-
-                    IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
-                    try
-                    {
-                        m_sip.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
-                    }
-                    catch (Exception e)
-                    {
-                        m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
-                    }
-
-                    m_log.WarnFormat("{0}: HandleQuarkCrossingSPFullUpdate: Case 2. Received from: {1}", LogHeader, ConnectorContext.otherSideActorID);
-                    m_sp = pRegionContext.Scene.GetScenePresence(m_presenceUUID);
-                    m_sp.Rotation = bodyDirection;
+                    ReactivateSP(m_sip);
                     
-                    if (m_sp.PhysicsActor != null)
-                        m_sp.Flying = flyState;
-
-                    // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
-                    ((ScenePresence)m_sip.SceneThing).m_originRegionID = pRegionContext.Scene.RegionInfo.RegionID;
-
-                    // Now that we have a presence and a client, tell the region sync "client" to finish connecting. 
-                    ((RegionSyncAvatar)client).PostCreateRegionSyncAvatar();
                     break;
                 case 3:
                     m_quarkManager.LeftQuarks[m_presenceUUID] = false;
@@ -3944,7 +4054,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                     {
                         // I already know about this Scene Presence. Just need to get its last updated properties and apply.
                         m_sip = (SyncInfoPresence)pRegionContext.InfoManager.GetSyncInfo(m_presenceUUID);
-                        pRegionContext.RememberLocallyGeneratedEvent(MType);
+                        pRegionContext.RememberLocallyGeneratedEvent(SyncMsg.MsgType.UpdatedProperties);
                         pRegionContext.InfoManager.UpdateSyncInfoBySync(m_presenceUUID, new HashSet<SyncedProperty>(SyncedProperties.Values));
                         pRegionContext.ForgetLocallyGeneratedEvent();
                     }
@@ -4006,7 +4116,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, actorsNeedFull);
             if (actorsNeedUpdate.Count > 0)
             {
-                OSDMap newMap = new OSDMap(DataMap);
+                OSDMap newMap = BuildNewMap(DataMap);
                 newMap.Remove("FULL-SP");
                 SyncMsgPresenceQuarkCrossing newMsg = new SyncMsgPresenceQuarkCrossing(pRegionContext, newMap);
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, newMsg, actorsNeedUpdate);
@@ -4018,7 +4128,7 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, this, actorsNeedUpdate);
             if (actorsNeedFull.Count > 0)
             {
-                OSDMap newMap = new OSDMap(DataMap);
+                OSDMap newMap = BuildNewMap(DataMap);
                 newMap["FULL-SP"] = EncodeScenePresence(m_sp, pRegionContext);
                 SyncMsgPresenceQuarkCrossing newMsg = new SyncMsgPresenceQuarkCrossing(pRegionContext, newMap);
                 pRegionContext.SendSpecialUpdateToRelevantSyncConnectors(ConnectorContext.otherSideActorID, newMsg, actorsNeedFull);
