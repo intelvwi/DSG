@@ -44,6 +44,7 @@
  */
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
@@ -2446,10 +2447,34 @@ public class SyncMsgUpdateScript : SyncMsgEvent
     {
         if (base.HandleIn(pRegionContext))
         {
-            //trigger the event in the local scene
-            pRegionContext.RememberLocallyGeneratedEvent(MsgType.UpdateScript, AgentID, ItemID, PrimID, IsRunning, AssetID);
-            pRegionContext.Scene.EventManager.TriggerUpdateScript(AgentID, ItemID, PrimID, IsRunning, AssetID);
-            pRegionContext.ForgetLocallyGeneratedEvent();
+            ArrayList errors = new ArrayList();
+            if (PrimID != UUID.Zero)
+            {
+                SceneObjectPart sop = pRegionContext.Scene.GetSceneObjectPart(PrimID);
+                if (sop != null)
+                {
+                    TaskInventoryItem taskItem = sop.Inventory.GetInventoryItem(ItemID);
+                    taskItem.AssetID = AssetID;
+                    sop.ParentGroup.UpdateInventoryItem(taskItem);
+                    if (IsRunning)
+                    {
+                        // Scripts are recreated when edited so replace the new script inventory item
+                        sop.Inventory.RemoveScriptInstance(ItemID, false);
+                        sop.Inventory.CreateScriptInstance(ItemID, 0, false, pRegionContext.Scene.DefaultScriptEngine, 0);
+                        errors = sop.Inventory.GetScriptErrors(ItemID);
+                    }
+                    sop.ParentGroup.ResumeScripts();
+                    if (errors.Count > 0)
+                    {
+                        m_log.ErrorFormat("{0} Script errors detected. TODO: Send errors back to actor that created script", LogHeader);
+                    }
+
+                    //trigger the event in the local scene
+                    pRegionContext.RememberLocallyGeneratedEvent(MsgType.UpdateScript, AgentID, ItemID, PrimID, IsRunning, AssetID);
+                    pRegionContext.Scene.EventManager.TriggerUpdateScript(AgentID, ItemID, PrimID, IsRunning, AssetID);
+                    pRegionContext.ForgetLocallyGeneratedEvent();
+                }
+            }
         }
         return true;
     }
