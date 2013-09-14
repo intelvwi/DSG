@@ -130,7 +130,6 @@ namespace DSG.RegionSync
     public class QuarkManager
     {
         private static string LogHeader = "[QUARKMANAGER]";
-        private Boolean m_detailUpdateDebugLog = false;
         private string m_zeroUUID = UUID.Zero.ToString();
         private string m_parentAddress;
         private int m_parentPort;
@@ -245,28 +244,24 @@ namespace DSG.RegionSync
 
             // Parse into hashsets
             //First, decode subscription for active quarks
-            HashSet<string> activeQuarks = DecodeSyncQuarks(ActiveQuarkSubscription);
+            HashSet<SyncQuark> activeQuarks = DecodeSyncQuarks(ActiveQuarkSubscription);
             
             //Then decode subscription for passive quarks
-            HashSet<string> passiveQuarks = DecodeSyncQuarks(PassiveQuarkSubscription);
+            HashSet<SyncQuark> passiveQuarks = DecodeSyncQuarks(PassiveQuarkSubscription);
 
-            foreach (string quarkLoc in activeQuarks)
+            foreach (SyncQuark quark in activeQuarks)
             {
-                SyncQuark quark = new SyncQuark(quarkLoc);
                 if (quark.ValidQuark)
                 {
-                    m_log.DebugFormat("Add record for active quark {0}", quarkLoc);
-                    m_activeQuarkSet.Add(quarkLoc, quark);
+                    m_activeQuarkSet.Add(quark.QuarkName, quark);
                 }
             }
 
-            foreach (string quarkLoc in passiveQuarks)
+            foreach (SyncQuark quark in passiveQuarks)
             {
-                SyncQuark quark = new SyncQuark(quarkLoc);
                 if (quark.ValidQuark)
                 {
-                    m_log.DebugFormat("Add record for passive quark {0}", quarkLoc);
-                    m_passiveQuarkSet.Add(quarkLoc, quark);
+                    m_passiveQuarkSet.Add(quark.QuarkName, quark);
                 }
             }
 
@@ -318,10 +313,10 @@ namespace DSG.RegionSync
             }
         }
 
-        private HashSet<string> DecodeSyncQuarks(string quarksInput)
+        private HashSet<SyncQuark> DecodeSyncQuarks(string quarksInput)
         {
-            if (quarksInput.Equals(String.Empty))
-                return new HashSet<string>();
+            if (quarksInput.Equals(String.Empty) || quarksInput.Equals("[]"))
+                return new HashSet<SyncQuark>();
 
             //each input string should be in the format of "xl[-xr] or x, yl[-yr] or y/.../...", 
             //where "xl[-xr],yl[-yr]" specifies a range of quarks (a quark block, where 
@@ -337,7 +332,7 @@ namespace DSG.RegionSync
             char[] intraQuarkDelimeter = intraQuarkDelimStr.ToCharArray();
             string xyDelimStr = "-";
             char[] xyDelimeter = xyDelimStr.ToCharArray();
-            HashSet<string> quarksOutput = new HashSet<string>();
+            HashSet<SyncQuark> quarksOutput = new HashSet<SyncQuark>();
 
             foreach (string quarkString in quarkSet)
             {
@@ -391,7 +386,7 @@ namespace DSG.RegionSync
                     {
                         string quarkName = String.Format("{0},{1}", x, y);
 
-                        quarksOutput.Add(quarkName);
+                        quarksOutput.Add(new SyncQuark(quarkName));
                     }
                 }
             }
@@ -399,7 +394,64 @@ namespace DSG.RegionSync
             return quarksOutput;
         }
 
-        #endregion // QuarkRegistration
+        #endregion // Quark Registration
+
+        #region Dynamic Quark Subscriptions
+
+        public bool AddNewQuark(string activeStr, string passiveStr)
+        {
+            HashSet<SyncQuark> active = DecodeSyncQuarks(activeStr);
+            HashSet<SyncQuark> passive = DecodeSyncQuarks(passiveStr);
+
+            if (!QuarkChangeSanityCheck(active, passive))
+            {
+                m_log.ErrorFormat("{0}: Could not add the new quarks to this actor. No parent connectors with quarks in common. Aborting.");
+                return false;
+            }
+
+            foreach (SyncQuark quark in active)
+            {
+                if (quark.ValidQuark)
+                {
+                    m_log.DebugFormat("Add record for active quark {0}", quark.QuarkName);
+                    m_activeQuarkSet.Add(quark.QuarkName, quark);
+                }
+            }
+
+            foreach (SyncQuark quark in passive)
+            {
+                if (quark.ValidQuark)
+                {
+                    m_log.DebugFormat("Add record for passive quark {0}", quark.QuarkName);
+                    m_passiveQuarkSet.Add(quark.QuarkName, quark);
+                }
+            }
+            m_regionSyncModule.SendSyncMessageAll(new SyncMsgQuarkSubAdd(m_regionSyncModule,active,passive));
+            return true;
+        }
+
+        private bool QuarkChangeSanityCheck(HashSet<SyncQuark> active, HashSet<SyncQuark> passive)
+        {
+            bool failed = true;
+            HashSet<SyncQuark> all = new HashSet<SyncQuark>();
+            all.UnionWith(active);
+            all.UnionWith(passive);
+
+            foreach (SyncQuark quark in all)
+            {
+                foreach (Actor actor in m_actorSubscriptions.Values)
+                {
+                    if (actor.ActiveQuarks.Contains(quark) || actor.PassiveQuarks.Contains(quark))
+                        failed = false;
+                }
+            }
+            
+            if (failed)
+                return false;
+            return true;
+        }
+
+        #endregion // Dynamic Quark Subscriptions
 
         #region QuarkSubscriptions
         public void AddPassiveSubscription(SyncConnector connector, string quarkName)
@@ -439,7 +491,7 @@ namespace DSG.RegionSync
                 return new HashSet<SyncConnector>();
             }
         }
-        #endregion // QuarkSubscriptions
+        #endregion // Quark Subscribers
 
         #region QuarkObjects
 

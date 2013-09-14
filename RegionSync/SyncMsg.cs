@@ -59,6 +59,7 @@ using OpenMetaverse.StructuredData;
 using log4net;
 using System.Collections;
 using System.Xml;
+using System.Drawing;
 
 namespace DSG.RegionSync
 {
@@ -79,6 +80,7 @@ public abstract class SyncMsg
         
         // SIM <-> CM
         Terrain,
+        Objects,
         RegionInfo,
         Environment,
         
@@ -118,11 +120,24 @@ public abstract class SyncMsg
         SyncStateReport,
         TimeStamp,
         KeepAlive,
+        
+        /////////////////////
+        // Quarks
+        /////////////////////
 
-        //quarks
+        // Quark Subscription
         QuarkSubscription,
+
+        // Dynamic Quark Subscription
+        QuarkSubAdd,
+        QuarkSubRemove,
+        QuarkSubSwitch,
+
+        // Quark Crossing
         QuarkPrimCrossing,
         QuarkPresenceCrossing
+
+        
     }
 
     /// <summary>
@@ -227,6 +242,7 @@ public abstract class SyncMsg
             case MsgType.GetRegionInfo:     ret = new SyncMsgGetRegionInfo(length, data);        break;
             case MsgType.GetEnvironment:    ret = new SyncMsgGetEnvironment(length, data);       break;
             case MsgType.Terrain:           ret = new SyncMsgTerrain(length, data);              break;
+            case MsgType.Objects:           ret = new SyncMsgObjects(length, data);              break;
             case MsgType.RegionInfo:        ret = new SyncMsgRegionInfo(length, data);           break;
             case MsgType.Environment:       ret = new SyncMsgEnvironment(length, data);          break;
             case MsgType.NewObject:         ret = new SyncMsgNewObject(length, data);            break;
@@ -263,6 +279,7 @@ public abstract class SyncMsg
 
             case MsgType.KeepAlive: ret = new SyncMsgKeepAlive(length, data); break;
             case MsgType.QuarkSubscription: ret = new SyncMsgQuarkSubscription(length, data); break;
+            case MsgType.QuarkSubAdd: ret = new SyncMsgQuarkSubAdd(length, data); break;
             case MsgType.QuarkPrimCrossing: ret = new SyncMsgPrimQuarkCrossing(length, data); break;
             case MsgType.QuarkPresenceCrossing: ret = new SyncMsgPresenceQuarkCrossing(length, data); break;
             default:
@@ -424,7 +441,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                 // A received message so convert the buffer data to an OSDMap for use by children classes
                 if (DataLength != 0)
                 {
-                    DataMap = DeserializeMessage();
+                    DataMap = DeserializeMessage(m_data, DataLength);
                     // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertIn: dir=in, map={1}", LogHeader, DataMap.ToString());
                 }
                 else
@@ -481,12 +498,12 @@ public abstract class SyncMsgOSDMapData : SyncMsg
 
     // Turn the binary bytes into and OSDMap
     private static HashSet<string> exceptions = new HashSet<string>();
-    private OSDMap DeserializeMessage()
+    public static OSDMap DeserializeMessage(byte[] dataSource, int length)
     {
         OSDMap data = null;
         try
         {
-            data = OSDParser.DeserializeJson(Encoding.ASCII.GetString(m_data, 0, DataLength)) as OSDMap;
+            data = OSDParser.DeserializeJson(Encoding.ASCII.GetString(dataSource, 0, length)) as OSDMap;
         }
         catch (Exception e)
         {
@@ -497,7 +514,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                 {
                     exceptions.Add(e.Message);  // remember we've seen this type of error
                     // print out the unparsable message
-                    m_log.Error(LogHeader + " " + Encoding.ASCII.GetString(m_data, 0, DataLength));
+                    m_log.Error(LogHeader + " " + Encoding.ASCII.GetString(dataSource, 0, length));
                     // after all of that, print out the actual error
                     m_log.ErrorFormat("{0}: {1}", LogHeader, e);
                 }
@@ -676,8 +693,6 @@ public abstract class SyncMsgOSDMapData : SyncMsg
         data["IsAttachment"] = OSD.FromBoolean(sog.IsAttachment);
         data["AttachedAvatar"] = OSD.FromUUID(sog.AttachedAvatar);
         data["AttachmentPoint"] = OSD.FromUInteger(sog.AttachmentPoint);
-        // Currently, when objects cross the script state is destroyed. This snippet can save the script state, but must run at the script actor.
-        // The physics actors are usually responsible for prim crossings, thus there is an open question of how to transport script states.
         /*
         if (sog.ScriptCount() > 0)
         {
@@ -776,8 +791,7 @@ public abstract class SyncMsgOSDMapData : SyncMsg
                     //m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = {1}", LogHeader, sog.AttachmentPoint);
                 }
             }
-            // Currently, when objects cross the script state is destroyed. This snippet would load the script state.
-            // The physics actors are usually responsible for prim crossings, thus there is an open question of how to transport script states.
+            // Currently, when objects cross the script state is destroyed. This snippet can save the script state, but must r
             /*
             if (data.ContainsKey("ScriptState"))
             {
@@ -841,6 +855,212 @@ public abstract class SyncMsgOSDMapData : SyncMsg
     }
 
     #endregion // Encode/DecodeSceneObject and Encode/DecodeScenePresence
+
+    #region Quark Subscription
+
+    protected OSDMap EncodeQuarkSubscriptions(bool request)
+    {
+        return EncodeQuarkSubscriptions(request, RegionContext.QuarkManager.ActiveQuarkDictionary.Values, RegionContext.QuarkManager.PassiveQuarkDictionary.Values, false);
+    }
+
+    /// <summary>
+    /// Encode quark subscriptions.
+    /// </summary>
+    /// <param name="ack">Indicate if the encoded message would be sent
+    /// back to a child process as an ACK. </param>
+    /// <returns></returns>
+    protected OSDMap EncodeQuarkSubscriptions(bool request, IEnumerable<SyncQuark> activeQuarkSet, IEnumerable<SyncQuark> passiveQuarkSet, bool requestPrims)
+    {
+        //Subscription sent to a parent node -- efficiently, it should be the
+        //set of quarks that this node wants to receive updates from the parent
+        //(e.g. the intersection of their quark sets). For now, we haven't 
+        //optimize the code for that customization yet -- the child simply sends
+        //out subscriptions for all quarks it covers, the parent will do an 
+        //intersection on the quarks.
+
+        OSDArray activeQuarks = new OSDArray();
+        OSDArray passiveQuarks = new OSDArray();
+
+        foreach (SyncQuark aQuark in activeQuarkSet)
+            activeQuarks.Add(aQuark.QuarkName);
+        foreach (SyncQuark pQuark in passiveQuarkSet)
+            passiveQuarks.Add(pQuark.QuarkName);
+
+        OSDMap subscriptionEncoding = new OSDMap();
+        subscriptionEncoding["ActiveQuarks"] = activeQuarks;
+        subscriptionEncoding["PassiveQuarks"] = passiveQuarks;
+        // 1. If I am the child initiating quark subscription, request is true
+        // 2. If I am the parent that just received a quark subscription, request is false (see DecodeQuarkSubscriptionFromMsg)
+        // 3. If I am the child that received the parent's Quark Subscriptions I shouldn't be here at all, since reply==false
+        if (!requestPrims)
+            subscriptionEncoding["Request"] = request;
+        else
+        {
+            OSDMap quarkToActor = new OSDMap();
+            foreach (SyncQuark quark in activeQuarkSet)
+            {
+                // Find one of the actors that have the prims for that region and request it to send new objects.
+                List<SyncConnector> actorsSync = new List<SyncConnector>(RegionContext.QuarkManager.GetQuarkSubscribers(quark.QuarkName));
+                if (actorsSync.Count > 0)
+                    quarkToActor[quark.QuarkName] = OSD.FromString(actorsSync[0].otherSideActorID);
+                else
+                    throw new Exception("At least one of my neighbors should be subscribed to this quark: " + quark.QuarkName);
+            }
+            subscriptionEncoding["QuarkToActor"] = quarkToActor;
+        }
+
+        return subscriptionEncoding;
+    }
+
+    protected Dictionary<string, HashSet<SyncQuark>> DecodeQuarkSubscriptionsFromMsg(OSDMap data)
+    {
+        Dictionary<string, HashSet<SyncQuark>> decodedSubscriptions = new Dictionary<string, HashSet<SyncQuark>>();
+        OSDArray aQuarks = (OSDArray)data["ActiveQuarks"];
+        OSDArray pQuarks = (OSDArray)data["PassiveQuarks"];
+
+        HashSet<SyncQuark> activeQuarks = new HashSet<SyncQuark>();
+        HashSet<SyncQuark> passiveQuarks = new HashSet<SyncQuark>();
+
+        Actor actor = new Actor();
+        actor.ActiveQuarks = new HashSet<SyncQuark>(activeQuarks);
+        actor.PassiveQuarks = new HashSet<SyncQuark>(passiveQuarks);
+        RegionContext.QuarkManager.ActorSubscriptions[ConnectorContext] = actor;
+
+        foreach (OSD quark in aQuarks)
+        {
+            activeQuarks.Add(new SyncQuark(quark.AsString()));
+        }
+
+        foreach (OSD quark in pQuarks)
+        {
+            passiveQuarks.Add(new SyncQuark(quark.AsString()));
+        }
+
+        decodedSubscriptions["Active"] = activeQuarks;
+        decodedSubscriptions["Passive"] = passiveQuarks;
+        
+        return decodedSubscriptions;
+    }
+
+    #endregion // Quark Subscription
+}
+
+    // ====================================================================================================
+// A base class for sync messages whose underlying structure is just an OSDMap
+public abstract class SyncMsgBinaryData : SyncMsg
+{
+    protected byte[] Data { get; set; }
+    protected OSDMap DataMap { get; set; }
+    protected int DataMapLength { get; set; }
+    protected int DataBinaryLength { get; set; }
+
+    public SyncMsgBinaryData(MsgType pMType, RegionSyncModule pRegionSyncModule)
+        : base(pMType, pRegionSyncModule)
+    {
+        // m_log.DebugFormat("{0} SyncMsgOSDMapData.constructor: dir=out, type={1}, syncMod={2}", LogHeader, pMType, pRegionSyncModule.Name);
+        Data = null;
+        DataMap = null;
+    }
+    public SyncMsgBinaryData(MsgType pType, int pLength, byte[] pData)
+        : base(pType, pLength, pData)
+    {
+        // m_log.DebugFormat("{0} SyncMsgOSDMapData.constructor: dir=in, type={1}, len={2}", LogHeader, pType, pLength);
+        Data = null;
+        DataMap = null;
+    }
+
+    // Convert the received block of binary bytes into an OSDMap (DataMap) and a binary array
+    // Return 'true' if successfully converted.
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
+    {
+        base.ConvertIn(pRegionContext);
+        switch (Dir)
+        {
+            case Direction.In:
+                // A received message so convert the first block of buffer data to an OSDMap, and the rest save as binary data
+                if (DataLength != 0)
+                {
+                    DataMapLength = Utils.BytesToInt(m_data);
+                    DataBinaryLength = DataLength - DataMapLength - 4;
+                    if (DataMapLength > 0)
+                    {
+                        byte[] osdMap = new byte[DataMapLength];
+                        Buffer.BlockCopy(m_data, 4, osdMap, 0, DataMapLength);
+                        DataMap = SyncMsgOSDMapData.DeserializeMessage(osdMap, DataMapLength);
+                    }
+                    if (DataBinaryLength > 0)
+                    {
+                        Data = new byte[DataBinaryLength];
+                        Buffer.BlockCopy(m_data, 4 + DataMapLength, Data, 0, DataBinaryLength);
+                    }
+                    
+                    // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertIn: dir=in, map={1}", LogHeader, DataMap.ToString());
+                }
+                else
+                {
+                    // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertIn: dir=in, no data", LogHeader);
+                }
+                break;
+            case Direction.Out:
+                // A message being built for output.
+                // It is actually an error that this method is called as there should be no binary data.
+                Data = null;
+                // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertIn: dir=out, map=NULL", LogHeader);
+                break;
+        }
+        return (Data != null);
+    }
+    // Convert the OSDMap of data into a binary array of bytes.
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        switch (Dir)
+        {
+            case Direction.In:
+                // A message received being sent out again.
+                // Current architecture is to just output the existing binary buffer so
+                //     nothing is converted.
+                // m_log.DebugFormat("{0} SyncMsgOSDMapData.ConvertOut: dir=in, typ={1}", LogHeader, MType);
+                break;
+            case Direction.Out:
+                // Message being created for output. The children of this base class
+                //    should have created a DataMap from the local variables.
+                lock (m_dataLock)
+                {
+                    byte[] osdMap = null;
+                    if (DataMap != null)
+                    {
+                        string s = OSDParser.SerializeJsonString(DataMap, true);
+                        osdMap = System.Text.Encoding.ASCII.GetBytes(s);
+                        DataMapLength = osdMap.Length;
+                    }
+                    else
+                        DataMapLength = 0;
+
+                    if (Data != null)
+                        DataBinaryLength = Data.Length;
+                    else
+                        DataBinaryLength = 0;
+
+                    if (DataMapLength == 0 && DataBinaryLength == 0)
+                    {
+                        DataLength = 0;
+                    }
+                    else
+                    {
+                        // Assemble the binary map and binary together
+                        m_data = new byte[DataBinaryLength + DataMapLength + 4];
+                        Utils.IntToBytes(DataMapLength, m_data, 0);
+                        if (DataMapLength > 0)
+                            Buffer.BlockCopy(osdMap, 0, m_data, 4, DataMapLength);
+                        if (DataBinaryLength > 0)
+                            Buffer.BlockCopy(Data, 0, m_data, DataMapLength + 4, DataBinaryLength);
+                        DataLength = m_data.Length;
+                    }
+                }
+                break;
+        }
+        return base.ConvertOut(pRegionContext);
+    }
 }
 
 // ====================================================================================================
@@ -1418,23 +1638,125 @@ public class SyncMsgTerrain : SyncMsgOSDMapData
         return base.ConvertOut(pRegionContext);
     }
 }
+
 // ====================================================================================================
-public class SyncMsgGetObjects : SyncMsg
+public class SyncMsgObjects : SyncMsgBinaryData
 {
     public override string DetailLogTagRcv { get { return "RcvGetObjj"; } }
     public override string DetailLogTagSnd { get { return "SndGetObjj"; } }
+
+    Guid m_requestId;
+    long m_timestamp;
+    HashSet<UUID> m_sogs;
+    MemoryStream m_archiveWriteStream;
+    byte[] m_encodedOar;
+    bool m_merge;
+
+    public SyncMsgObjects(RegionSyncModule pRegionContext, HashSet<UUID> sogs, SyncConnector returnAddress, bool merge)
+        : base(MsgType.Objects, pRegionContext)
+    {
+        m_sogs = sogs;
+        m_archiveWriteStream = new MemoryStream();
+        m_requestId = Guid.NewGuid();
+        ConnectorContext = returnAddress;
+
+        pRegionContext.Scene.EventManager.OnOarFileSaved += SaveCompleted;
+        Dictionary<string, Object> options = new Dictionary<string, Object>();
+        options.Add("objects", sogs);
+        options.Add("noassets", true);
+        m_merge = merge;
+        IRegionArchiverModule archiver = pRegionContext.Scene.RequestModuleInterface<IRegionArchiverModule>();
+        archiver.ArchiveRegion(m_archiveWriteStream, m_requestId, options);
+    }
+
+    public SyncMsgObjects(int pLength, byte[] pData)
+        : base(MsgType.Objects, pLength, pData)
+    {
+    }
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
+    {
+        if (base.ConvertIn(pRegionContext))
+        {
+            m_encodedOar = Data;
+            m_timestamp = DataMap["ts"].AsLong();
+            m_merge = DataMap["merge"].AsBoolean();
+
+            pRegionContext.Scene.EventManager.OnOarFileLoaded += LoadCompleted;
+            return true;
+        }
+        return false;
+    }
+
+    public override bool HandleIn(RegionSyncModule pRegionContext)
+    {
+        MemoryStream ms = new MemoryStream(m_encodedOar);
+        IRegionArchiverModule archiver = pRegionContext.Scene.RequestModuleInterface<IRegionArchiverModule>();
+        // Despite what the event OnOarFileLoaded suggests, DeArchiving is monothreaded method, so RememberLocallyGenerated will work
+        pRegionContext.RememberLocallyGeneratedEvent(MType, m_timestamp);
+        archiver.DearchiveRegion(ms, m_merge, true, new Guid());
+        return true;
+    }
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        if (Data == null || DataMap == null)
+            m_log.ErrorFormat("{0}: Not finished archiving process. Please wait.", LogHeader);
+        else
+            return base.ConvertOut(pRegionContext);
+        return false;
+    }
+
+    // Direction == Out
+    private void SaveCompleted(Guid requestId, string errorMessage)
+    {
+        if (requestId == m_requestId)
+        {
+            RegionContext.Scene.EventManager.OnOarFileSaved -= SaveCompleted;
+            if (errorMessage.Length > 0)
+                m_log.ErrorFormat("{0}: Error packing OAR in SyncMsgObjects. Error: {1}", LogHeader, errorMessage);
+            else
+            {
+                m_encodedOar = m_archiveWriteStream.ToArray();
+                Data = m_encodedOar;
+                DataMap = new OSDMap();
+                DataMap["ts"] = RegionSyncModule.NowTicks();
+                DataMap["merge"] = m_merge;
+                ConnectorContext.ImmediateOutgoingMsg(this);
+            }
+        }
+    }
+
+    // Direction == In
+    private void LoadCompleted(Guid guid, List<UUID> loadedScenes, string message)
+    {
+        RegionContext.ForgetLocallyGeneratedEvent();
+        RegionContext.Scene.EventManager.OnOarFileLoaded -= LoadCompleted;
+        m_log.WarnFormat("{0}: Oar from SyncMsgObjects finished loading", LogHeader);
+    }
+}
+
+// ====================================================================================================
+public class SyncMsgGetObjects : SyncMsgOSDMapData
+{
+    public override string DetailLogTagRcv { get { return "RcvGetObjj"; } }
+    public override string DetailLogTagSnd { get { return "SndGetObjj"; } }
+
+    HashSet<UUID> m_objects = new HashSet<UUID>();
 
     public SyncMsgGetObjects(RegionSyncModule pRegionContext)
         : base(MsgType.GetObjects, pRegionContext)
     {
     }
+
     public SyncMsgGetObjects(int pLength, byte[] pData)
         : base(MsgType.GetObjects, pLength, pData)
     {
     }
     public override bool ConvertIn(RegionSyncModule pRegionContext)
     {
-        return base.ConvertIn(pRegionContext);
+        if (base.ConvertIn(pRegionContext))
+        {
+        }
+        return true;
     }
     public override bool HandleIn(RegionSyncModule pRegionContext)
     {
@@ -1442,21 +1764,30 @@ public class SyncMsgGetObjects : SyncMsg
         if (base.HandleIn(pRegionContext))
         {
             HashSet<SyncQuark> allQuarks = pRegionContext.QuarkManager.ActorSubscriptions[ConnectorContext].AllQuarks;
+            // If I received a list of new quarks, send all the objects of quarks that are 1) subscribed in this actor and 2) added remotely.
+            
             pRegionContext.Scene.ForEachSOG(delegate(SceneObjectGroup sog)
             {
                 if (allQuarks.Contains(new SyncQuark(sog.AbsolutePosition)))
                 {
-                    SyncMsgNewObject msg = new SyncMsgNewObject(pRegionContext, sog);
-                    msg.ConvertOut(pRegionContext);
-                    ConnectorContext.ImmediateOutgoingMsg(msg);
+                    m_objects.Add(sog.UUID);
                 }
             });
         }
+
+        // Reply back with all the relevant scene object groups in OAR format. This SyncMsg auto-sends itself back to the origin.
+        SyncMsgObjects syncMsg = new SyncMsgObjects(pRegionContext, m_objects, ConnectorContext, false);
         m_log.WarnFormat("{0}: Done sending objects", LogHeader);
         return true;
     }
+
     public override bool ConvertOut(RegionSyncModule pRegionContext)
     {
+        // Sending a request to get objects. If m_newQuarks is not defined, DataMap can be empty.
+        if (DataMap == null)
+        {
+            DataMap = new OSDMap();
+        }
         return base.ConvertOut(pRegionContext);
     }
 }
@@ -3549,13 +3880,15 @@ public class SyncMsgScriptLandCollidingEnd : SyncMsgEventCollision
     }
 }
 
-// ====================================================================================================
+// =============================================================================================================
+// SyncMsgQuarkSubscription: Carries quark subscription (active and passive quarks) information at RegionStarted
+// =============================================================================================================
 public class SyncMsgQuarkSubscription : SyncMsgOSDMapData
 {
     public override string DetailLogTagRcv { get { return "RcvQuarSub"; } }
     public override string DetailLogTagSnd { get { return "SndQuarSub"; } }
 
-    Dictionary<string, List<SyncQuark>> syncQuarks;
+    Dictionary<string, HashSet<SyncQuark>> syncQuarks;
     QuarkManager m_quarkManager;
     bool m_request = false;
     bool m_reply = false;
@@ -3580,6 +3913,19 @@ public class SyncMsgQuarkSubscription : SyncMsgOSDMapData
         if (base.ConvertIn(pRegionContext))
         {
             syncQuarks = DecodeQuarkSubscriptionsFromMsg(DataMap);
+
+            // If I received request == true, means Im the parent receiving a request. Set reply to True, so ConvertOut will reply
+            if ((bool)DataMap["Request"])
+            {
+                m_request = false;
+                m_reply = true;
+            }
+            // If request == false, means Im the child receiving back the parent's quarks. Set all to false, so reply is not triggered again.
+            else
+            {
+                m_request = false;
+                m_reply = false;
+            }
             ret = true;
         }
         return ret;
@@ -3623,84 +3969,121 @@ public class SyncMsgQuarkSubscription : SyncMsgOSDMapData
         else
             DataMap = EncodeQuarkSubscriptions();
         */
-        DataMap = EncodeQuarkSubscriptions();
+        DataMap = EncodeQuarkSubscriptions(m_request);
         return base.ConvertOut(pRegionContext);
     }
 
-    /// <summary>
-    /// Encode quark subscriptions.
-    /// </summary>
-    /// <param name="ack">Indicate if the encoded message would be sent
-    /// back to a child process as an ACK. </param>
-    /// <returns></returns>
-    public OSDMap EncodeQuarkSubscriptions()
+    
+}
+
+// =============================================================================================================
+// SyncMsgQuarkSubAdd: Synchronizes a new passive/active quark subscription for an actor
+// =============================================================================================================
+public class SyncMsgQuarkSubAdd : SyncMsgOSDMapData
+{
+    public override string DetailLogTagRcv { get { return "RcvLColEnd"; } }
+    public override string DetailLogTagSnd { get { return "SndLColEnd"; } }
+
+    Dictionary<string, HashSet<SyncQuark>> syncQuarks= new Dictionary<string, HashSet<SyncQuark>>();
+    QuarkManager m_quarkManager;
+    Dictionary<string, string> quarkToActor = new Dictionary<string,string>();
+
+    public SyncMsgQuarkSubAdd(RegionSyncModule pRegionContext, HashSet<SyncQuark> newActiveQuarks, HashSet<SyncQuark> newPassiveQuarks)
+        : base(MsgType.QuarkSubAdd, pRegionContext)
     {
-        //Subscription sent to a parent node -- efficiently, it should be the
-        //set of quarks that this node wants to receive updates from the parent
-        //(e.g. the intersection of their quark sets). For now, we haven't 
-        //optimize the code for that customization yet -- the child simply sends
-        //out subscriptions for all quarks it covers, the parent will do an 
-        //intersection on the quarks.
-
-        OSDArray activeQuarks = new OSDArray();
-        OSDArray passiveQuarks = new OSDArray();
-
-        foreach (string aQuark in m_quarkManager.ActiveQuarkDictionary.Keys)
-            activeQuarks.Add(aQuark);
-        foreach (string pQuark in m_quarkManager.PassiveQuarkDictionary.Keys)
-            passiveQuarks.Add(pQuark);
-
-        OSDMap subscriptionEncoding = new OSDMap();
-        subscriptionEncoding["ActiveQuarks"] = activeQuarks;
-        subscriptionEncoding["PassiveQuarks"] = passiveQuarks;
-        // 1. If I am the child initiating quark subscription, request is true
-        // 2. If I am the parent that just received a quark subscription, request is false (see DecodeQuarkSubscriptionFromMsg)
-        // 3. If I am the child that received the parent's Quark Subscriptions I shouldn't be here at all, since reply==false
-        subscriptionEncoding["Request"] = m_request;
-        return subscriptionEncoding;
+        syncQuarks["Active"] = newActiveQuarks;
+        syncQuarks["Passive"] = newPassiveQuarks;
+        m_quarkManager = pRegionContext.QuarkManager;
+    }
+    public SyncMsgQuarkSubAdd(int pLength, byte[] pData)
+        : base(MsgType.QuarkSubAdd, pLength, pData)
+    {
     }
 
-
-
-    private Dictionary<string, List<SyncQuark>> DecodeQuarkSubscriptionsFromMsg(OSDMap data)
+    public override bool ConvertIn(RegionSyncModule pRegionContext)
     {
-        Dictionary<string, List<SyncQuark>> decodedSubscriptions = new Dictionary<string, List<SyncQuark>>();
-        OSDArray aQuarks = (OSDArray)data["ActiveQuarks"]; ;
-        OSDArray pQuarks = (OSDArray)data["PassiveQuarks"]; ;
-        
-        List<SyncQuark> activeQuarks = new List<SyncQuark>();
-        List<SyncQuark> passiveQuarks = new List<SyncQuark>();
-
-        Actor actor = new Actor();
-        actor.ActiveQuarks = new HashSet<SyncQuark>(activeQuarks);
-        actor.PassiveQuarks = new HashSet<SyncQuark>(passiveQuarks);
-        m_quarkManager.ActorSubscriptions[ConnectorContext] = actor;
-
-        foreach (OSD quark in aQuarks)
+        if (base.ConvertIn(pRegionContext))
         {
-            activeQuarks.Add(new SyncQuark(quark.AsString()));
-        }
+            m_quarkManager = pRegionContext.QuarkManager;
+            OSDMap actorToPrim = (OSDMap)DataMap["QuarkToActor"];
+            Dictionary<string, HashSet<SyncQuark>> newSubscriptions = DecodeQuarkSubscriptionsFromMsg(DataMap);
+            foreach (string quark in actorToPrim.Keys)
+                quarkToActor[quark] = actorToPrim[quark].AsString();
+            
+            syncQuarks["Active"] = new HashSet<SyncQuark>();
+            syncQuarks["Passive"] = new HashSet<SyncQuark>();
+            foreach (string quark in (OSDArray)DataMap["ActiveQuarks"])
+                syncQuarks["Active"].Add(new SyncQuark(quark));
+            foreach (string quark in (OSDArray)DataMap["PassiveQuarks"])
+                syncQuarks["Passive"].Add(new SyncQuark(quark));
 
-        foreach (OSD quark in pQuarks)
-        {
-            passiveQuarks.Add(new SyncQuark(quark.AsString()));
+            return true;
         }
-
-        decodedSubscriptions["Active"] = activeQuarks;
-        decodedSubscriptions["Passive"] = passiveQuarks;
-        // If I received request == true, means Im the parent receiving a request. Set reply to True, so ConvertOut will reply
-        if ((bool)data["Request"])
-        {
-            m_request = false;
-            m_reply = true;
-        }
-        // If request == false, means Im the child receiving back the parent's quarks. Set all to false, so reply is not triggered again.
         else
+            return false;
+    }
+
+    public override bool HandleIn(RegionSyncModule pRegionContext)
+    {
+        if (base.HandleIn(pRegionContext))
         {
-            m_request = false;
-            m_reply = false;
+            HashSet<SyncQuark> sendObjects = new HashSet<SyncQuark>();
+            Actor actor = m_quarkManager.ActorSubscriptions[ConnectorContext];
+
+            foreach (SyncQuark quark in syncQuarks["Active"])
+            {
+                if (!m_quarkManager.QuarkSubscriptions.ContainsKey(quark.QuarkName))
+                    m_quarkManager.QuarkSubscriptions[quark.QuarkName] = new QuarkPublisher(quark);
+                m_quarkManager.QuarkSubscriptions[quark.QuarkName].AddActiveSubscriber(ConnectorContext);
+                actor.ActiveQuarks.Add(quark);
+
+                // If the sender requested prims for the new quark from me, send them.
+                if (quarkToActor.ContainsKey(quark.QuarkName) && (quarkToActor[quark.QuarkName] == pRegionContext.ActorID))
+                    sendObjects.Add(quark);
+            }
+            foreach (SyncQuark quark in syncQuarks["Passive"])
+            {
+                if (!m_quarkManager.QuarkSubscriptions.ContainsKey(quark.QuarkName))
+                    m_quarkManager.QuarkSubscriptions[quark.QuarkName] = new QuarkPublisher(quark);
+                m_quarkManager.QuarkSubscriptions[quark.QuarkName].AddPassiveSubscriber(ConnectorContext);
+                actor.PassiveQuarks.Add(quark);
+
+                // If the sender requested prims for the new quark from me, send them.
+                if (quarkToActor.ContainsKey(quark.QuarkName) && (quarkToActor[quark.QuarkName] == pRegionContext.ActorID))
+                    sendObjects.Add(quark);
+            }
+
+            HashSet<UUID> objects = new HashSet<UUID>();
+            foreach (SyncQuark quark in sendObjects)
+            {
+                pRegionContext.Scene.ForEachSOG(delegate(SceneObjectGroup sog)
+                {
+                    if (quark.IsPositionInQuark(sog.AbsolutePosition))
+                    {
+                        objects.Add(sog.UUID);
+                    }
+                });
+            }
+
+            // Reminder: this is an auto-sending message, due to its asynchronous nature
+            if (objects.Count > 0)
+                new SyncMsgObjects(pRegionContext, objects, ConnectorContext, true);
+            else
+                m_log.WarnFormat("{0}: Did not have any objects to send",LogHeader);
+
+            return true;
         }
-        return decodedSubscriptions;
+        else
+            return false;
+    }
+
+    public override bool ConvertOut(RegionSyncModule pRegionContext)
+    {
+        if (DataMap == null && Dir == Direction.Out)
+        {
+            DataMap = EncodeQuarkSubscriptions(true, syncQuarks["Active"], syncQuarks["Passive"], true);
+        }
+        return base.ConvertOut(pRegionContext);
     }
 }
 

@@ -633,23 +633,36 @@ namespace DSG.RegionSync
 
             // m_log.WarnFormat("{0} OnObjectAddedToScene: Sync info not found in manager. Adding for uuid {1}.", LogHeader, uuid);
 
-            // Add each SOP in SOG to SyncInfoManager
-            string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
-            // If the new object was created outside my active quarks, it should remain local.
-            if (m_quarkManager == null || m_quarkManager.IsInActiveQuark(quarkName))
+            // We are receiving a pack of new objects due to startup/dynamic quark exchange. Add them to Sync with original timestamp
+            // No need to check for quarks: origin has already sent only the relevant objects.
+            if (IsLocallyGeneratedEvent(SyncMsg.MsgType.Objects))
             {
                 foreach (SceneObjectPart part in sog.Parts)
                 {
-                    m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, RegionSyncModule.NowTicks(), SyncID);
+                    //m_log.WarnFormat("{0}: Adding new object {1} from OAR, timestamp: {2}", LogHeader, part.UUID, (long)GetLocallyGeneratedParams()[0]);
+                    m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, (long)GetLocallyGeneratedParams()[0], SyncID);
                 }
             }
-
-            if (IsSyncingWithOtherSyncNodes())
+            else
             {
-                // if we're syncing with other nodes, send out the message
-                SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
-                // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
-                SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
+                // Add each SOP in SOG to SyncInfoManager
+                string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
+                // If the new object was created outside my active quarks, it should remain local.
+                if (m_quarkManager == null || m_quarkManager.IsInActiveQuark(quarkName))
+                {
+                    foreach (SceneObjectPart part in sog.Parts)
+                    {
+                        m_SyncInfoManager.InsertSyncInfoLocal(part.UUID, RegionSyncModule.NowTicks(), SyncID);
+                    }
+                }
+
+                if (IsSyncingWithOtherSyncNodes())
+                {
+                    // if we're syncing with other nodes, send out the message
+                    SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
+                    // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
+                    SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
+                }
             }
         }
 
@@ -795,12 +808,18 @@ namespace DSG.RegionSync
             Command cmdSyncTimeFudge = new Command("timeFudge", CommandIntentions.COMMAND_HAZARDOUS, SyncTimeFudge, "Adjust a base time fudge factor for timestamps");
             cmdSyncTimeFudge.AddArgument("fudge", "Signed seconds to adjust from system time. 'list' will just display the current value.", "String");
 
+            // For adding/removing/switching quarks on the fly
+            Command cmdSyncQuarkSub = new Command("quarksub-add", CommandIntentions.COMMAND_HAZARDOUS, SyncQuarkSub, "Allows to dynamically add/remove/switch quark subscriptions");
+            cmdSyncQuarkSub.AddArgument("active", "List of active quarks to add, same format as used in the config file. For empty, use \"[]\"", "String");
+            cmdSyncQuarkSub.AddArgument("passive", "List of passive quarks to add, same format as used in the config file. For empty, use \"[]\"", "String");
+
             m_commander.RegisterCommand("debug", cmdSyncDebug);
             m_commander.RegisterCommand("state_detail", cmdSyncStateDetailReport);
             m_commander.RegisterCommand("state", cmdSyncStateReport);
             m_commander.RegisterCommand("uuid", cmdSyncDumpUUID);
             m_commander.RegisterCommand("conn", cmdSyncConnMgmt);
             m_commander.RegisterCommand("timeFudge", cmdSyncTimeFudge);
+            m_commander.RegisterCommand("quarksub-add", cmdSyncQuarkSub);
 
             lock (Scene)
             {
@@ -1665,6 +1684,20 @@ namespace DSG.RegionSync
             
         }
 
+        private void SyncQuarkSub(Object[] args)
+        {
+            try
+            {
+                string active = (string)args[0];
+                string passive = (string)args[1];
+
+                QuarkManager.AddNewQuark(active, passive);
+            }
+            catch (Exception e)
+            {
+                m_log.WarnFormat("Parsing of arguement didn't work: {0}", e);
+            }
+        }
 
         private void SyncTimeFudge(Object[] args)
         {
@@ -2426,6 +2459,9 @@ namespace DSG.RegionSync
         [ThreadStatic]
         static SyncMsg.MsgType LocallyGeneratedSignature;
 
+        [ThreadStatic]
+        static Object[] LocallyGeneratedParams;
+
         /// <summary>
         /// There is a problem where events that call On*Event might be because we triggered
         /// the event for a received event message. This routine is called before we trigger
@@ -2452,8 +2488,18 @@ namespace DSG.RegionSync
             // It is possible that some event handling routine might generate
             // an event of the same type. This would cause an event to disappear.
             LocallyGeneratedSignature = msgtype; // CreateLocallyGeneratedEventSignature(msgtype, parms);
+            LocallyGeneratedParams = parms;
             // m_log.DebugFormat("{0} RememberLocallyGeneratedEvent. Remembering={1}", LogHeader, LocallyGeneratedSignature);      // DEBUG DEBUG
             return;
+        }
+
+        /// <summary>
+        /// Retrieves the parameters saved with the LocallyGeneratedEvent
+        /// </summary>
+        /// <returns> Array of saved parameters </returns>
+        public Object[] GetLocallyGeneratedParams()
+        {
+            return LocallyGeneratedParams;
         }
 
         /// <summary>
@@ -2479,6 +2525,7 @@ namespace DSG.RegionSync
         public void ForgetLocallyGeneratedEvent()
         {
             LocallyGeneratedSignature = SyncMsg.MsgType.Null;
+            LocallyGeneratedParams = null;
         }
 
         /// <summary>

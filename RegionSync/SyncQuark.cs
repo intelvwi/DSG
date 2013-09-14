@@ -24,6 +24,7 @@
 using System;
 using System.Collections.Generic;
 using OpenMetaverse;
+using System.Drawing;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 //KittyL: created 05/23/2011, to start "Quark based load assignment and DSG synchronization"
@@ -181,6 +182,11 @@ namespace DSG.RegionSync
             m_quarkLocX = qLocX;
             m_quarkLocY = qLocY;
             ValidQuark = true;
+        }
+
+        public Rectangle QuarkToRectangle()
+        {
+            return new Rectangle(m_minX, m_minY, SizeX, SizeY);
         }
 
         #endregion
