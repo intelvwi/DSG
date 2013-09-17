@@ -9,45 +9,10 @@ using OpenSim.Framework;
 
 namespace DSG.RegionSync
 {
-    /* TO BE REMOVED
-    public class RemotePassiveQuarkSubscription
-    {
-        private SyncQuark m_quark;
-        public  SyncQuark Quark { get { return m_quark; } }
-        // All sync connectors that are active owners of this quark. Need to subscribe to all of them.
-        private HashSet<SyncConnector> m_syncConnectors;
-        public HashSet<SyncConnector> SyncConnector { 
-            get { return m_syncConnectors; }
-        }
-
-        public RemotePassiveQuarkSubscription(SyncQuark quark, HashSet<SyncConnector> syncConnectors)
-        {
-            m_quark = quark;
-            m_syncConnectors = syncConnectors;
-        }
-
-        public bool AddSyncConnector(SyncConnector connector)
-        {
-            m_syncConnectors.Add(connector);
-            return true;
-        }
-
-        public bool RemoveSyncConnector(SyncConnector connector)
-        {
-            if (m_syncConnectors.Contains(connector))
-            {
-                m_syncConnectors.Remove(connector);
-                return true;
-            }
-            else
-                return false;
-        }
-    }
-     * */
     /// <summary>
     /// QuarkPublisher
     /// Description: Stores all SyncConnectors subscribed actively and passively to a quark. Only quarks that belong to this sync process.
-        /// </summary>
+    /// </summary>
     public class QuarkPublisher
     {
         private SyncQuark m_quark;
@@ -84,8 +49,7 @@ namespace DSG.RegionSync
         
         
         /// <summary>
-        /// Iterates over every quark subscription and deletes the connector from it. 
-        /// TODO: This seems slow, any way to make it better?
+        /// Removes connector from active and passive quark subscriptions, if it exists. 
         /// </summary>
         /// <param name="connector"></param>
         public void RemoveSubscriber(SyncConnector connector)
@@ -110,7 +74,11 @@ namespace DSG.RegionSync
         }
 
     }
-
+    
+    /// <summary>
+    /// Actor
+    /// Description: Stores all active and passive quarks an actor is subscribed to. It is the reverse lookup used in Quark Publisher.
+    /// </summary>
     public class Actor
     {
         public HashSet<SyncQuark> ActiveQuarks = new HashSet<SyncQuark>();
@@ -127,26 +95,35 @@ namespace DSG.RegionSync
         }
     }
 
+    /// <summary>
+    /// QuarkManager
+    /// Description: Class responsible for dealing with all quark-related methods and data. 
+    /// </summary>
     public class QuarkManager
     {
         private static string LogHeader = "[QUARKMANAGER]";
-        private string m_zeroUUID = UUID.Zero.ToString();
+        
+        // Parent address and port to connect to. Currently only one, TBD multiple parents
         private string m_parentAddress;
         private int m_parentPort;
 
+        // Dictionary of objects that has left the quark set for this actor. This is to prevent conflicting messages once the object has 
+        // detected as crossed.
         private Dictionary<UUID,bool> m_leftQuarks = new Dictionary<UUID,bool>();
         public Dictionary<UUID,bool> LeftQuarks
         {
             get { return m_leftQuarks; }
         }
 
+        // Quark size in meters, X and Y
         private int m_quarkSizeX;
         private int m_quarkSizeY;
+
         private SyncInfoManager m_syncInfoManager;
 
         public static ILog m_log;
 
-        // This actor's active and passive quarks, as determined from config file (coded format). Keeping stored for sending to others.
+        // This actor's active and passive quarks, as determined from config file (coded string format). Keeping stored for sending to others.
         private string m_stringEncodedActiveQuarks = String.Empty;
         private string m_stringEncodedPassiveQuarks = String.Empty;
         public string ActiveQuarkSubscription
@@ -161,7 +138,7 @@ namespace DSG.RegionSync
             private set { m_stringEncodedPassiveQuarks = value; }
         }
 
-        // Transformed strings into SyncQuark. 
+        // Transformed strings into SyncQuarks. 
         private Dictionary<string, SyncQuark> m_activeQuarkSet = new Dictionary<string, SyncQuark>();
         private Dictionary<string, SyncQuark> m_passiveQuarkSet = new Dictionary<string, SyncQuark>();
         public Dictionary<string, SyncQuark> ActiveQuarkDictionary
@@ -211,7 +188,6 @@ namespace DSG.RegionSync
             IConfig config = syncModule.SysConfig;
             m_regionSyncModule = syncModule;
             m_syncInfoManager = m_regionSyncModule.InfoManager;
-            //string regPolicy = config.GetString("QuarkRegistrationPolicy", "AllQuarks");
             
             // Size of quarks
             m_quarkSizeX = config.GetInt("SyncQuarkSizeX", 256);
@@ -265,16 +241,13 @@ namespace DSG.RegionSync
                 }
             }
 
-            // Register my active quarks with grid service.
-            // TODO: Send the coded version, instead of reading one by one and making multiple HTTP requests.
-            // RegisterSyncQuarksWithGridService();
-
-            // TODO: There should be a Register Passive and Active quarks.
-            // Grid Service returns the union of quarks that form a superset of my quark subscription. 
+            // Register my active quarks with a quark service.
+            // TODO: Finish a quark service server which all actors can connect to, give their identification, and receive the list of parents
+            // they should connect to. Currently, connecting to parents as determined in the config file.
             // "The union of the returned quark sets of these sync process should be a superset as the querying process’s quark set."
 
-            // SOMEHOW (??) I have a list of RegionSyncListenerInfo of my "superset" quarks.
-            
+            // This part retrieves the information from the config file for a parent to connect to, or assumes 127.0.0.1. This should be 
+            // thrown away once a quark service is in place.
             #region THROWMEAWAY
             // STUB! Gets parent node address from config file in simulator
             m_parentAddress = config.GetString("ParentAddress", "");
@@ -290,29 +263,37 @@ namespace DSG.RegionSync
             superSetQuarks.Add(test_parent);
             #endregion
 
-            if (!m_regionSyncModule.IsSyncRelay)
+            if (!m_regionSyncModule.IsRoot)
             {
                 foreach (RegionSyncListenerInfo rsli in superSetQuarks)
                 {
                     SyncConnector syncConnector = m_regionSyncModule.StartNewSyncConnector(rsli);
                     if (syncConnector == null)
-                        m_log.ErrorFormat("Failed to connecto to parent sync {0} (provided to QuarkManager by GridService)", rsli.ToString());
+                        m_log.ErrorFormat("{0}: Failed to connecto to parent sync {1}",LogHeader,rsli.ToString());
                     else
-                        m_log.WarnFormat("Success creating SyncConnecting to {0}",rsli.ToString());
-                    if (!m_regionSyncModule.IsSyncingWithOtherSyncNodes())
-                    {
-                        m_log.Error("Failed to start at least one sync connector. Not syncing.");
-                        return;
-                    }
+                        m_log.WarnFormat("{0}: Success creating a connection to parent: {1}",LogHeader,rsli.ToString());
                 }
-                m_log.WarnFormat("Finished loading quarks: SyncActiveQuarks:{0} and SyncPassiveQuarks:{1}", ActiveQuarkSubscription, PassiveQuarkSubscription);
+
+                if (!m_regionSyncModule.IsSyncingWithOtherSyncNodes())
+                {
+                    m_log.ErrorFormat("{0}: Failed to start at least one sync connector. Not syncing.", LogHeader);
+                    return;
+                }
+                m_log.WarnFormat("{0}: Finished loading quarks: SyncActiveQuarks:{1} and SyncPassiveQuarks:{2}", LogHeader, ActiveQuarkSubscription, PassiveQuarkSubscription);
             }
             else
             {
-                m_log.Warn("QuarkManager: This is the hub, so no quark registration required.");
+                m_log.WarnFormat("{0}: Root process started.", LogHeader);
             }
         }
 
+
+        /// <summary>
+        /// Decode the set of quarks under the same subscription. 
+        /// Format: "xl[-xr] or x, yl[-yr] or y/.../..."
+        /// </summary>
+        /// <param name="quarksInput"></param>
+        /// <returns></returns>
         private HashSet<SyncQuark> DecodeSyncQuarks(string quarksInput)
         {
             if (quarksInput.Equals(String.Empty) || quarksInput.Equals("[]"))
@@ -398,6 +379,8 @@ namespace DSG.RegionSync
 
         #region Dynamic Quark Subscriptions
 
+        // When called, adds the list off active and passive quarks (string-encoded) to the list of quarks subscribed by this actor respectively.
+        // Additionally, informs neighbors of the new subscriptions and request for the data in the new quarks being added, if necessary.
         public bool AddNewQuark(string activeStr, string passiveStr)
         {
             HashSet<SyncQuark> active = DecodeSyncQuarks(activeStr);
@@ -430,6 +413,7 @@ namespace DSG.RegionSync
             return true;
         }
 
+        // Checks if the new list of quarks are a possible set before broadcasting to neighbors. 
         private bool QuarkChangeSanityCheck(HashSet<SyncQuark> active, HashSet<SyncQuark> passive)
         {
             bool failed = true;
@@ -454,18 +438,20 @@ namespace DSG.RegionSync
         #endregion // Dynamic Quark Subscriptions
 
         #region QuarkSubscriptions
+        // Adds the specified SyncConnector to the QuarkSubscription object as a passive subscriber.
         public void AddPassiveSubscription(SyncConnector connector, string quarkName)
         {
             m_quarkSubscriptions[quarkName].AddPassiveSubscriber(connector);
         }
 
+        // Adds the specified SyncConnector to the QuarkSubscription object as an active subscriber.
         public void AddActiveSubscription(SyncConnector connector, string quarkName)
         {
             m_quarkSubscriptions[quarkName].AddActiveSubscriber(connector);
         }
 
         // Iterates over every quark subscription and deletes the connector reference from it. 
-        // Homework: Is there a better way to do this?
+        // TODO: This could be made faster by using the Actor reverse-lookup dictionary instead.
         public void RemoveSubscription(SyncConnector connector)
         {
             foreach (KeyValuePair<string, QuarkPublisher> subscription in m_quarkSubscriptions)
@@ -495,17 +481,19 @@ namespace DSG.RegionSync
 
         #region QuarkObjects
 
+        // Is the quarkName in this actor's active quark set?
         public bool IsInActiveQuark(string quarkName)
         {
             return m_activeQuarkSet.ContainsKey(quarkName);
         }
 
+        // Is the quarkName in this actor's passive quark set?
         public bool IsInPassiveQuark(string quarkName)
         {
             return m_passiveQuarkSet.ContainsKey(quarkName);
         }
 
-        // If presence or prim is crossing boundaries, returns true. Otherwise, just updates the SyncInfo for the UUID
+        // If presence or prim of UUID syncObjectID is crossing boundaries, returns true. Otherwise, just updates the SyncInfo for the UUID.
         public bool UpdateQuarkLocation(UUID syncObjectID, HashSet<SyncableProperties.Type> updatedProperties)
         {
             if (!m_syncInfoManager.SyncInfoExists(syncObjectID))
@@ -572,6 +560,7 @@ namespace DSG.RegionSync
                         quarkTypes.Add(SyncableProperties.Type.PreviousQuark);
                         quarkTypes.Add(SyncableProperties.Type.CurrentQuark);
 
+                        // Stores the new position in the SyncInfoPrim, so it can be packed and sent to other actors.
                         sib.UpdatePropertiesByLocal(sib.UUID, quarkTypes, ts, m_regionSyncModule.SyncID);
                         ret = true;
                     }
@@ -604,7 +593,8 @@ namespace DSG.RegionSync
                         HashSet <SyncableProperties.Type> quarkTypes = new HashSet<SyncableProperties.Type>();
                         quarkTypes.Add(SyncableProperties.Type.PreviousQuark);
                         quarkTypes.Add(SyncableProperties.Type.CurrentQuark);
-                        
+
+                        // Stores the new position in the SyncInfoPresence, so it can be packed and sent to other actors.
                         sib.UpdatePropertiesByLocal(sib.UUID, quarkTypes, ts, m_regionSyncModule.SyncID);
                         ret = true;
                     }
@@ -615,12 +605,6 @@ namespace DSG.RegionSync
 
         #endregion
         
-        /// <summary>
-        /// Decode the set of quarks under the same subscription. 
-        /// Format: "xl[-xr] or x, yl[-yr] or y/.../..."
-        /// </summary>
-        /// <param name="quarksInput"></param>
-        /// <returns></returns>
 
         #region QuarkCrossing
 
@@ -701,21 +685,18 @@ namespace DSG.RegionSync
             return true;
         }
 
+        // The sop is a root prim and is changing quarks (curQuark != prevQuark). This method creates and sends a SyncMsgPrimQuarkCrossing to inform
+        // other actors of the crossing.
+        // PS: The individual child SOPs will never send out a quark crossing message.
         private bool QuarkCrossingPrimUpdate(SceneObjectPart sop, SyncInfoPrim sip, HashSet<SyncableProperties.Type> updatedProperties)
         {
-            // The sop is a root prim and is changing quarks (curQuark != prevQuark)
-            // This sends the information necessary to create the whole SOG in the target quark.
-            // The individual child SOPs will never send out a quark crossing message.
-            
-            // m_log.DebugFormat("{0}: SendPrimPropertyUpdates: quark changing: c/p={1}/{2}, obj={3}",
-            //                 LogHeader, psi.CurQuark.QuarkName, psi.PrevQuark.QuarkName, 
-            //                 sog == null ? "sog is null" : sog.UUID.ToString());
-            
-            // If not in my active or passive quarks, delete all reference to it from scene and sync info.
+            // If not in my active or passive quarks, remember so we can delete all reference to it from scene and sync info.
             bool leavingMyQuarks = !(IsInActiveQuark(sip.CurQuark.QuarkName) || IsInPassiveQuark(sip.CurQuark.QuarkName));
             
             HashSet<SyncConnector> actorsNeedFull = new HashSet<SyncConnector>();
             HashSet<SyncConnector> actorsNeedUpdate = new HashSet<SyncConnector>();
+            // Which of my neighbors need the full prim, and which need only a simple update? If my neighbor is subscribed to both current quark and 
+            // previous quark, only an update is needed.
             RequiresFullObject(sip.PrevQuark, sip.CurQuark, ref actorsNeedFull, ref actorsNeedUpdate);
             SyncMsgPrimQuarkCrossing syncMsgFull = null;
             SyncMsgPrimQuarkCrossing syncMsgUpdate = null;
@@ -736,12 +717,9 @@ namespace DSG.RegionSync
             // if the prim is not in the quarks I manage, remove it from the scenegraph
             if (leavingMyQuarks)
             {
-                // m_log.DebugFormat("{0}: SendPrimPropertyUpdates: not in my quark. Deleting object. sog={1}, sop={2}", LogHeader, sog.UUID, sop.UUID);
-                // ?? How do I delete scene object? Is there more I need to do?
                 SceneObjectGroup sog = sop.ParentGroup;
                 if (sog != null)
                 {
-                    // ?? This has the potential to fail, if only some of the parts are in the quark.
                     foreach(SceneObjectPart part in sog.Parts)
                     {
                         try
@@ -759,7 +737,7 @@ namespace DSG.RegionSync
             return true;
         }
 
-        // Returns a list of sync connectors of actors that require a full object
+        // Returns a list of sync connectors of actors that require a full object, and the list that only requires updated properties.
         public void RequiresFullObject(SyncQuark prevQuark, SyncQuark curQuark, ref HashSet<SyncConnector> full, ref HashSet<SyncConnector> update)
         {
             QuarkPublisher prev = null;

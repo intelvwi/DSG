@@ -633,7 +633,7 @@ namespace DSG.RegionSync
 
             // m_log.WarnFormat("{0} OnObjectAddedToScene: Sync info not found in manager. Adding for uuid {1}.", LogHeader, uuid);
 
-            // We are receiving a pack of new objects due to startup/dynamic quark exchange. Add them to Sync with original timestamp
+            // In case we are receiving a pack of new objects due to startup/dynamic quark exchange. Add them to Sync with original timestamp
             // No need to check for quarks: origin has already sent only the relevant objects.
             if (IsLocallyGeneratedEvent(SyncMsg.MsgType.Objects))
             {
@@ -647,7 +647,7 @@ namespace DSG.RegionSync
             {
                 // Add each SOP in SOG to SyncInfoManager
                 string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
-                // If the new object was created outside my active quarks, it should remain local.
+                // If the new object was created outside my active quarks, it should remain local, and not be synced to other actors.
                 if (m_quarkManager == null || m_quarkManager.IsInActiveQuark(quarkName))
                 {
                     foreach (SceneObjectPart part in sog.Parts)
@@ -658,7 +658,6 @@ namespace DSG.RegionSync
 
                 if (IsSyncingWithOtherSyncNodes())
                 {
-                    // if we're syncing with other nodes, send out the message
                     SyncMsgNewObject msg = new SyncMsgNewObject(this, sog);
                     // m_log.DebugFormat("{0}: Send NewObject message for {1} ({2})", LogHeader, sog.Name, sog.UUID);
                     SendSpecialUpdateToRelevantSyncConnectors(ActorID, msg, quarkName);
@@ -685,7 +684,6 @@ namespace DSG.RegionSync
                     // 2.2) In PA: Simultaneously, the removeobject sync message is treated for the same attachments
                     // X) and so on..
                     // Also, don't just return, I still need to remove the sync infos!
-                    m_log.WarnFormat("{0}: OnObjectBeingRemovedFromScene UUID {1}, Thread ID {2}", LogHeader, sog.UUID, Thread.CurrentThread.ManagedThreadId);
                 }
                 // Prim crossed to another quark not managed by this actor.
                 else if (IsLocallyGeneratedEvent(SyncMsg.MsgType.QuarkPrimCrossing, sog.UUID))
@@ -695,7 +693,7 @@ namespace DSG.RegionSync
                     // This part is reached only when an object is removed locally. If this was generated from incoming SyncRemovedObject,
                     // the SyncInfoExists would fail.
                     string quarkName = SyncQuark.GetQuarkNameByPosition(sog.RootPart.AbsolutePosition);
-                    // If the object was renived outside my active quarks, it should remain a local action.
+                    // If the object was not removed in my active quarks, it should remain a local action, otherwise sync the removal.
                     if (m_quarkManager == null || m_quarkManager.IsInActiveQuark(quarkName))
                     {
                         SyncMsgRemovedObject msg = new SyncMsgRemovedObject(this, sog.UUID, ActorID, false /*softDelete*/);

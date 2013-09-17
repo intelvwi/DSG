@@ -3962,13 +3962,6 @@ public class SyncMsgQuarkSubscription : SyncMsgOSDMapData
     }
     public override bool ConvertOut(RegionSyncModule pRegionContext)
     {
-        // Should check if sending to parent? Not for now..
-        /*
-        if (m_toParent)
-            DataMap = EncodeQuarkSubscriptions();
-        else
-            DataMap = EncodeQuarkSubscriptions();
-        */
         DataMap = EncodeQuarkSubscriptions(m_request);
         return base.ConvertOut(pRegionContext);
     }
@@ -3977,7 +3970,7 @@ public class SyncMsgQuarkSubscription : SyncMsgOSDMapData
 }
 
 // =============================================================================================================
-// SyncMsgQuarkSubAdd: Synchronizes a new passive/active quark subscription for an actor
+// SyncMsgQuarkSubAdd: Synchronizes a new passive/active quark subscription for the actor
 // =============================================================================================================
 public class SyncMsgQuarkSubAdd : SyncMsgOSDMapData
 {
@@ -4087,11 +4080,11 @@ public class SyncMsgQuarkSubAdd : SyncMsgOSDMapData
     }
 }
 
-    // ====================================================================================================
-    /// <summary>
-    /// Creates a message informing that a prim is crossing quark boundaries
-    /// Pre-condition: The prim crossing is a root prim of a scene object group.
-    /// </summary>
+// ====================================================================================================
+/// <summary>
+/// Creates a message informing that a prim is crossing quark boundaries
+/// Pre-condition: The prim crossing is a root prim of a scene object group.
+/// </summary>
 public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
 {
     public override string DetailLogTagRcv { get { return "RcvQuaPCrs"; } }
@@ -4330,6 +4323,9 @@ public class SyncMsgPrimQuarkCrossing : SyncMsgOSDMapData
 }
 
 // ====================================================================================================
+/// <summary>
+/// Creates a message informing that a scene presence (avatar) is crossing quark boundaries
+/// </summary>
 public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
 {
     public override string DetailLogTagRcv { get { return "RcvQuaPCrs"; } }
@@ -4488,6 +4484,11 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
         return base.ConvertOut(pRegionContext);
     }
 
+    /// <summary>
+    /// Forwards crossing message to neighbors (if the actor is SyncRelay). This method checks if neighbors need the full or only the
+    /// update message, and sends accordingly. 
+    /// </summary>
+    /// <param name="pRegionContext"></param>
     private void ForwardCrossingMessage(RegionSyncModule pRegionContext)
     {
         HashSet<SyncConnector> actorsNeedFull = new HashSet<SyncConnector>();
@@ -4519,17 +4520,20 @@ public class SyncMsgPresenceQuarkCrossing : SyncMsgOSDMapData
         }
     }
 
-    // Given an SOG and sync information, create a QuarkCrossing message
+    /// <summary>
+    /// Given an Scene Presence and sync information, create a QuarkCrossing message
+    /// </summary>
+    /// <param name="pRegionContext"></param>
+    /// <returns></returns>
     private OSDMap CreatePresenceQuarkCrossingMessage(RegionSyncModule pRegionContext)
     {
         OSDMap ret = null;
 
         try
         {
-            // If moving across quark boundries we pack both the sop update and the
-            // full sog in case the receiver has to create a new object (moving into a quark)
             ret = m_encodedProperties;
             ret["presenceUUID"] = m_presenceUUID;
+            // If my neighbors need the full update, econde the scene presence in the message.
             if (m_encodeFull)
             {
                 if (m_sp == null)
