@@ -551,7 +551,7 @@ namespace DSG.RegionSync
                 case SyncableProperties.Type.AvatarAppearance:
                     sp.Appearance.Unpack((OSDMap)pValue);
                     sp.SendAppearanceToAllOtherAgents();
-                    DebugLog.WarnFormat("{0} Received updated AvatarAppearance for uuid {1}.", LogHeader, sp.UUID);
+                    DebugLog.DebugFormat("{0} Received updated AvatarAppearance for uuid {1}.", LogHeader, sp.UUID);
                     break;
                 case SyncableProperties.Type.Animations:
                     UpdateAvatarAnimations(sp, (OSDArray)pValue);

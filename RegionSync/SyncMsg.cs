@@ -49,6 +49,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Text;
+using System.Reflection;
 
 using OpenSim.Framework;
 using OpenSim.Region.Framework.Interfaces;
@@ -604,21 +605,18 @@ public abstract class SyncMsgOSDMapData : SyncMsg
             sog.IsAttachment = data["IsAttachment"].AsBoolean();
             sog.AttachedAvatar = data["AttachedAvatar"].AsUUID();
             uint ap = data["AttachmentPoint"].AsUInteger();
-            if (ap != null)
+            if (sog.RootPart == null)
             {
-                if (sog.RootPart == null)
-                {
-                    //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART IS NULL", LogHeader);
-                }
-                else if (sog.RootPart.Shape == null)
-                {
-                    //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART SHAPE IS NULL", LogHeader);
-                }
-                else
-                {
-                    sog.AttachmentPoint = ap;
-                    //m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = {1}", LogHeader, sog.AttachmentPoint);
-                }
+                //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART IS NULL", LogHeader);
+            }
+            else if (sog.RootPart.Shape == null)
+            {
+                //m_log.WarnFormat("{0} DecodeSceneObject - ROOT PART SHAPE IS NULL", LogHeader);
+            }
+            else
+            {
+                sog.AttachmentPoint = ap;
+                //m_log.WarnFormat("{0}: DecodeSceneObject AttachmentPoint = {1}", LogHeader, sog.AttachmentPoint);
             }
         }
         catch (Exception e)
@@ -703,19 +701,9 @@ public class SyncMsgUpdatedProperties : SyncMsgOSDMapData
         if (base.ConvertIn(pRegionContext))
         {
             ret = true;
-            // Decode synced properties from the message
+            // Decode synced properties from the message. never null.
             SyncedProperties = SyncInfoBase.DecodeSyncedProperties(DataMap);
-            if (SyncedProperties == null)
-            {
-                m_log.ErrorFormat("{0} UpdatedProperties.ConvertIn could not get syncedProperties", LogHeader);
-                ret = false;
-            }
             Uuid = DataMap["uuid"].AsUUID();
-            if (Uuid == null)
-            {
-                m_log.ErrorFormat("{0} UpdatedProperties.ConvertIn could not get UUID!", LogHeader);
-                ret = false;
-            }
         }
         else
         {
@@ -1914,10 +1902,23 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
                 m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
             }
             // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
-            ((ScenePresence)SyncInfo.SceneThing).m_originRegionID = pRegionContext.Scene.RegionInfo.RegionID;
+            ScenePresence sp = (ScenePresence)SyncInfo.SceneThing;
+
+            // SOME UNFORTUNATE REFLECTION IS REQUIRED TO GET THIS PRESENCE CREATED
+            {
+                // m_originRegionID is a private instance member of ScenePresence
+                BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Instance;
+
+                // Get the field info instance corresponding to m_originRegionID
+                FieldInfo field = typeof(ScenePresence).GetField("m_originRegionID", flags);
+
+                // Set the value to the current scene
+                field.SetValue(sp, pRegionContext.Scene.RegionInfo.RegionID);
+            }
+
             // Now that we have a presence and a client, tell the region sync "client" to finish connecting. 
             ((RegionSyncAvatar)client).PostCreateRegionSyncAvatar();
-            
+
             // Might need to trigger something here to send new client messages to connected clients
         }
         return true;
