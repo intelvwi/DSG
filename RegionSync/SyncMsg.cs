@@ -1895,11 +1895,11 @@ public class SyncMsgNewPresence : SyncMsgOSDMapData
             IClientAPI client = new RegionSyncAvatar(acd.circuitcode, pRegionContext.Scene, acd.AgentID, acd.firstname, acd.lastname, currentPos);
             try
             {
-                SyncInfo.SceneThing = pRegionContext.Scene.AddNewClient(client, pt);
+                SyncInfo.SceneThing = pRegionContext.Scene.AddNewAgent(client, pt);
             }
             catch (Exception e)
             {
-                m_log.WarnFormat("{0}: Exception in AddNewClient: {1}", LogHeader, e.ToString());
+                m_log.WarnFormat("{0}: Exception in AddNewAgent: {1}", LogHeader, e.ToString());
             }
             // Maybe this should be the "real" region UUID but I don't think it will matter until we understand better how teleporting in DSG will work
             ScenePresence sp = (ScenePresence)SyncInfo.SceneThing;
