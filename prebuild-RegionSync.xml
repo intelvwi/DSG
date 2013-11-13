@@ -1,5 +1,5 @@
     <!-- <Project frameworkVersion="v3_5" name="OpenSim.Region.CoreModules" path="OpenSim/Region/CoreModules" type="Library"> -->
-    <Project frameworkVersion="v3_5" name="DSG.RegionSync" path="addon-modules/DSG/RegionSync" type="Library">
+    <Project frameworkVersion="v4_0" name="DSG.RegionSync" path="addon-modules/DSG/RegionSync" type="Library">
       <Configuration name="Debug">
         <Options>
           <OutputPath>../../../bin/</OutputPath>

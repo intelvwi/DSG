@@ -1,5 +1,5 @@
     <!-- <Project frameworkVersion="v3_5" name="OpenSim.Region.Physics.PEPlugin" path="OpenSim/Region/Physics/PEPlugin" type="Library"> -->
-    <Project frameworkVersion="v3_5" name="DSG.PEPlugin" path="addon-modules/DSG/PEPlugin" type="Library">
+    <Project frameworkVersion="v4_0" name="DSG.PEPlugin" path="addon-modules/DSG/PEPlugin" type="Library">
       <Configuration name="Debug">
         <Options>
           <OutputPath>../../../bin/Physics/</OutputPath>
